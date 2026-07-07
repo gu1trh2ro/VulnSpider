@@ -76,6 +76,12 @@ Prototype v0.1 stops here. Focused exploitation, LLM payload mutation, BAC autom
 ## Engineering Rules
 
 - Python-first implementation.
+- Development commands:
+  - Install/editable import path: `python -m pip install -e .`
+  - Tests: `python -m unittest discover -s tests`
+  - Format check: `python tools/check_format.py`
+  - Lint check: `python tools/check_lint.py`
+  - Type-hint check: `python tools/check_types.py`
 - Use explicit typed models for core domain objects.
 - Keep network I/O behind interfaces so unit tests do not require live targets.
 - Prefer deterministic functions for normalization, feature extraction, scoring, and explanations.
