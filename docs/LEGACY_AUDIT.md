@@ -338,3 +338,42 @@ Key evidence by question:
 - Architecture mismatches: page-centric `crawl_links` vs `Endpoint`, `InputPoint`, `FeatureVector`, `VulnerabilityCandidate` in `docs/DOMAIN_MODEL.md`.
 - Security/scope risks: suffix scope check, redirect scope gap, forced UTF-8, 4xx/5xx discard, hidden input loss, arbitrary Internet target acceptance.
 - Smallest adapter boundary: legacy row reader -> raw discovered surface -> new normalizer; do not import old LLM/RAG or DB schema into v0.1.
+
+---
+
+## 14. Adapter implementation policy for Probe readiness
+
+The v0.1 `LegacyCrawlerAdapter` treats legacy crawl rows as lossy discovery
+evidence, not as complete HTTP request reconstructions.
+
+Request contexts:
+
+- `RequestTemplate.id` is context-sensitive and includes ordered query/form
+  pairs plus a context key.
+- `InputPointRequestContext` explicitly links an InputPoint to every
+  RequestTemplate variant that can carry it.
+- If one logical InputPoint appears in multiple baseline variants, the adapter
+  preserves those variants and reports that no canonical baseline was selected.
+
+Repeated parameters:
+
+- Repeated query names are preserved as ordered pairs in `RequestTemplate.query`.
+- The matching InputPoint stores all observed values in `baseline_values`; it
+  does not compress them into a comma-joined string.
+- Duplicate same-name form controls are likewise preserved in ordered form
+  pairs.
+
+Form metadata:
+
+- Present `form_method` and `form_action` are recorded as explicit provenance.
+- Missing method/action are treated as unknown legacy metadata. The adapter may
+  retain standards-compatible convenience defaults, but it records them as
+  assumptions and emits warnings.
+
+Hidden inputs:
+
+- Legacy static parsing may omit hidden inputs.
+- Every legacy-derived form RequestTemplate is marked `PARTIAL` unless a future
+  collector can prove complete form preservation.
+- The adapter does not fabricate hidden inputs and does not treat their absence
+  as evidence that no hidden inputs existed.

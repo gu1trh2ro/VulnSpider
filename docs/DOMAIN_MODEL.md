@@ -358,3 +358,96 @@ Candidates
   query.page x REFLECTED_XSS
   query.page x SQLI
 ```
+
+---
+
+## 14. Probe-readiness clarifications
+
+These rules refine the v0.1 model for the Probe Planning stage without adding
+Probe execution.
+
+### Endpoint ID and fingerprint
+
+`Endpoint.id` is the relationship identifier used by other domain objects. The
+raw deterministic endpoint fingerprint remains available as
+`Endpoint.fingerprint`.
+
+Fields named `endpoint_id` contain `Endpoint.id`. Fields named
+`endpoint_fingerprint` contain the raw fingerprint used for deterministic
+InputPoint identity.
+
+### RequestTemplate identity
+
+`RequestTemplate.id` identifies a preserved request context, not only an
+endpoint. Its deterministic fingerprint includes:
+
+- endpoint id and endpoint fingerprint
+- method and URL
+- canonical headers and cookies
+- ordered query pairs
+- ordered form pairs
+- request context completeness
+- context key
+
+Two forms that share the same action and method but preserve different request
+context must produce different `RequestTemplate` IDs. When a mapping is used for
+query or form values, it is canonicalized by sorted key/value pairs. When ordered
+pairs are used, their order and duplicate names are preserved.
+
+### InputPoint to request context association
+
+An `InputPoint` can be associated with one or more request contexts through
+`InputPointRequestContext`. No future Probe Planner should infer the baseline
+request solely from endpoint identity.
+
+If one logical `InputPoint` has multiple baseline request variants, all variants
+must be preserved and explicitly associated. v0.1 does not select a canonical
+baseline silently.
+
+### Repeated parameter policy
+
+Repeated query parameters are supported by preserving ordered parameter pairs in
+`RequestTemplate.query`.
+
+For an `InputPoint`, a single baseline value is stored in `baseline_value`.
+Repeated values are stored losslessly in `baseline_values`; in that case
+`baseline_value` is `null`.
+
+The same ordered-pair representation is available for form controls so duplicate
+same-name controls are not collapsed by `dict` semantics.
+
+### Legacy form completeness
+
+Legacy-derived form request templates are `PARTIAL` by default because the
+legacy static parser may omit hidden inputs. The adapter must not interpret the
+absence of hidden fields as proof that no hidden fields existed.
+
+The hidden-input limitation must be visible in request template metadata and/or
+adapter warnings so future Probe Planning can distinguish complete context from
+lossy legacy context.
+
+### Missing method/action provenance
+
+The adapter may keep convenience defaults, such as `GET` for an unknown form
+method or the current page URL for an unknown form action, but those defaults are
+assumptions. They must be recorded with provenance metadata and warnings.
+
+Explicit legacy metadata, unknown legacy metadata, invalid metadata, and adapter
+assumptions must remain distinguishable.
+
+### FeatureVector identity
+
+`FeatureVector.id` identifies a concrete observation set for one InputPoint and
+the probe runs that produced it. Its deterministic fingerprint includes:
+
+- `input_point_id`
+- `feature_schema_version`
+- canonical `probe_run_ids`
+- feature names
+- observed state
+- feature values
+- source and extractor version
+- feature details
+
+Equivalent vectors produce the same ID. Distinct observed values, observed
+states, details, schema versions, or probe-run sets must not silently collide.

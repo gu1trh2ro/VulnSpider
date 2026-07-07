@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from hashlib import sha256
@@ -9,6 +11,8 @@ from typing import Any, TypeAlias
 from urllib.parse import urlsplit
 
 JsonScalar: TypeAlias = float | bool | str | None
+ParamPairs: TypeAlias = tuple[tuple[str, str], ...]
+ParamInput: TypeAlias = Mapping[str, str] | Sequence[tuple[str, str]]
 
 
 class HttpMethod(StrEnum):
@@ -37,6 +41,12 @@ class VulnerabilityType(StrEnum):
     REFLECTED_XSS = "REFLECTED_XSS"
 
 
+class RequestContextCompleteness(StrEnum):
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+    UNKNOWN = "UNKNOWN"
+
+
 def _normalize_text(value: str | None) -> str:
     return (value or "").strip().lower()
 
@@ -49,9 +59,57 @@ def canonical_path(path: str) -> str:
     return normalized
 
 
+def _stable_value(value: Any) -> Any:
+    if isinstance(value, StrEnum):
+        return value.value
+    if isinstance(value, Mapping):
+        return {
+            str(key): _stable_value(value[key])
+            for key in sorted(value, key=lambda item: str(item))
+        }
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return [_stable_value(item) for item in value]
+    if value is None or isinstance(value, bool | int | float | str):
+        return value
+    return str(value)
+
+
 def stable_fingerprint(*parts: object) -> str:
-    serialized = "\x1f".join(str(part) for part in parts)
+    serialized = json.dumps(
+        [_stable_value(part) for part in parts],
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
     return sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def canonical_param_pairs(value: ParamInput | None) -> ParamPairs:
+    if value is None:
+        return ()
+    if isinstance(value, Mapping):
+        return tuple(
+            (str(key), str(param_value))
+            for key, param_value in sorted(
+                value.items(),
+                key=lambda item: (str(item[0]), str(item[1])),
+            )
+        )
+    if isinstance(value, str):
+        raise ValueError("parameter pairs must not be a string")
+    pairs: list[tuple[str, str]] = []
+    for item in value:
+        if len(item) != 2:
+            raise ValueError("parameter pair must contain exactly two values")
+        name, param_value = item
+        pairs.append((str(name), str(param_value)))
+    return tuple(pairs)
+
+
+def canonical_value_tuple(values: Sequence[str] | None) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    return tuple(str(value) for value in values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,9 +161,11 @@ def endpoint_fingerprint(
 @dataclass(frozen=True, slots=True)
 class InputPoint:
     endpoint_id: str
+    endpoint_fingerprint: str
     location: InputLocation
     name: str
     baseline_value: str | None = None
+    baseline_values: tuple[str, ...] = field(default_factory=tuple)
     type_hint: str | None = None
     source_page: str | None = None
     auth_context_id: str | None = None
@@ -118,14 +178,28 @@ class InputPoint:
         normalized_name = _normalize_text(self.name)
         if not normalized_name:
             raise ValueError("InputPoint.name must not be empty")
+        if not self.endpoint_id:
+            raise ValueError("InputPoint.endpoint_id must not be empty")
+        if not self.endpoint_fingerprint:
+            raise ValueError("InputPoint.endpoint_fingerprint must not be empty")
+        baseline_value = None if self.baseline_value is None else str(self.baseline_value)
+        baseline_values = canonical_value_tuple(self.baseline_values)
+        if not baseline_values and baseline_value is not None:
+            baseline_values = (baseline_value,)
+        if len(baseline_values) == 1 and baseline_value is None:
+            baseline_value = baseline_values[0]
+        if len(baseline_values) > 1 and baseline_value is not None:
+            raise ValueError("multi-value InputPoint must not use baseline_value")
         fingerprint = input_point_fingerprint(
-            endpoint_fingerprint=self.endpoint_id,
+            endpoint_fingerprint=self.endpoint_fingerprint,
             location=location,
             name=normalized_name,
             auth_context_id=self.auth_context_id,
         )
         object.__setattr__(self, "location", location)
         object.__setattr__(self, "name", normalized_name)
+        object.__setattr__(self, "baseline_value", baseline_value)
+        object.__setattr__(self, "baseline_values", baseline_values)
         object.__setattr__(self, "metadata", dict(self.metadata))
         object.__setattr__(self, "fingerprint", fingerprint)
         object.__setattr__(self, "id", self.id or f"inp_{fingerprint[:16]}")
@@ -150,22 +224,49 @@ def input_point_fingerprint(
 @dataclass(frozen=True, slots=True)
 class RequestTemplate:
     endpoint_id: str
+    endpoint_fingerprint: str
     method: HttpMethod
     url: str
     headers: dict[str, str] = field(default_factory=dict)
-    query: dict[str, str] = field(default_factory=dict)
-    form: dict[str, str] = field(default_factory=dict)
+    query: ParamInput = field(default_factory=tuple)
+    form: ParamInput = field(default_factory=tuple)
     cookies: dict[str, str] = field(default_factory=dict)
+    completeness: RequestContextCompleteness = RequestContextCompleteness.UNKNOWN
+    context_key: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     id: str | None = None
+    fingerprint: str = field(init=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "method", HttpMethod(self.method))
-        object.__setattr__(self, "headers", dict(self.headers))
-        object.__setattr__(self, "query", dict(self.query))
-        object.__setattr__(self, "form", dict(self.form))
-        object.__setattr__(self, "cookies", dict(self.cookies))
+        method = HttpMethod(self.method)
+        headers = dict(self.headers)
+        query = canonical_param_pairs(self.query)
+        form = canonical_param_pairs(self.form)
+        cookies = dict(self.cookies)
+        completeness = RequestContextCompleteness(self.completeness)
+        metadata = dict(self.metadata)
+        fingerprint = stable_fingerprint(
+            "request-template",
+            self.endpoint_id,
+            self.endpoint_fingerprint,
+            method.value,
+            self.url,
+            tuple(sorted(headers.items())),
+            query,
+            form,
+            tuple(sorted(cookies.items())),
+            completeness.value,
+            self.context_key,
+        )
+        object.__setattr__(self, "method", method)
+        object.__setattr__(self, "headers", headers)
+        object.__setattr__(self, "query", query)
+        object.__setattr__(self, "form", form)
+        object.__setattr__(self, "cookies", cookies)
+        object.__setattr__(self, "completeness", completeness)
+        object.__setattr__(self, "metadata", metadata)
+        object.__setattr__(self, "fingerprint", fingerprint)
         if not self.id:
-            fingerprint = stable_fingerprint("request-template", self.endpoint_id, self.url)
             object.__setattr__(self, "id", f"rt_{fingerprint[:16]}")
 
 
@@ -174,26 +275,50 @@ class RequestInstance:
     method: HttpMethod
     url: str
     headers: dict[str, str] = field(default_factory=dict)
-    query: dict[str, str] = field(default_factory=dict)
-    form: dict[str, str] = field(default_factory=dict)
+    query: ParamInput = field(default_factory=tuple)
+    form: ParamInput = field(default_factory=tuple)
     cookies: dict[str, str] = field(default_factory=dict)
     id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "method", HttpMethod(self.method))
         object.__setattr__(self, "headers", dict(self.headers))
-        object.__setattr__(self, "query", dict(self.query))
-        object.__setattr__(self, "form", dict(self.form))
+        object.__setattr__(self, "query", canonical_param_pairs(self.query))
+        object.__setattr__(self, "form", canonical_param_pairs(self.form))
         object.__setattr__(self, "cookies", dict(self.cookies))
         if not self.id:
             fingerprint = stable_fingerprint(
                 "request-instance",
                 self.method.value,
                 self.url,
-                tuple(sorted(self.query.items())),
-                tuple(sorted(self.form.items())),
+                self.query,
+                self.form,
             )
             object.__setattr__(self, "id", f"req_{fingerprint[:16]}")
+
+
+@dataclass(frozen=True, slots=True)
+class InputPointRequestContext:
+    input_point_id: str
+    request_template_id: str
+    role: str = "baseline"
+    id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.input_point_id:
+            raise ValueError("input_point_id must not be empty")
+        if not self.request_template_id:
+            raise ValueError("request_template_id must not be empty")
+        role = _normalize_text(self.role) or "baseline"
+        object.__setattr__(self, "role", role)
+        if not self.id:
+            fingerprint = stable_fingerprint(
+                "input-point-request-context",
+                self.input_point_id,
+                self.request_template_id,
+                role,
+            )
+            object.__setattr__(self, "id", f"ipctx_{fingerprint[:16]}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -308,14 +433,29 @@ class FeatureVector:
     id: str | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "probe_run_ids", tuple(self.probe_run_ids))
-        object.__setattr__(self, "features", dict(self.features))
+        probe_run_ids = tuple(sorted(self.probe_run_ids))
+        features = dict(self.features)
+        feature_items = tuple(
+            (
+                name,
+                observation.name,
+                observation.value,
+                observation.observed,
+                observation.source,
+                observation.extractor_version,
+                observation.details,
+            )
+            for name, observation in sorted(features.items())
+        )
+        object.__setattr__(self, "probe_run_ids", probe_run_ids)
+        object.__setattr__(self, "features", features)
         if not self.id:
             fingerprint = stable_fingerprint(
                 "feature-vector",
                 self.input_point_id,
                 self.feature_schema_version,
-                tuple(sorted(self.features)),
+                probe_run_ids,
+                feature_items,
             )
             object.__setattr__(self, "id", f"fv_{fingerprint[:16]}")
 
@@ -348,4 +488,3 @@ class ScoreEvidence:
     weight: float
     contribution: float
     reason: str
-
