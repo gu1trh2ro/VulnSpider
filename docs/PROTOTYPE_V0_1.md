@@ -267,3 +267,58 @@ P7 Top-K + JSON
 P8 Integration smoke test
 P9 Review + docs sync
 ```
+
+---
+
+## 9. 05A Baseline / Probe Planning Semantics
+
+05A implements deterministic request planning only. It does not perform HTTP
+execution, collect responses, extract features, generate candidates, score,
+select Top-K, call an LLM, invoke browser/dynamic crawling, or use the legacy
+SQLite schema.
+
+Planning consumes an explicit, validated relationship between an `InputPoint`
+and one selected `RequestTemplate` through `InputPointRequestContext`. The
+planner never chooses a baseline from an `InputPoint` alone and never selects a
+canonical baseline when multiple request contexts exist. Callers that want
+multiple baseline variants must plan once per selected valid context.
+
+The baseline request preserves the selected request context: method, URL,
+headers, cookies, ordered query pairs, ordered form pairs, repeated
+occurrences, empty values, and all non-target values. The probe request is a
+new request instance built from the same context.
+
+The probe mutates exactly one intended `InputPoint` occurrence:
+
+- non-repeated targets use `query.name` or `form.name`;
+- repeated targets require an occurrence-level `InputPoint`;
+- occurrence indexes are counted among same-name pairs while preserving the
+  original cross-name pair order;
+- equal repeated values, such as `tag=a&tag=a`, remain distinct when their
+  occurrence indexes differ.
+
+The v0.1 marker strategy is `neutral-reflection-marker-v1`. It produces a
+bounded, deterministic, non-destructive marker in this form:
+
+```text
+SPIDERMAN_<16 uppercase hex characters>
+```
+
+The marker is derived from the marker strategy, probe family, selected
+`InputPoint`, selected `RequestTemplate`, selected `InputPointRequestContext`,
+location, name, and occurrence index. If the first marker would equal the
+baseline value, a deterministic alternate nonce is used.
+
+Non-probe-ready contexts are rejected before request construction. A context is
+not probe-ready when its `RequestTemplate.completeness` is not `COMPLETE`, when
+structured `non_probe_ready_reasons` are present, when reconstruction status is
+`partial` or `ambiguous`, when form boundary status is `unavailable`, or when
+form method/action provenance records an assumed or invalid value. The planner
+does not parse warning strings, fabricate hidden inputs, or upgrade `PARTIAL`
+to `COMPLETE`.
+
+Plan identity is deterministic and persistent. `RequestInstance.id` includes
+method, URL, headers, ordered query pairs, ordered form pairs, and cookies.
+`ProbePlan.id` includes the input point, probe family, selected request
+template, selected request context, marker, marker strategy, baseline request,
+probe request, and the changed field. Built-in Python `hash()` is not used.

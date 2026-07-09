@@ -339,8 +339,10 @@ class RequestInstance:
                 "request-instance",
                 self.method.value,
                 self.url,
+                tuple(sorted(self.headers.items())),
                 self.query,
                 self.form,
+                tuple(sorted(self.cookies.items())),
             )
             object.__setattr__(self, "id", f"req_{fingerprint[:16]}")
 
@@ -441,6 +443,10 @@ class ProbePlan:
     baseline_request: RequestInstance
     probe_request: RequestInstance
     changed_fields: tuple[str, ...]
+    request_template_id: str | None = None
+    request_context_id: str | None = None
+    probe_marker: str | None = None
+    marker_strategy: str | None = None
     id: str | None = None
 
     def __post_init__(self) -> None:
@@ -454,6 +460,12 @@ class ProbePlan:
                 "probe-plan",
                 self.input_point_id,
                 self.probe_family.value,
+                self.request_template_id,
+                self.request_context_id,
+                self.probe_marker,
+                self.marker_strategy,
+                self.baseline_request.id,
+                self.probe_request.id,
                 changed_fields[0],
             )
             object.__setattr__(self, "id", f"probe_{fingerprint[:16]}")
