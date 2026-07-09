@@ -280,12 +280,9 @@ class DomainModelTests(unittest.TestCase):
         )
         self.assertNotEqual(explicit.id, assumed.id)
 
-    def test_input_point_request_context_identity_is_deterministic(self) -> None:
-        first = InputPointRequestContext("inp_1", "rt_1")
-        second = InputPointRequestContext("inp_1", "rt_1")
-        different = InputPointRequestContext("inp_1", "rt_2")
-        self.assertEqual(first.id, second.id)
-        self.assertNotEqual(first.id, different.id)
+    def test_input_point_request_context_direct_construction_is_unavailable(self) -> None:
+        with self.assertRaises(TypeError):
+            InputPointRequestContext("inp_1", "rt_1")
 
     def test_input_point_request_context_factory_accepts_valid_binding(self) -> None:
         endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
@@ -307,6 +304,36 @@ class DomainModelTests(unittest.TestCase):
         self.assertEqual(binding.input_point_id, input_point.id)
         self.assertEqual(binding.request_template_id, template.id)
 
+    def test_input_point_request_context_factory_identity_is_deterministic(self) -> None:
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        input_point = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="q",
+        )
+        first_template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?q=book",
+            query=(("q", "book"),),
+            completeness=RequestContextCompleteness.COMPLETE,
+        )
+        second_template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?q=chair",
+            query=(("q", "chair"),),
+            completeness=RequestContextCompleteness.COMPLETE,
+        )
+        first = InputPointRequestContext.from_objects(input_point, first_template)
+        equivalent = InputPointRequestContext.from_objects(input_point, first_template)
+        different = InputPointRequestContext.from_objects(input_point, second_template)
+        self.assertEqual(first.id, equivalent.id)
+        self.assertNotEqual(first.id, different.id)
+
     def test_input_point_request_context_rejects_endpoint_mismatch(self) -> None:
         first = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
         second = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/items")
@@ -324,7 +351,7 @@ class DomainModelTests(unittest.TestCase):
             query=(("q", "book"),),
         )
         with self.assertRaises(ValueError):
-            validate_input_point_request_context(input_point, template)
+            InputPointRequestContext.from_objects(input_point, template)
 
     def test_input_point_request_context_rejects_location_mismatch(self) -> None:
         endpoint = Endpoint(HttpMethod.POST, "http", "127.0.0.1", "/submit")
@@ -342,7 +369,7 @@ class DomainModelTests(unittest.TestCase):
             form=(("q", "book"),),
         )
         with self.assertRaises(ValueError):
-            validate_input_point_request_context(input_point, template)
+            InputPointRequestContext.from_objects(input_point, template)
 
     def test_input_point_request_context_rejects_missing_target(self) -> None:
         endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
@@ -360,7 +387,7 @@ class DomainModelTests(unittest.TestCase):
             query=(("page", "1"),),
         )
         with self.assertRaises(ValueError):
-            validate_input_point_request_context(input_point, template)
+            InputPointRequestContext.from_objects(input_point, template)
 
     def test_input_point_request_context_rejects_out_of_range_occurrence(self) -> None:
         endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
@@ -379,7 +406,7 @@ class DomainModelTests(unittest.TestCase):
             query=(("tag", "a"), ("tag", "b")),
         )
         with self.assertRaises(ValueError):
-            validate_input_point_request_context(input_point, template)
+            InputPointRequestContext.from_objects(input_point, template)
 
     def test_input_point_request_context_requires_occurrence_for_repeated_target(self) -> None:
         endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
@@ -397,7 +424,93 @@ class DomainModelTests(unittest.TestCase):
             query=(("tag", "a"), ("tag", "b")),
         )
         with self.assertRaises(ValueError):
-            validate_input_point_request_context(input_point, template)
+            InputPointRequestContext.from_objects(input_point, template)
+
+    def test_input_point_request_context_validates_exact_occurrence_value(self) -> None:
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?tag=a&tag=b",
+            query=(("tag", "a"), ("tag", "b")),
+        )
+        valid_cases = ((0, "a"), (1, "b"))
+        invalid_cases = ((0, "b"), (1, "a"))
+        for occurrence_index, baseline_value in valid_cases:
+            with self.subTest(occurrence_index=occurrence_index, value=baseline_value):
+                input_point = InputPoint(
+                    endpoint_id=endpoint.id or "",
+                    endpoint_fingerprint=endpoint.fingerprint,
+                    location=InputLocation.QUERY,
+                    name="tag",
+                    occurrence_index=occurrence_index,
+                    baseline_value=baseline_value,
+                )
+                binding = InputPointRequestContext.from_objects(input_point, template)
+                self.assertEqual(binding.input_point_id, input_point.id)
+        for occurrence_index, baseline_value in invalid_cases:
+            with self.subTest(occurrence_index=occurrence_index, value=baseline_value):
+                input_point = InputPoint(
+                    endpoint_id=endpoint.id or "",
+                    endpoint_fingerprint=endpoint.fingerprint,
+                    location=InputLocation.QUERY,
+                    name="tag",
+                    occurrence_index=occurrence_index,
+                    baseline_value=baseline_value,
+                )
+                with self.assertRaises(ValueError):
+                    InputPointRequestContext.from_objects(input_point, template)
+
+    def test_equal_repeated_values_keep_distinct_valid_occurrences(self) -> None:
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?tag=a&tag=a",
+            query=(("tag", "a"), ("tag", "a")),
+        )
+        first = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="tag",
+            occurrence_index=0,
+            baseline_value="a",
+        )
+        second = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="tag",
+            occurrence_index=1,
+            baseline_value="a",
+        )
+        first_binding = InputPointRequestContext.from_objects(first, template)
+        second_binding = InputPointRequestContext.from_objects(second, template)
+        self.assertNotEqual(first.id, second.id)
+        self.assertNotEqual(first_binding.id, second_binding.id)
+
+    def test_occurrence_binding_allows_no_single_logical_baseline(self) -> None:
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?tag=a&tag=b",
+            query=(("tag", "a"), ("tag", "b")),
+        )
+        input_point = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="tag",
+            occurrence_index=0,
+            baseline_value=None,
+        )
+        binding = InputPointRequestContext.from_objects(input_point, template)
+        self.assertEqual(binding.input_point_id, input_point.id)
 
     def test_input_point_request_context_accepts_valid_multi_context_binding(self) -> None:
         endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")

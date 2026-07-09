@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 
 from spiderman.discovery import LegacyCrawlerAdapter
-from spiderman.domain import HttpMethod, InputLocation, RequestContextCompleteness
+from spiderman.domain import (
+    HttpMethod,
+    InputLocation,
+    RequestContextCompleteness,
+    validate_input_point_request_context,
+)
 
 FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "legacy_crawl_records.json"
 
@@ -193,6 +198,131 @@ class LegacyCrawlerAdapterTests(unittest.TestCase):
             )
         )
         self.assertWarningContains(result.warnings, "form-boundary-unavailable")
+
+    def test_ambiguous_form_identity_is_stable_under_field_reorder(self) -> None:
+        fields = [
+            {
+                "name": "email",
+                "type": "text",
+                "value": "a@example.test",
+                "form_method": "POST",
+                "form_action": "/update",
+            },
+            {
+                "name": "password",
+                "type": "password",
+                "value": "secret",
+                "form_method": "POST",
+                "form_action": "/update",
+            },
+        ]
+        forward = self.adapter.convert(
+            [
+                {
+                    "link": "http://127.0.0.1/account",
+                    "query_params": "{}",
+                    "input_fields": json.dumps(fields),
+                }
+            ]
+        )
+        reversed_result = self.adapter.convert(
+            [
+                {
+                    "link": "http://127.0.0.1/account",
+                    "query_params": "{}",
+                    "input_fields": json.dumps(list(reversed(fields))),
+                }
+            ]
+        )
+        self.assertEqual(len(forward.request_templates), 2)
+        self.assertEqual(
+            sorted(template.id for template in forward.request_templates),
+            sorted(template.id for template in reversed_result.request_templates),
+        )
+        self.assertEqual(
+            sorted(binding.id for binding in forward.input_point_request_contexts),
+            sorted(
+                binding.id
+                for binding in reversed_result.input_point_request_contexts
+            ),
+        )
+        self.assertEqual(
+            sorted(template.form for template in forward.request_templates),
+            [(("email", "a@example.test"),), (("password", "secret"),)],
+        )
+        self.assertTrue(
+            all(
+                template.metadata["reconstruction_status"] == "ambiguous"
+                and "form-boundary-unavailable"
+                in template.metadata["non_probe_ready_reasons"]
+                and "field-index=" not in (template.context_key or "")
+                for template in forward.request_templates
+            )
+        )
+
+    def test_ambiguous_distinct_field_observations_remain_distinct(self) -> None:
+        result = self.adapter.convert(
+            [
+                {
+                    "link": "http://127.0.0.1/account",
+                    "query_params": "{}",
+                    "input_fields": json.dumps(
+                        [
+                            {
+                                "name": "token",
+                                "type": "text",
+                                "value": "a",
+                                "form_method": "POST",
+                                "form_action": "/update",
+                            },
+                            {
+                                "name": "token",
+                                "type": "text",
+                                "value": "b",
+                                "form_method": "POST",
+                                "form_action": "/update",
+                            },
+                        ]
+                    ),
+                }
+            ]
+        )
+        self.assertEqual(len(result.request_templates), 2)
+        self.assertEqual(
+            sorted(template.form for template in result.request_templates),
+            [(("token", "a"),), (("token", "b"),)],
+        )
+        self.assertEqual(len({template.id for template in result.request_templates}), 2)
+        self.assertEqual(len(result.input_points), 1)
+        self.assertIsNone(result.input_points[0].baseline_value)
+        self.assertEqual(
+            result.input_points[0].metadata["baseline_value_state"],
+            "multiple_contexts_conflicting",
+        )
+
+    def test_ambiguous_indistinguishable_fields_deduplicate_deterministically(self) -> None:
+        field = {
+            "name": "token",
+            "type": "text",
+            "value": "a",
+            "form_method": "POST",
+            "form_action": "/update",
+        }
+        result = self.adapter.convert(
+            [
+                {
+                    "link": "http://127.0.0.1/account",
+                    "query_params": "{}",
+                    "input_fields": json.dumps([field, dict(field)]),
+                }
+            ]
+        )
+        self.assertEqual(len(result.request_templates), 1)
+        self.assertEqual(result.request_templates[0].form, (("token", "a"),))
+        self.assertEqual(
+            result.request_templates[0].metadata["reconstruction_status"],
+            "ambiguous",
+        )
 
     def test_stable_form_boundary_groups_fields_when_evidence_exists(self) -> None:
         result = self.adapter.convert(
@@ -558,6 +688,24 @@ class LegacyCrawlerAdapterTests(unittest.TestCase):
             [binding.id for binding in first.input_point_request_contexts],
             [binding.id for binding in second.input_point_request_contexts],
         )
+
+    def test_adapter_emits_only_validated_associations(self) -> None:
+        result = self.adapter.convert(
+            [
+                {
+                    "link": "http://127.0.0.1/search?tag=a&tag=b",
+                    "query_params": json.dumps({"tag": ["a", "b"]}),
+                    "input_fields": "[]",
+                }
+            ]
+        )
+        input_points = {point.id: point for point in result.input_points}
+        templates = {template.id: template for template in result.request_templates}
+        for binding in result.input_point_request_contexts:
+            validate_input_point_request_context(
+                input_points[binding.input_point_id],
+                templates[binding.request_template_id],
+            )
 
     def test_adapter_does_not_import_legacy_runtime_modules(self) -> None:
         adapter_source = (

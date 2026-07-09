@@ -345,28 +345,43 @@ class RequestInstance:
             object.__setattr__(self, "id", f"req_{fingerprint[:16]}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class InputPointRequestContext:
     input_point_id: str
     request_template_id: str
-    role: str = "baseline"
-    id: str | None = None
+    role: str
+    id: str
 
-    def __post_init__(self) -> None:
-        if not self.input_point_id:
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError(
+            "InputPointRequestContext must be created with from_objects()"
+        )
+
+    @classmethod
+    def _from_validated_ids(
+        cls,
+        *,
+        input_point_id: str,
+        request_template_id: str,
+        role: str,
+    ) -> InputPointRequestContext:
+        if not input_point_id:
             raise ValueError("input_point_id must not be empty")
-        if not self.request_template_id:
+        if not request_template_id:
             raise ValueError("request_template_id must not be empty")
-        role = _normalize_text(self.role) or "baseline"
-        object.__setattr__(self, "role", role)
-        if not self.id:
-            fingerprint = stable_fingerprint(
-                "input-point-request-context",
-                self.input_point_id,
-                self.request_template_id,
-                role,
-            )
-            object.__setattr__(self, "id", f"ipctx_{fingerprint[:16]}")
+        normalized_role = _normalize_text(role) or "baseline"
+        fingerprint = stable_fingerprint(
+            "input-point-request-context",
+            input_point_id,
+            request_template_id,
+            normalized_role,
+        )
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "input_point_id", input_point_id)
+        object.__setattr__(instance, "request_template_id", request_template_id)
+        object.__setattr__(instance, "role", normalized_role)
+        object.__setattr__(instance, "id", f"ipctx_{fingerprint[:16]}")
+        return instance
 
     @classmethod
     def from_objects(
@@ -377,7 +392,7 @@ class InputPointRequestContext:
         role: str = "baseline",
     ) -> InputPointRequestContext:
         validate_input_point_request_context(input_point, request_template)
-        return cls(
+        return cls._from_validated_ids(
             input_point_id=input_point.id or "",
             request_template_id=request_template.id or "",
             role=role,
@@ -417,6 +432,14 @@ def validate_input_point_request_context(
 
     if input_point.occurrence_index >= len(matches):
         raise ValueError("InputPoint occurrence_index is out of range")
+    matched_value = matches[input_point.occurrence_index]
+    if (
+        input_point.baseline_value is not None
+        and input_point.baseline_value != matched_value
+    ):
+        raise ValueError(
+            "InputPoint baseline_value does not match RequestTemplate occurrence"
+        )
 
 
 @dataclass(frozen=True, slots=True)

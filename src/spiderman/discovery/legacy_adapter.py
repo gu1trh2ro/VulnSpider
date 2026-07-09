@@ -67,7 +67,10 @@ class _FormFieldContext:
     action_provenance: str
     boundary_key: str | None
     boundary_status: str
-    field_index: int
+    field_name: str | None
+    field_type: str | None
+    field_value: str
+    ambiguous_field_key: str | None
 
 
 class LegacyCrawlerAdapter:
@@ -117,7 +120,7 @@ class LegacyCrawlerAdapter:
                     if name_counts[name] > 1:
                         occurrence_index = seen_names.get(name, 0)
                     seen_names[name] = seen_names.get(name, 0) + 1
-                    input_point = InputPoint(
+                    context_input_point = InputPoint(
                         endpoint_id=endpoint.id or "",
                         endpoint_fingerprint=endpoint.fingerprint,
                         location=InputLocation.QUERY,
@@ -134,17 +137,17 @@ class LegacyCrawlerAdapter:
                             "occurrence_index": occurrence_index,
                         },
                     )
-                    input_point = input_points.setdefault(
-                        input_point.fingerprint,
-                        input_point,
+                    input_points.setdefault(
+                        context_input_point.fingerprint,
+                        context_input_point,
                     )
                     _remember_input_baseline(
                         input_baseline_values,
-                        input_point,
+                        context_input_point,
                         value,
                     )
                     _bind_input_to_template(
-                        input_point=input_point,
+                        input_point=context_input_point,
                         request_template=request_template,
                         bindings=input_point_request_contexts,
                         input_to_template_ids=input_to_template_ids,
@@ -152,8 +155,7 @@ class LegacyCrawlerAdapter:
 
             fields = _parse_input_fields(record, warnings)
             field_contexts = tuple(
-                (field, _form_context(field, record, warnings, field_index))
-                for field_index, field in enumerate(fields)
+                (field, _form_context(field, record, warnings)) for field in fields
             )
             for field, context in field_contexts:
                 name = _optional_str(field.get("name"))
@@ -197,7 +199,7 @@ class LegacyCrawlerAdapter:
                     name,
                     field,
                 )
-                input_point = InputPoint(
+                context_input_point = InputPoint(
                     endpoint_id=endpoint.id or "",
                     endpoint_fingerprint=endpoint.fingerprint,
                     location=InputLocation.FORM,
@@ -227,17 +229,17 @@ class LegacyCrawlerAdapter:
                         ),
                     },
                 )
-                input_point = input_points.setdefault(
-                    input_point.fingerprint,
-                    input_point,
+                input_points.setdefault(
+                    context_input_point.fingerprint,
+                    context_input_point,
                 )
                 _remember_input_baseline(
                     input_baseline_values,
-                    input_point,
+                    context_input_point,
                     form_value,
                 )
                 _bind_input_to_template(
-                    input_point=input_point,
+                    input_point=context_input_point,
                     request_template=request_template,
                     bindings=input_point_request_contexts,
                     input_to_template_ids=input_to_template_ids,
@@ -431,7 +433,6 @@ def _form_context(
     field: Mapping[str, Any],
     record: LegacyCrawlRecord,
     warnings: list[str],
-    field_index: int,
 ) -> _FormFieldContext:
     raw_method = _optional_str(field.get("form_method"))
     if raw_method:
@@ -466,6 +467,16 @@ def _form_context(
             "missing form_action; assumed current page"
         )
     boundary_key = _stable_form_boundary_key(field)
+    field_name = _optional_str(field.get("name"))
+    field_type = _optional_str(field.get("type"))
+    field_value = _form_field_value(field)
+    ambiguous_field_key = None
+    if boundary_key is None:
+        ambiguous_field_key = _ambiguous_form_field_key(
+            name=field_name,
+            field_type=field_type,
+            value=field_value,
+        )
     return _FormFieldContext(
         method=method,
         form_url=urljoin(record.link, action_value),
@@ -474,7 +485,10 @@ def _form_context(
         action_provenance=action_provenance,
         boundary_key=boundary_key,
         boundary_status="stable" if boundary_key is not None else "unavailable",
-        field_index=field_index,
+        field_name=field_name,
+        field_type=field_type,
+        field_value=field_value,
+        ambiguous_field_key=ambiguous_field_key,
     )
 
 
@@ -490,6 +504,28 @@ def _stable_form_boundary_key(field: Mapping[str, Any]) -> str | None:
         if value is not None:
             return f"{key}:{value}"
     return None
+
+
+def _ambiguous_form_field_key(
+    *,
+    name: str | None,
+    field_type: str | None,
+    value: str,
+) -> str:
+    return json.dumps(
+        {
+            "name": _normalize_form_identity_part(name),
+            "type": _normalize_form_identity_part(field_type),
+            "value": value,
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _normalize_form_identity_part(value: str | None) -> str:
+    return (value or "").strip().lower()
 
 
 def _endpoint_from_url(url: str, method: HttpMethod) -> Endpoint:
@@ -536,17 +572,15 @@ def _repeated_names(pairs: ParamPairs) -> tuple[str, ...]:
 
 def _form_group_key(context: _FormFieldContext) -> tuple[object, ...]:
     boundary_key = context.boundary_key
-    field_index = None
     if boundary_key is None:
         boundary_key = "form-boundary-unavailable"
-        field_index = context.field_index
     return (
         context.method.value,
         context.form_url,
         context.method_provenance,
         context.action_provenance,
         boundary_key,
-        field_index,
+        context.ambiguous_field_key,
     )
 
 
@@ -559,6 +593,11 @@ def _form_values_for_context(
     field_contexts: Sequence[tuple[Mapping[str, Any], _FormFieldContext]],
     target_context: _FormFieldContext,
 ) -> ParamPairs:
+    if target_context.boundary_status != "stable":
+        if target_context.field_name is None:
+            return ()
+        return ((target_context.field_name, target_context.field_value),)
+
     values: list[tuple[str, str]] = []
     target_key = _form_group_key(target_context)
     for field, context in field_contexts:
@@ -613,7 +652,7 @@ def _form_request_template(
         f"method-provenance={context.method_provenance}:"
         f"action-provenance={context.action_provenance}:"
         f"boundary={context.boundary_key or 'unavailable'}:"
-        f"field-index={context.field_index if context.boundary_key is None else 'group'}"
+        f"field={context.ambiguous_field_key if context.boundary_key is None else 'group'}"
     )
     return RequestTemplate(
         endpoint_id=endpoint.id or "",

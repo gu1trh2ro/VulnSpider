@@ -354,6 +354,8 @@ Request contexts:
   RequestTemplate variant that can carry it.
 - `InputPointRequestContext` associations are validated against endpoint,
   location, target name, and occurrence index before adapter output is created.
+  Probe-consumable associations are produced through validated construction,
+  not arbitrary raw id construction.
 - If one logical InputPoint appears in multiple baseline variants, the adapter
   preserves those variants and reports that no canonical baseline was selected.
   Conflicting context-specific values leave the logical `InputPoint` with no
@@ -364,6 +366,8 @@ Repeated parameters:
 - Repeated query names are preserved as ordered pairs in `RequestTemplate.query`.
 - Repeated query names with ordered URL evidence become occurrence-level
   InputPoints, such as `tag` occurrence `0` and `tag` occurrence `1`.
+  When a context-specific baseline value is known, validation checks that it
+  matches the exact indexed occurrence in the associated RequestTemplate.
 - URL query ordering is authoritative for request reconstruction. Legacy JSON
   query metadata is supplemental, and conflicts produce deterministic warnings.
 - Duplicate same-name form controls are likewise preserved in ordered form
@@ -382,6 +386,11 @@ Form metadata:
   same form. Without stable form-boundary evidence, fields are preserved as
   separate partial/ambiguous contexts annotated with
   `form-boundary-unavailable`.
+- Ambiguous form context identity is derived from semantic field evidence such
+  as source page, resolved method/action, provenance, field name/type/value, and
+  ambiguity state. It does not use collector list position as a fabricated form
+  instance. Indistinguishable duplicate field records may deduplicate
+  deterministically while remaining non-probe-ready.
 
 Hidden inputs:
 

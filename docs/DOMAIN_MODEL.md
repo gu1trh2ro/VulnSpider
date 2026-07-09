@@ -418,6 +418,13 @@ uses the same endpoint id, a compatible parameter location, a target name presen
 in the request context, and an existing occurrence index when the target name is
 repeated.
 
+Probe-consumable `InputPointRequestContext` instances are created through the
+validated object factory, not from arbitrary raw ids. When an occurrence-level
+`InputPoint` has a context-specific `baseline_value`, validation checks that the
+value at the exact indexed occurrence in the associated `RequestTemplate` is the
+same value. A `baseline_value` of `null` means the logical InputPoint has no
+single canonical baseline and does not by itself fail association validation.
+
 ### Repeated parameter policy
 
 Repeated query parameters are supported by preserving ordered parameter pairs in
@@ -454,6 +461,13 @@ merge fields solely because they share source page, method, and action. Such
 contexts are preserved separately, marked partial/ambiguous, and annotated with
 `form-boundary-unavailable`. If stable form-boundary evidence is present, the
 adapter preserves and uses it.
+
+When the boundary is unavailable, ambiguous form context identity must not use
+collector list position as a fabricated form-instance id. It uses deterministic
+field evidence such as field name, type, observed value, method/action, source
+page, provenance, and ambiguity state. Truly indistinguishable duplicate field
+records may deduplicate deterministically, while remaining explicitly
+partial/ambiguous/non-probe-ready.
 
 ### Missing method/action provenance
 
