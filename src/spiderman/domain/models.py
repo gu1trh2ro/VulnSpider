@@ -358,13 +358,16 @@ class InputPointRequestContext:
         )
 
     @classmethod
-    def _from_validated_ids(
+    def from_objects(
         cls,
+        input_point: InputPoint,
+        request_template: RequestTemplate,
         *,
-        input_point_id: str,
-        request_template_id: str,
-        role: str,
+        role: str = "baseline",
     ) -> InputPointRequestContext:
+        validate_input_point_request_context(input_point, request_template)
+        input_point_id = input_point.id or ""
+        request_template_id = request_template.id or ""
         if not input_point_id:
             raise ValueError("input_point_id must not be empty")
         if not request_template_id:
@@ -382,21 +385,6 @@ class InputPointRequestContext:
         object.__setattr__(instance, "role", normalized_role)
         object.__setattr__(instance, "id", f"ipctx_{fingerprint[:16]}")
         return instance
-
-    @classmethod
-    def from_objects(
-        cls,
-        input_point: InputPoint,
-        request_template: RequestTemplate,
-        *,
-        role: str = "baseline",
-    ) -> InputPointRequestContext:
-        validate_input_point_request_context(input_point, request_template)
-        return cls._from_validated_ids(
-            input_point_id=input_point.id or "",
-            request_template_id=request_template.id or "",
-            role=role,
-        )
 
 
 def validate_input_point_request_context(

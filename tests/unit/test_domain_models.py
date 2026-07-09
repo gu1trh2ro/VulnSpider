@@ -284,6 +284,12 @@ class DomainModelTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             InputPointRequestContext("inp_1", "rt_1")
 
+    def test_input_point_request_context_has_no_id_only_trusted_factory(self) -> None:
+        self.assertFalse(
+            hasattr(InputPointRequestContext, "_from_validated_ids"),
+            "arbitrary IDs must not mint trusted request-context associations",
+        )
+
     def test_input_point_request_context_factory_accepts_valid_binding(self) -> None:
         endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
         input_point = InputPoint(
