@@ -7,6 +7,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from hashlib import sha256
+from math import isfinite
+from types import MappingProxyType
 from typing import Any, TypeAlias
 from urllib.parse import urlsplit
 
@@ -67,11 +69,41 @@ def _stable_value(value: Any) -> Any:
             str(key): _stable_value(value[key])
             for key in sorted(value, key=lambda item: str(item))
         }
-    if isinstance(value, Sequence) and not isinstance(value, str):
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
         return [_stable_value(item) for item in value]
+    if isinstance(value, float) and not isfinite(value):
+        raise TypeError("non-finite floats are not stable JSON values")
     if value is None or isinstance(value, bool | int | float | str):
         return value
-    return str(value)
+    raise TypeError(f"unsupported value for stable identity: {type(value).__name__}")
+
+
+def _freeze_json_value(value: Any) -> Any:
+    if value is None or isinstance(value, bool | int | str):
+        return value
+    if isinstance(value, float):
+        if not isfinite(value):
+            raise TypeError("feature details must not contain non-finite floats")
+        return value
+    if isinstance(value, Mapping):
+        frozen: dict[str, Any] = {}
+        for key in sorted(value):
+            if not isinstance(key, str):
+                raise TypeError("feature details mapping keys must be strings")
+            frozen[key] = _freeze_json_value(value[key])
+        return MappingProxyType(frozen)
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        return tuple(_freeze_json_value(item) for item in value)
+    raise TypeError(
+        f"feature details must be JSON-like, got {type(value).__name__}"
+    )
+
+
+def _freeze_json_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
+    frozen = _freeze_json_value(value)
+    if not isinstance(frozen, Mapping):
+        raise TypeError("feature details must be a mapping")
+    return frozen
 
 
 def stable_fingerprint(*parts: object) -> str:
@@ -164,6 +196,7 @@ class InputPoint:
     endpoint_fingerprint: str
     location: InputLocation
     name: str
+    occurrence_index: int | None = None
     baseline_value: str | None = None
     baseline_values: tuple[str, ...] = field(default_factory=tuple)
     type_hint: str | None = None
@@ -182,6 +215,11 @@ class InputPoint:
             raise ValueError("InputPoint.endpoint_id must not be empty")
         if not self.endpoint_fingerprint:
             raise ValueError("InputPoint.endpoint_fingerprint must not be empty")
+        occurrence_index = self.occurrence_index
+        if occurrence_index is not None:
+            occurrence_index = int(occurrence_index)
+            if occurrence_index < 0:
+                raise ValueError("InputPoint.occurrence_index must be non-negative")
         baseline_value = None if self.baseline_value is None else str(self.baseline_value)
         baseline_values = canonical_value_tuple(self.baseline_values)
         if not baseline_values and baseline_value is not None:
@@ -195,9 +233,11 @@ class InputPoint:
             location=location,
             name=normalized_name,
             auth_context_id=self.auth_context_id,
+            occurrence_index=occurrence_index,
         )
         object.__setattr__(self, "location", location)
         object.__setattr__(self, "name", normalized_name)
+        object.__setattr__(self, "occurrence_index", occurrence_index)
         object.__setattr__(self, "baseline_value", baseline_value)
         object.__setattr__(self, "baseline_values", baseline_values)
         object.__setattr__(self, "metadata", dict(self.metadata))
@@ -211,14 +251,18 @@ def input_point_fingerprint(
     location: InputLocation,
     name: str,
     auth_context_id: str | None = None,
+    occurrence_index: int | None = None,
 ) -> str:
-    return stable_fingerprint(
+    parts: list[object] = [
         "input-point",
         endpoint_fingerprint,
         InputLocation(location).value,
         _normalize_text(name),
         _normalize_text(auth_context_id),
-    )
+    ]
+    if occurrence_index is not None:
+        parts.extend(("occurrence", int(occurrence_index)))
+    return stable_fingerprint(*parts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +277,7 @@ class RequestTemplate:
     cookies: dict[str, str] = field(default_factory=dict)
     completeness: RequestContextCompleteness = RequestContextCompleteness.UNKNOWN
     context_key: str | None = None
+    provenance: ParamInput = field(default_factory=tuple)
     metadata: dict[str, Any] = field(default_factory=dict)
     id: str | None = None
     fingerprint: str = field(init=False)
@@ -244,6 +289,7 @@ class RequestTemplate:
         form = canonical_param_pairs(self.form)
         cookies = dict(self.cookies)
         completeness = RequestContextCompleteness(self.completeness)
+        provenance = canonical_param_pairs(self.provenance)
         metadata = dict(self.metadata)
         fingerprint = stable_fingerprint(
             "request-template",
@@ -257,6 +303,7 @@ class RequestTemplate:
             tuple(sorted(cookies.items())),
             completeness.value,
             self.context_key,
+            provenance,
         )
         object.__setattr__(self, "method", method)
         object.__setattr__(self, "headers", headers)
@@ -264,6 +311,7 @@ class RequestTemplate:
         object.__setattr__(self, "form", form)
         object.__setattr__(self, "cookies", cookies)
         object.__setattr__(self, "completeness", completeness)
+        object.__setattr__(self, "provenance", provenance)
         object.__setattr__(self, "metadata", metadata)
         object.__setattr__(self, "fingerprint", fingerprint)
         if not self.id:
@@ -319,6 +367,56 @@ class InputPointRequestContext:
                 role,
             )
             object.__setattr__(self, "id", f"ipctx_{fingerprint[:16]}")
+
+    @classmethod
+    def from_objects(
+        cls,
+        input_point: InputPoint,
+        request_template: RequestTemplate,
+        *,
+        role: str = "baseline",
+    ) -> InputPointRequestContext:
+        validate_input_point_request_context(input_point, request_template)
+        return cls(
+            input_point_id=input_point.id or "",
+            request_template_id=request_template.id or "",
+            role=role,
+        )
+
+
+def validate_input_point_request_context(
+    input_point: InputPoint,
+    request_template: RequestTemplate,
+) -> None:
+    if input_point.endpoint_id != request_template.endpoint_id:
+        raise ValueError("InputPoint and RequestTemplate endpoint_id must match")
+
+    if input_point.location == InputLocation.QUERY:
+        pairs = request_template.query
+    elif input_point.location == InputLocation.FORM:
+        pairs = request_template.form
+    else:
+        raise ValueError(
+            f"InputPoint location {input_point.location.value} is not request-bindable"
+        )
+
+    matches = [
+        value
+        for name, value in pairs
+        if _normalize_text(name) == input_point.name
+    ]
+    if not matches:
+        raise ValueError("InputPoint target is missing from RequestTemplate")
+
+    if input_point.occurrence_index is None:
+        if len(matches) != 1:
+            raise ValueError(
+                "repeated target requires an occurrence-level InputPoint"
+            )
+        return
+
+    if input_point.occurrence_index >= len(matches):
+        raise ValueError("InputPoint occurrence_index is out of range")
 
 
 @dataclass(frozen=True, slots=True)
@@ -398,12 +496,12 @@ class FeatureObservation:
     observed: bool
     source: str
     extractor_version: str
-    details: dict[str, Any] = field(default_factory=dict)
+    details: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.observed and self.value is not None:
             raise ValueError("unobserved features must use value=None")
-        object.__setattr__(self, "details", dict(self.details))
+        object.__setattr__(self, "details", _freeze_json_mapping(self.details))
 
     @classmethod
     def missing(
@@ -412,7 +510,7 @@ class FeatureObservation:
         *,
         source: str,
         extractor_version: str,
-        details: dict[str, Any] | None = None,
+        details: Mapping[str, Any] | None = None,
     ) -> FeatureObservation:
         return cls(
             name=name,
@@ -428,13 +526,18 @@ class FeatureObservation:
 class FeatureVector:
     input_point_id: str
     probe_run_ids: tuple[str, ...]
-    features: dict[str, FeatureObservation]
+    features: Mapping[str, FeatureObservation]
     feature_schema_version: str = "feature-v0.1"
     id: str | None = None
 
     def __post_init__(self) -> None:
         probe_run_ids = tuple(sorted(self.probe_run_ids))
-        features = dict(self.features)
+        features = MappingProxyType(
+            {
+                str(name): observation
+                for name, observation in sorted(self.features.items())
+            }
+        )
         feature_items = tuple(
             (
                 name,

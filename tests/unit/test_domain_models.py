@@ -17,6 +17,7 @@ from spiderman.domain import (
     RequestTemplate,
     VulnerabilityCandidate,
     VulnerabilityType,
+    validate_input_point_request_context,
 )
 
 
@@ -76,6 +77,33 @@ class DomainModelTests(unittest.TestCase):
             baseline_value="other",
         )
         self.assertEqual(first.fingerprint, second.fingerprint)
+
+    def test_occurrence_index_participates_in_input_point_identity(self) -> None:
+        first = InputPoint(
+            endpoint_id="ep",
+            endpoint_fingerprint="endpoint-fingerprint",
+            location=InputLocation.QUERY,
+            name="tag",
+            occurrence_index=0,
+            baseline_value="a",
+        )
+        second = InputPoint(
+            endpoint_id="ep",
+            endpoint_fingerprint="endpoint-fingerprint",
+            location=InputLocation.QUERY,
+            name="tag",
+            occurrence_index=1,
+            baseline_value="a",
+        )
+        ordinary = InputPoint(
+            endpoint_id="ep",
+            endpoint_fingerprint="endpoint-fingerprint",
+            location=InputLocation.QUERY,
+            name="tag",
+            baseline_value="a",
+        )
+        self.assertNotEqual(first.fingerprint, second.fingerprint)
+        self.assertNotEqual(first.fingerprint, ordinary.fingerprint)
 
     def test_query_and_form_parameters_with_same_name_are_distinct(self) -> None:
         query = InputPoint(
@@ -222,12 +250,180 @@ class DomainModelTests(unittest.TestCase):
         self.assertEqual(first.query, second.query)
         self.assertEqual(first.id, second.id)
 
+    def test_request_template_identity_includes_provenance(self) -> None:
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        explicit = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search",
+            form=(("term", ""),),
+            completeness=RequestContextCompleteness.PARTIAL,
+            context_key="legacy-form:http://127.0.0.1/search",
+            provenance={
+                "form_method": "explicit",
+                "form_action": "explicit",
+            },
+        )
+        assumed = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search",
+            form=(("term", ""),),
+            completeness=RequestContextCompleteness.PARTIAL,
+            context_key="legacy-form:http://127.0.0.1/search",
+            provenance={
+                "form_method": "unknown_assumed_get",
+                "form_action": "unknown_assumed_current_page",
+            },
+        )
+        self.assertNotEqual(explicit.id, assumed.id)
+
     def test_input_point_request_context_identity_is_deterministic(self) -> None:
         first = InputPointRequestContext("inp_1", "rt_1")
         second = InputPointRequestContext("inp_1", "rt_1")
         different = InputPointRequestContext("inp_1", "rt_2")
         self.assertEqual(first.id, second.id)
         self.assertNotEqual(first.id, different.id)
+
+    def test_input_point_request_context_factory_accepts_valid_binding(self) -> None:
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        input_point = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="q",
+        )
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?q=book",
+            query=(("q", "book"),),
+            completeness=RequestContextCompleteness.COMPLETE,
+        )
+        binding = InputPointRequestContext.from_objects(input_point, template)
+        self.assertEqual(binding.input_point_id, input_point.id)
+        self.assertEqual(binding.request_template_id, template.id)
+
+    def test_input_point_request_context_rejects_endpoint_mismatch(self) -> None:
+        first = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        second = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/items")
+        input_point = InputPoint(
+            endpoint_id=first.id or "",
+            endpoint_fingerprint=first.fingerprint,
+            location=InputLocation.QUERY,
+            name="q",
+        )
+        template = RequestTemplate(
+            endpoint_id=second.id or "",
+            endpoint_fingerprint=second.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/items?q=book",
+            query=(("q", "book"),),
+        )
+        with self.assertRaises(ValueError):
+            validate_input_point_request_context(input_point, template)
+
+    def test_input_point_request_context_rejects_location_mismatch(self) -> None:
+        endpoint = Endpoint(HttpMethod.POST, "http", "127.0.0.1", "/submit")
+        input_point = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="q",
+        )
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.POST,
+            url="http://127.0.0.1/submit",
+            form=(("q", "book"),),
+        )
+        with self.assertRaises(ValueError):
+            validate_input_point_request_context(input_point, template)
+
+    def test_input_point_request_context_rejects_missing_target(self) -> None:
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        input_point = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="q",
+        )
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?page=1",
+            query=(("page", "1"),),
+        )
+        with self.assertRaises(ValueError):
+            validate_input_point_request_context(input_point, template)
+
+    def test_input_point_request_context_rejects_out_of_range_occurrence(self) -> None:
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        input_point = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="tag",
+            occurrence_index=2,
+        )
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?tag=a&tag=b",
+            query=(("tag", "a"), ("tag", "b")),
+        )
+        with self.assertRaises(ValueError):
+            validate_input_point_request_context(input_point, template)
+
+    def test_input_point_request_context_requires_occurrence_for_repeated_target(self) -> None:
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        input_point = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="tag",
+        )
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?tag=a&tag=b",
+            query=(("tag", "a"), ("tag", "b")),
+        )
+        with self.assertRaises(ValueError):
+            validate_input_point_request_context(input_point, template)
+
+    def test_input_point_request_context_accepts_valid_multi_context_binding(self) -> None:
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        input_point = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="q",
+            baseline_value=None,
+        )
+        first = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?q=book",
+            query=(("q", "book"),),
+        )
+        second = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?q=chair",
+            query=(("q", "chair"),),
+        )
+        InputPointRequestContext.from_objects(input_point, first)
+        InputPointRequestContext.from_objects(input_point, second)
 
     def test_feature_vector_identity_includes_probe_runs_and_observations(self) -> None:
         observed_zero = FeatureObservation(
@@ -286,6 +482,78 @@ class DomainModelTests(unittest.TestCase):
             },
         )
         self.assertEqual(first.id, second.id)
+
+    def test_feature_vector_nested_details_are_canonical(self) -> None:
+        first = FeatureVector(
+            input_point_id="inp",
+            probe_run_ids=("probe-a",),
+            features={
+                "x": FeatureObservation(
+                    "x",
+                    1.0,
+                    True,
+                    "s",
+                    "v",
+                    details={"outer": {"b": 2, "a": 1}, "items": ["one", "two"]},
+                )
+            },
+        )
+        second = FeatureVector(
+            input_point_id="inp",
+            probe_run_ids=("probe-a",),
+            features={
+                "x": FeatureObservation(
+                    "x",
+                    1.0,
+                    True,
+                    "s",
+                    "v",
+                    details={"items": ["one", "two"], "outer": {"a": 1, "b": 2}},
+                )
+            },
+        )
+        different = FeatureVector(
+            input_point_id="inp",
+            probe_run_ids=("probe-a",),
+            features={
+                "x": FeatureObservation(
+                    "x",
+                    1.0,
+                    True,
+                    "s",
+                    "v",
+                    details={"items": ["two", "one"], "outer": {"a": 1, "b": 2}},
+                )
+            },
+        )
+        self.assertEqual(first.id, second.id)
+        self.assertNotEqual(first.id, different.id)
+
+    def test_feature_observation_details_are_isolated_from_caller_mutation(self) -> None:
+        details = {"outer": {"items": ["one"]}}
+        observation = FeatureObservation(
+            "x",
+            1.0,
+            True,
+            "s",
+            "v",
+            details=details,
+        )
+        details["outer"]["items"].append("two")
+        self.assertEqual(observation.details["outer"]["items"], ("one",))
+        with self.assertRaises(TypeError):
+            observation.details["new"] = "value"  # type: ignore[index]
+
+    def test_feature_observation_rejects_unsupported_details_values(self) -> None:
+        with self.assertRaises(TypeError):
+            FeatureObservation(
+                "x",
+                1.0,
+                True,
+                "s",
+                "v",
+                details={"unsupported": {"a", "b"}},
+            )
 
 
 if __name__ == "__main__":

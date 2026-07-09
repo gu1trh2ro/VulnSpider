@@ -388,11 +388,17 @@ endpoint. Its deterministic fingerprint includes:
 - ordered form pairs
 - request context completeness
 - context key
+- request-context provenance
 
 Two forms that share the same action and method but preserve different request
 context must produce different `RequestTemplate` IDs. When a mapping is used for
 query or form values, it is canonicalized by sorted key/value pairs. When ordered
 pairs are used, their order and duplicate names are preserved.
+
+Resolved request values do not erase provenance. Contexts with identical
+resolved method/URL but different method/action provenance, such as explicit
+`GET /search` versus unknown metadata resolved as `GET /search`, must not
+silently deduplicate into one `RequestTemplate`.
 
 ### InputPoint to request context association
 
@@ -402,19 +408,36 @@ request solely from endpoint identity.
 
 If one logical `InputPoint` has multiple baseline request variants, all variants
 must be preserved and explicitly associated. v0.1 does not select a canonical
-baseline silently.
+baseline silently. If associated contexts have conflicting baseline values, the
+logical `InputPoint.baseline_value` is `null`; exact values remain in the
+associated `RequestTemplate`. If all associated contexts agree on one value, the
+convenience baseline may expose that value.
+
+`InputPointRequestContext` associations must be validatable. A valid association
+uses the same endpoint id, a compatible parameter location, a target name present
+in the request context, and an existing occurrence index when the target name is
+repeated.
 
 ### Repeated parameter policy
 
 Repeated query parameters are supported by preserving ordered parameter pairs in
-`RequestTemplate.query`.
+`RequestTemplate.query` and by creating occurrence-level InputPoints when the
+ordered occurrence evidence is available.
 
-For an `InputPoint`, a single baseline value is stored in `baseline_value`.
-Repeated values are stored losslessly in `baseline_values`; in that case
-`baseline_value` is `null`.
+For example, `/search?tag=a&tag=b` creates distinct targetable InputPoints for
+`query.tag` occurrence `0` and `query.tag` occurrence `1`. The occurrence index
+participates in deterministic `InputPoint` identity so a future Probe Planner can
+mutate exactly one intended occurrence.
 
 The same ordered-pair representation is available for form controls so duplicate
-same-name controls are not collapsed by `dict` semantics.
+same-name controls are not collapsed by `dict` semantics. Form/body repeated
+names become occurrence-level targets only when the input evidence preserves a
+stable form boundary and ordered occurrence evidence; otherwise the context must
+be marked ambiguous/non-probe-ready rather than inventing ordering.
+
+For actual URLs, the URL query string order is authoritative. Legacy JSON query
+metadata is supplemental. If JSON metadata conflicts with the URL query, the
+adapter preserves the URL request context and emits a deterministic warning.
 
 ### Legacy form completeness
 
@@ -425,6 +448,12 @@ absence of hidden fields as proof that no hidden fields existed.
 The hidden-input limitation must be visible in request template metadata and/or
 adapter warnings so future Probe Planning can distinguish complete context from
 lossy legacy context.
+
+Legacy evidence that lacks a stable form-instance boundary must not be used to
+merge fields solely because they share source page, method, and action. Such
+contexts are preserved separately, marked partial/ambiguous, and annotated with
+`form-boundary-unavailable`. If stable form-boundary evidence is present, the
+adapter preserves and uses it.
 
 ### Missing method/action provenance
 
@@ -451,3 +480,9 @@ the probe runs that produced it. Its deterministic fingerprint includes:
 
 Equivalent vectors produce the same ID. Distinct observed values, observed
 states, details, schema versions, or probe-run sets must not silently collide.
+
+Feature details used in identity are restricted to JSON-like values with string
+mapping keys. Nested mappings and lists are deep-frozen at construction so caller
+mutation after model creation cannot change the semantic contents represented by
+the `FeatureVector.id`. Unsupported values such as sets or arbitrary objects are
+rejected.

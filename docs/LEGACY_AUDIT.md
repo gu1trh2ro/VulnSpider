@@ -349,19 +349,26 @@ evidence, not as complete HTTP request reconstructions.
 Request contexts:
 
 - `RequestTemplate.id` is context-sensitive and includes ordered query/form
-  pairs plus a context key.
+  pairs, a context key, and request-context provenance.
 - `InputPointRequestContext` explicitly links an InputPoint to every
   RequestTemplate variant that can carry it.
+- `InputPointRequestContext` associations are validated against endpoint,
+  location, target name, and occurrence index before adapter output is created.
 - If one logical InputPoint appears in multiple baseline variants, the adapter
   preserves those variants and reports that no canonical baseline was selected.
+  Conflicting context-specific values leave the logical `InputPoint` with no
+  single baseline value.
 
 Repeated parameters:
 
 - Repeated query names are preserved as ordered pairs in `RequestTemplate.query`.
-- The matching InputPoint stores all observed values in `baseline_values`; it
-  does not compress them into a comma-joined string.
+- Repeated query names with ordered URL evidence become occurrence-level
+  InputPoints, such as `tag` occurrence `0` and `tag` occurrence `1`.
+- URL query ordering is authoritative for request reconstruction. Legacy JSON
+  query metadata is supplemental, and conflicts produce deterministic warnings.
 - Duplicate same-name form controls are likewise preserved in ordered form
-  pairs.
+  pairs. They become occurrence-level targets only when stable form-boundary and
+  ordering evidence exists.
 
 Form metadata:
 
@@ -369,6 +376,12 @@ Form metadata:
 - Missing method/action are treated as unknown legacy metadata. The adapter may
   retain standards-compatible convenience defaults, but it records them as
   assumptions and emits warnings.
+- Identical resolved method/action values with different provenance remain
+  distinct request contexts.
+- Same source page, method, and action do not prove that fields belong to the
+  same form. Without stable form-boundary evidence, fields are preserved as
+  separate partial/ambiguous contexts annotated with
+  `form-boundary-unavailable`.
 
 Hidden inputs:
 
@@ -377,3 +390,10 @@ Hidden inputs:
   collector can prove complete form preservation.
 - The adapter does not fabricate hidden inputs and does not treat their absence
   as evidence that no hidden inputs existed.
+
+Feature details:
+
+- Feature observation details are accepted only as JSON-like mappings with
+  string keys and JSON-like nested values.
+- Details are deep-frozen before `FeatureVector.id` is computed, and unsupported
+  mutable values such as sets are rejected.

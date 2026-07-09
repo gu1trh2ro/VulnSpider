@@ -21,6 +21,7 @@ from spiderman.domain.models import (
     VulnerabilityType,
     endpoint_fingerprint,
     input_point_fingerprint,
+    validate_input_point_request_context,
 )
 
 __all__ = [
@@ -44,4 +45,5 @@ __all__ = [
     "VulnerabilityType",
     "endpoint_fingerprint",
     "input_point_fingerprint",
+    "validate_input_point_request_context",
 ]
