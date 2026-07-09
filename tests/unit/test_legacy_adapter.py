@@ -701,6 +701,7 @@ class LegacyCrawlerAdapterTests(unittest.TestCase):
         )
         input_points = {point.id: point for point in result.input_points}
         templates = {template.id: template for template in result.request_templates}
+        self.assertGreater(len(result.input_point_request_contexts), 0)
         for binding in result.input_point_request_contexts:
             validate_input_point_request_context(
                 input_points[binding.input_point_id],

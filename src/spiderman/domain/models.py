@@ -365,6 +365,10 @@ class InputPointRequestContext:
         *,
         role: str = "baseline",
     ) -> InputPointRequestContext:
+        if not isinstance(input_point, InputPoint):
+            raise TypeError("input_point must be an InputPoint")
+        if not isinstance(request_template, RequestTemplate):
+            raise TypeError("request_template must be a RequestTemplate")
         validate_input_point_request_context(input_point, request_template)
         input_point_id = input_point.id or ""
         request_template_id = request_template.id or ""

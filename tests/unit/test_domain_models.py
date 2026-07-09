@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from typing import Any
 import unittest
 
 from spiderman.domain import (
@@ -22,6 +24,51 @@ from spiderman.domain import (
 
 
 class DomainModelTests(unittest.TestCase):
+    def _valid_query_binding(self) -> tuple[InputPoint, RequestTemplate]:
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        input_point = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="q",
+        )
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?q=book",
+            query=(("q", "book"),),
+            completeness=RequestContextCompleteness.COMPLETE,
+        )
+        return input_point, template
+
+    def _fake_input_point_like(self, input_point: InputPoint) -> Any:
+        return SimpleNamespace(
+            id="inp_fake",
+            endpoint_id=input_point.endpoint_id,
+            endpoint_fingerprint=input_point.endpoint_fingerprint,
+            location=input_point.location,
+            name=input_point.name,
+            occurrence_index=input_point.occurrence_index,
+            baseline_value=input_point.baseline_value,
+        )
+
+    def _fake_request_template_like(self, template: RequestTemplate) -> Any:
+        return SimpleNamespace(
+            id="rt_fake",
+            endpoint_id=template.endpoint_id,
+            endpoint_fingerprint=template.endpoint_fingerprint,
+            method=template.method,
+            url=template.url,
+            headers=template.headers,
+            query=template.query,
+            form=template.form,
+            cookies=template.cookies,
+            completeness=template.completeness,
+            context_key=template.context_key,
+            provenance=template.provenance,
+        )
+
     def test_endpoint_identity_ignores_query_values(self) -> None:
         first = Endpoint(
             method=HttpMethod.GET,
@@ -289,6 +336,35 @@ class DomainModelTests(unittest.TestCase):
             hasattr(InputPointRequestContext, "_from_validated_ids"),
             "arbitrary IDs must not mint trusted request-context associations",
         )
+
+    def test_input_point_request_context_rejects_duck_typed_input_point(self) -> None:
+        input_point, template = self._valid_query_binding()
+        fake_input_point = self._fake_input_point_like(input_point)
+        with self.assertRaisesRegex(TypeError, "input_point"):
+            InputPointRequestContext.from_objects(fake_input_point, template)
+
+    def test_input_point_request_context_rejects_duck_typed_request_template(self) -> None:
+        input_point, template = self._valid_query_binding()
+        fake_template = self._fake_request_template_like(template)
+        with self.assertRaisesRegex(TypeError, "request_template"):
+            InputPointRequestContext.from_objects(input_point, fake_template)
+
+    def test_input_point_request_context_rejects_duck_typed_objects(self) -> None:
+        input_point, template = self._valid_query_binding()
+        fake_input_point = self._fake_input_point_like(input_point)
+        fake_template = self._fake_request_template_like(template)
+        with self.assertRaisesRegex(TypeError, "input_point"):
+            InputPointRequestContext.from_objects(fake_input_point, fake_template)
+
+    def test_input_point_request_context_rejects_fake_ids_through_factories(self) -> None:
+        input_point, template = self._valid_query_binding()
+        fake_input_point = self._fake_input_point_like(input_point)
+        fake_template = self._fake_request_template_like(template)
+        with self.assertRaises(TypeError):
+            InputPointRequestContext("inp_fake", "rt_fake")
+        self.assertFalse(hasattr(InputPointRequestContext, "_from_validated_ids"))
+        with self.assertRaises(TypeError):
+            InputPointRequestContext.from_objects(fake_input_point, fake_template)
 
     def test_input_point_request_context_factory_accepts_valid_binding(self) -> None:
         endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
