@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import inspect
 import unittest
 
@@ -14,6 +15,7 @@ from spiderman.domain import (
     RequestInstance,
     ResponsePair,
     ResponseSnapshot,
+    VulnerabilityCandidate,
     VulnerabilityType,
 )
 from spiderman.features import (
@@ -28,6 +30,7 @@ from spiderman.scoring import (
     XSS_MAX_RANK_SCORE,
     CandidateGenerator,
     ScoringError,
+    ScoringResult,
     SQLiScorer,
     XSSScorer,
     generate_candidates,
@@ -354,6 +357,176 @@ class CandidateScoringTests(unittest.TestCase):
         self.assertFalse(hasattr(result.candidate, "confidence"))
         self.assertFalse(hasattr(result.candidate, "confirmed"))
         self.assertFalse(hasattr(result, "finding"))
+
+
+class ScoringResultOwnershipTests(unittest.TestCase):
+    def _input_point(self, occurrence_index: int | None = None) -> InputPoint:
+        return InputPoint(
+            endpoint_id="ep_search",
+            endpoint_fingerprint="endpoint-fingerprint",
+            location=InputLocation.QUERY,
+            name="tag" if occurrence_index is not None else "q",
+            occurrence_index=occurrence_index,
+            baseline_value="a",
+        )
+
+    def _vector(
+        self,
+        input_point_id: str,
+        *,
+        status_code_changed: float = 0.0,
+        response_length_diff_ratio: float = 0.0,
+        marker_reflected: float = 0.0,
+        sql_error_pattern: float = 0.0,
+        probe_run_id: str = "pair_ownership",
+    ) -> FeatureVector:
+        values = {
+            STATUS_CODE_CHANGED: status_code_changed,
+            RESPONSE_LENGTH_DIFF_RATIO: response_length_diff_ratio,
+            MARKER_REFLECTED: marker_reflected,
+            SQL_ERROR_PATTERN: sql_error_pattern,
+        }
+        return FeatureVector(
+            input_point_id=input_point_id,
+            probe_run_ids=(probe_run_id,),
+            features={
+                name: FeatureObservation(
+                    name=name,
+                    value=value,
+                    observed=True,
+                    source="ownership-test",
+                    extractor_version="unit-v1",
+                )
+                for name, value in values.items()
+            },
+        )
+
+    def test_reported_public_cross_owner_construction_is_closed(self) -> None:
+        input_a = self._input_point()
+        input_b = InputPoint(
+            endpoint_id="ep_items",
+            endpoint_fingerprint="other-endpoint-fingerprint",
+            location=InputLocation.QUERY,
+            name="q",
+            baseline_value="a",
+        )
+        vector_a = self._vector(input_a.id or "")
+        candidate_b = VulnerabilityCandidate(
+            input_point_id=input_b.id or "",
+            vulnerability_type=VulnerabilityType.SQLI,
+        )
+
+        with self.assertRaisesRegex(TypeError, "from_objects"):
+            ScoringResult(
+                feature_vector_id=vector_a.id or "",
+                candidate=candidate_b,
+                evidence=(),
+            )
+        with self.assertRaisesRegex(ScoringError, "ownership mismatch"):
+            ScoringResult.from_objects(vector_a, candidate_b, ())
+
+    def test_valid_same_owner_cross_type_results_remain_supported(self) -> None:
+        input_a = self._input_point()
+        vector_a = self._vector(input_a.id or "")
+        sqli_candidate = VulnerabilityCandidate(
+            input_point_id=input_a.id or "",
+            vulnerability_type=VulnerabilityType.SQLI,
+        )
+        xss_candidate = VulnerabilityCandidate(
+            input_point_id=input_a.id or "",
+            vulnerability_type=VulnerabilityType.REFLECTED_XSS,
+        )
+
+        sqli = ScoringResult.from_objects(vector_a, sqli_candidate, ())
+        xss = ScoringResult.from_objects(vector_a, xss_candidate, ())
+
+        self.assertEqual(sqli.candidate.input_point_id, vector_a.input_point_id)
+        self.assertEqual(xss.candidate.input_point_id, vector_a.input_point_id)
+        self.assertNotEqual(sqli.candidate.id, xss.candidate.id)
+
+    def test_equal_repeated_occurrence_mismatch_is_rejected(self) -> None:
+        first_input = self._input_point(occurrence_index=0)
+        second_input = self._input_point(occurrence_index=1)
+        first_vector = self._vector(first_input.id or "")
+        second_candidate = VulnerabilityCandidate(
+            input_point_id=second_input.id or "",
+            vulnerability_type=VulnerabilityType.SQLI,
+        )
+
+        self.assertEqual(first_input.baseline_value, second_input.baseline_value)
+        self.assertNotEqual(first_input.id, second_input.id)
+        with self.assertRaisesRegex(ScoringError, "ownership mismatch"):
+            ScoringResult.from_objects(first_vector, second_candidate, ())
+
+    def test_evidence_candidate_vector_and_type_mismatches_are_rejected(self) -> None:
+        input_a = self._input_point()
+        vector_a = self._vector(
+            input_a.id or "",
+            status_code_changed=1.0,
+            response_length_diff_ratio=0.5,
+            sql_error_pattern=1.0,
+        )
+        valid = SQLiScorer().score(vector_a)
+        self.assertEqual(
+            ScoringResult.from_objects(vector_a, valid.candidate, valid.evidence),
+            valid,
+        )
+
+        other_context = self._vector(
+            input_a.id or "",
+            status_code_changed=1.0,
+            response_length_diff_ratio=0.5,
+            sql_error_pattern=1.0,
+            probe_run_id="pair_other_context",
+        )
+        with self.assertRaisesRegex(ScoringError, "FeatureVector ownership"):
+            ScoringResult.from_objects(
+                other_context,
+                valid.candidate,
+                valid.evidence,
+            )
+
+        wrong_candidate_evidence = (
+            replace(valid.evidence[0], candidate_id="cand_wrong"),
+            *valid.evidence[1:],
+        )
+        with self.assertRaisesRegex(ScoringError, "candidate ownership"):
+            ScoringResult.from_objects(
+                vector_a,
+                valid.candidate,
+                wrong_candidate_evidence,
+            )
+
+        wrong_type_evidence = (
+            replace(
+                valid.evidence[0],
+                vulnerability_type=VulnerabilityType.REFLECTED_XSS,
+            ),
+            *valid.evidence[1:],
+        )
+        with self.assertRaisesRegex(ScoringError, "vulnerability type"):
+            ScoringResult.from_objects(
+                vector_a,
+                valid.candidate,
+                wrong_type_evidence,
+            )
+
+    def test_normal_scorer_arithmetic_is_unchanged(self) -> None:
+        input_a = self._input_point()
+        sqli_vector = self._vector(
+            input_a.id or "",
+            status_code_changed=1.0,
+            response_length_diff_ratio=0.5,
+            sql_error_pattern=1.0,
+        )
+        xss_vector = self._vector(
+            input_a.id or "",
+            response_length_diff_ratio=0.3,
+            marker_reflected=1.0,
+        )
+
+        self.assertEqual(SQLiScorer().score(sqli_vector).candidate.rank_score, 65.0)
+        self.assertEqual(XSSScorer().score(xss_vector).candidate.rank_score, 38.0)
 
 
 if __name__ == "__main__":

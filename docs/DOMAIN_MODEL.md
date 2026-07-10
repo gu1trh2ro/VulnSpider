@@ -317,6 +317,13 @@ raw_score = sum(contribution for observed evidence)
 미관찰 값은 구분된다. `feature_vector_id`는 동일 InputPoint의 서로 다른
 관찰 문맥에서 evidence가 섞이지 않도록 정확한 원본 vector를 가리킨다.
 
+`ScoringResult`는 실제 `FeatureVector`와 `VulnerabilityCandidate`를 함께
+받는 validated factory로만 생성한다. Factory는 두 객체의
+`input_point_id`가 같은지 확인하고, 모든 evidence의 `candidate_id`,
+`feature_vector_id`, `vulnerability_type`이 결과와 일치하는지 검증한다.
+불투명한 `feature_vector_id` 문자열만으로 결과를 직접 생성하는 API는
+지원하지 않는다.
+
 ---
 
 ## 12. 후속 버전 객체

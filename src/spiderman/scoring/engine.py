@@ -69,7 +69,7 @@ class ScoringError(ValueError):
     """Raised when a FeatureVector cannot be scored without fabrication."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class ScoringResult:
     """One candidate score and its evidence from one exact FeatureVector."""
 
@@ -77,8 +77,43 @@ class ScoringResult:
     candidate: VulnerabilityCandidate
     evidence: tuple[ScoreEvidence, ...]
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "evidence", tuple(self.evidence))
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("ScoringResult must be created with from_objects()")
+
+    @classmethod
+    def from_objects(
+        cls,
+        feature_vector: FeatureVector,
+        candidate: VulnerabilityCandidate,
+        evidence: tuple[ScoreEvidence, ...],
+    ) -> ScoringResult:
+        if not isinstance(feature_vector, FeatureVector):
+            raise TypeError("feature_vector must be a FeatureVector")
+        if not isinstance(candidate, VulnerabilityCandidate):
+            raise TypeError("candidate must be a VulnerabilityCandidate")
+        if candidate.input_point_id != feature_vector.input_point_id:
+            raise ScoringError(
+                "ScoringResult candidate and FeatureVector ownership mismatch"
+            )
+
+        feature_vector_id = feature_vector.id or ""
+        candidate_id = candidate.id or ""
+        evidence_items = tuple(evidence)
+        for item in evidence_items:
+            if not isinstance(item, ScoreEvidence):
+                raise TypeError("evidence must contain only ScoreEvidence")
+            if item.candidate_id != candidate_id:
+                raise ScoringError("ScoreEvidence candidate ownership mismatch")
+            if item.feature_vector_id != feature_vector_id:
+                raise ScoringError("ScoreEvidence FeatureVector ownership mismatch")
+            if item.vulnerability_type != candidate.vulnerability_type:
+                raise ScoringError("ScoreEvidence vulnerability type mismatch")
+
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "feature_vector_id", feature_vector_id)
+        object.__setattr__(instance, "candidate", candidate)
+        object.__setattr__(instance, "evidence", evidence_items)
+        return instance
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,11 +195,7 @@ def _score_feature_vector(
         rank_score=rank_score,
         scorer_version=scorer_version,
     )
-    return ScoringResult(
-        feature_vector_id=feature_vector.id or "",
-        candidate=candidate,
-        evidence=evidence,
-    )
+    return ScoringResult.from_objects(feature_vector, candidate, evidence)
 
 
 def _score_term(

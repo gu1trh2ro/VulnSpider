@@ -399,6 +399,10 @@ fingerprint of that exact InputPoint id and vulnerability type, so the two types
 cannot collide and occurrence-level InputPoint ids remain distinct even when
 their values are equal. Score evidence also records the exact source
 `FeatureVector.id` so observations from separate request contexts are not mixed.
+`ScoringResult` construction requires the actual `FeatureVector` through a
+validated factory; direct construction from an opaque vector id is unsupported.
+The factory rejects candidate owner mismatches and evidence whose candidate,
+vector, or vulnerability type does not match the result.
 
 The deterministic 05C policies use only features currently emitted by 05B:
 
