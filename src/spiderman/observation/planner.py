@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import quote, unquote_plus, urlencode, urlsplit, urlunsplit
 
 from spiderman.domain import (
     InputLocation,
@@ -85,7 +85,14 @@ def plan_probe_request(
     baseline_request = _request_instance_from_template(request_template)
     probe_request = RequestInstance(
         method=request_template.method,
-        url=_probe_url(request_template, probe_query),
+        url=_probe_url(
+            request_template,
+            probe_query,
+            changed_query_index=(
+                pair_index if input_point.location == InputLocation.QUERY else None
+            ),
+            marker=marker,
+        ),
         headers=request_template.headers,
         query=probe_query,
         form=probe_form,
@@ -247,10 +254,33 @@ def _request_instance_from_template(request_template: RequestTemplate) -> Reques
     )
 
 
-def _probe_url(request_template: RequestTemplate, probe_query: ParamPairs) -> str:
+def _probe_url(
+    request_template: RequestTemplate,
+    probe_query: ParamPairs,
+    *,
+    changed_query_index: int | None = None,
+    marker: str | None = None,
+) -> str:
     if request_template.query == probe_query:
         return request_template.url
     parts = urlsplit(request_template.url)
+    if changed_query_index is not None and marker is not None:
+        raw_query = _replace_raw_query_value(
+            raw_query=parts.query,
+            original_query=request_template.query,
+            changed_query_index=changed_query_index,
+            marker=marker,
+        )
+        if raw_query is not None:
+            return urlunsplit(
+                (
+                    parts.scheme,
+                    parts.netloc,
+                    parts.path,
+                    raw_query,
+                    parts.fragment,
+                )
+            )
     return urlunsplit(
         (
             parts.scheme,
@@ -260,6 +290,37 @@ def _probe_url(request_template: RequestTemplate, probe_query: ParamPairs) -> st
             parts.fragment,
         )
     )
+
+
+def _replace_raw_query_value(
+    *,
+    raw_query: str,
+    original_query: ParamPairs,
+    changed_query_index: int,
+    marker: str,
+) -> str | None:
+    raw_tokens = raw_query.split("&") if raw_query else []
+    if len(raw_tokens) != len(original_query):
+        return None
+
+    decoded_pairs: list[tuple[str, str]] = []
+    for token in raw_tokens:
+        raw_name, raw_value = _split_raw_query_token(token)
+        decoded_pairs.append((unquote_plus(raw_name), unquote_plus(raw_value)))
+    if tuple(decoded_pairs) != original_query:
+        return None
+
+    mutated_tokens = list(raw_tokens)
+    raw_name, _raw_value = _split_raw_query_token(mutated_tokens[changed_query_index])
+    mutated_tokens[changed_query_index] = f"{raw_name}={quote(marker, safe='')}"
+    return "&".join(mutated_tokens)
+
+
+def _split_raw_query_token(token: str) -> tuple[str, str]:
+    if "=" not in token:
+        return token, ""
+    raw_name, raw_value = token.split("=", 1)
+    return raw_name, raw_value
 
 
 def _changed_field(input_point: InputPoint) -> str:

@@ -422,6 +422,13 @@ def validate_input_point_request_context(
             raise ValueError(
                 "repeated target requires an occurrence-level InputPoint"
             )
+        if (
+            input_point.baseline_value is not None
+            and input_point.baseline_value != matches[0]
+        ):
+            raise ValueError(
+                "InputPoint baseline_value does not match RequestTemplate target"
+            )
         return
 
     if input_point.occurrence_index >= len(matches):

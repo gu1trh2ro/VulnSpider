@@ -386,6 +386,60 @@ class DomainModelTests(unittest.TestCase):
         self.assertEqual(binding.input_point_id, input_point.id)
         self.assertEqual(binding.request_template_id, template.id)
 
+    def test_input_point_request_context_validates_single_query_baseline(self) -> None:
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.GET,
+            url="http://127.0.0.1/search?q=book",
+            query=(("q", "book"),),
+        )
+        correct = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="q",
+            baseline_value="book",
+        )
+        wrong = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.QUERY,
+            name="q",
+            baseline_value="WRONG",
+        )
+        InputPointRequestContext.from_objects(correct, template)
+        with self.assertRaises(ValueError):
+            InputPointRequestContext.from_objects(wrong, template)
+
+    def test_input_point_request_context_validates_single_form_baseline(self) -> None:
+        endpoint = Endpoint(HttpMethod.POST, "http", "127.0.0.1", "/login")
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.POST,
+            url="http://127.0.0.1/login",
+            form=(("username", "alice"),),
+        )
+        correct = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.FORM,
+            name="username",
+            baseline_value="alice",
+        )
+        wrong = InputPoint(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            location=InputLocation.FORM,
+            name="username",
+            baseline_value="WRONG",
+        )
+        InputPointRequestContext.from_objects(correct, template)
+        with self.assertRaises(ValueError):
+            InputPointRequestContext.from_objects(wrong, template)
+
     def test_input_point_request_context_factory_identity_is_deterministic(self) -> None:
         endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
         input_point = InputPoint(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
+import spiderman.observation.planner as planner_module
 from spiderman.discovery import LegacyCrawlerAdapter
 from spiderman.domain import (
     Endpoint,
@@ -162,6 +163,105 @@ class ProbePlannerTests(unittest.TestCase):
         self.assertEqual(
             plan.probe_request.query,
             (("q", plan.probe_marker or ""), ("page", "2"), ("sort", "asc")),
+        )
+
+    def test_probe_url_preserves_raw_percent_space_and_bare_flag(self) -> None:
+        input_point, template, context = self._query_case(
+            (("q", "book"), ("page", "a b"), ("flag", "")),
+            target="q",
+            url="http://127.0.0.1/search?q=book&page=a%20b&flag",
+        )
+        plan = self.planner.plan(input_point, template, context)
+        self.assertEqual(
+            plan.probe_request.url,
+            f"http://127.0.0.1/search?q={plan.probe_marker}&page=a%20b&flag",
+        )
+
+    def test_probe_url_preserves_raw_plus_and_empty_flag(self) -> None:
+        input_point, template, context = self._query_case(
+            (("q", "book"), ("page", "a b"), ("flag", "")),
+            target="q",
+            url="http://127.0.0.1/search?q=book&page=a+b&flag=",
+        )
+        plan = self.planner.plan(input_point, template, context)
+        self.assertEqual(
+            plan.probe_request.url,
+            f"http://127.0.0.1/search?q={plan.probe_marker}&page=a+b&flag=",
+        )
+
+    def test_probe_url_preserves_cross_name_order_for_second_repeated_target(
+        self,
+    ) -> None:
+        input_point, template, context = self._query_case(
+            (("tag", "a"), ("q", "x"), ("tag", "b")),
+            target="tag",
+            occurrence_index=1,
+            url="http://127.0.0.1/search?tag=a&q=x&tag=b",
+        )
+        plan = self.planner.plan(input_point, template, context)
+        self.assertEqual(
+            plan.probe_request.url,
+            f"http://127.0.0.1/search?tag=a&q=x&tag={plan.probe_marker}",
+        )
+
+    def test_probe_url_mutates_equal_repeated_occurrences_separately(self) -> None:
+        first_input, first_template, first_context = self._query_case(
+            (("tag", "a"), ("tag", "a")),
+            target="tag",
+            occurrence_index=0,
+            url="http://127.0.0.1/search?tag=a&tag=a",
+        )
+        second_input, second_template, second_context = self._query_case(
+            (("tag", "a"), ("tag", "a")),
+            target="tag",
+            occurrence_index=1,
+            url="http://127.0.0.1/search?tag=a&tag=a",
+        )
+        first = self.planner.plan(first_input, first_template, first_context)
+        second = self.planner.plan(second_input, second_template, second_context)
+        self.assertEqual(
+            first.probe_request.url,
+            f"http://127.0.0.1/search?tag={first.probe_marker}&tag=a",
+        )
+        self.assertEqual(
+            second.probe_request.url,
+            f"http://127.0.0.1/search?tag=a&tag={second.probe_marker}",
+        )
+        self.assertNotEqual(first.id, second.id)
+
+    def test_probe_url_preserves_empty_value_and_bare_token_distinction(self) -> None:
+        input_point, template, context = self._query_case(
+            (("q", ""), ("flag", "")),
+            target="q",
+            url="http://127.0.0.1/search?q=&flag",
+        )
+        plan = self.planner.plan(input_point, template, context)
+        self.assertEqual(
+            plan.probe_request.url,
+            f"http://127.0.0.1/search?q={plan.probe_marker}&flag",
+        )
+
+        flag_input, flag_template, flag_context = self._query_case(
+            (("q", ""), ("flag", "")),
+            target="flag",
+            url="http://127.0.0.1/search?q=&flag",
+        )
+        flag_plan = self.planner.plan(flag_input, flag_template, flag_context)
+        self.assertEqual(
+            flag_plan.probe_request.url,
+            f"http://127.0.0.1/search?q=&flag={flag_plan.probe_marker}",
+        )
+
+    def test_probe_url_preserves_percent_encoded_non_target_value(self) -> None:
+        input_point, template, context = self._query_case(
+            (("q", "book"), ("path", "/admin/index")),
+            target="q",
+            url="http://127.0.0.1/search?q=book&path=%2fadmin%2findex",
+        )
+        plan = self.planner.plan(input_point, template, context)
+        self.assertEqual(
+            plan.probe_request.url,
+            f"http://127.0.0.1/search?q={plan.probe_marker}&path=%2fadmin%2findex",
         )
 
     def test_baseline_form_preservation(self) -> None:
@@ -505,6 +605,46 @@ class ProbePlannerTests(unittest.TestCase):
         self.assertLessEqual(len(marker), 32)
         self.assertNotEqual(marker, "book")
         self.assertEqual(marker, self.planner.plan(input_point, template, context).probe_marker)
+
+    def test_marker_collision_uses_deterministic_non_noop_fallback(self) -> None:
+        collision_marker = "SPIDERMAN_AAAAAAAAAAAAAAAA"
+        input_point, template, context = self._query_case(
+            (("q", collision_marker),),
+            target="q",
+            url=f"http://127.0.0.1/search?q={collision_marker}",
+        )
+        original_stable_fingerprint = planner_module.stable_fingerprint
+
+        def fake_fingerprint_with(token: str) -> object:
+            def fake_stable_fingerprint(*parts: object) -> str:
+                if parts[-1] == 0:
+                    return "a" * 64
+                if parts[-1] == 1:
+                    return token * 64
+                return original_stable_fingerprint(*parts)
+
+            return fake_stable_fingerprint
+
+        try:
+            planner_module.stable_fingerprint = fake_fingerprint_with("b")  # type: ignore[method-assign]
+            first = self.planner.plan(input_point, template, context)
+            equivalent = self.planner.plan(input_point, template, context)
+            planner_module.stable_fingerprint = fake_fingerprint_with("c")  # type: ignore[method-assign]
+            different_marker = self.planner.plan(input_point, template, context)
+        finally:
+            planner_module.stable_fingerprint = original_stable_fingerprint  # type: ignore[method-assign]
+
+        self.assertEqual(first.probe_marker, "SPIDERMAN_BBBBBBBBBBBBBBBB")
+        self.assertNotEqual(first.probe_marker, collision_marker)
+        self.assertEqual(first.probe_marker, equivalent.probe_marker)
+        self.assertEqual(first.id, equivalent.id)
+        self.assertEqual(
+            first.probe_request.query,
+            (("q", "SPIDERMAN_BBBBBBBBBBBBBBBB"),),
+        )
+        self.assertIn("SPIDERMAN_BBBBBBBBBBBBBBBB", first.probe_request.url)
+        self.assertNotEqual(first.probe_marker, different_marker.probe_marker)
+        self.assertNotEqual(first.id, different_marker.id)
 
     def test_different_marker_strategy_changes_plan_identity(self) -> None:
         input_point, template, context = self._query_case((("q", "book"),), target="q")
