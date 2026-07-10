@@ -288,6 +288,19 @@ headers, cookies, ordered query pairs, ordered form pairs, repeated
 occurrences, empty values, and all non-target values. The probe request is a
 new request instance built from the same context.
 
+For query probes, when the selected `RequestTemplate.url` contains a raw query
+string, executable URL mutation is allowed only if the raw query tokens align
+exactly with the stored ordered `RequestTemplate.query` pairs. In the aligned
+case, the planner replaces only the selected target occurrence value and
+preserves every non-target raw token unchanged, including order, repeated names,
+bare tokens, empty values, `%20` versus `+`, and percent-escape spelling. If a
+raw query exists but cannot be aligned exactly with `RequestTemplate.query`, the
+planner rejects planning with `raw-query-alignment-failed` rather than
+reconstructing a potentially different executable query. If no raw query exists
+in the URL, the planner may reconstruct the executable query from the structured
+ordered pairs; that path is structured reconstruction, not raw-token
+preservation.
+
 The probe mutates exactly one intended `InputPoint` occurrence:
 
 - non-repeated targets use `query.name` or `form.name`;

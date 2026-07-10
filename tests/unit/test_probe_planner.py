@@ -177,6 +177,42 @@ class ProbePlannerTests(unittest.TestCase):
             f"http://127.0.0.1/search?q={plan.probe_marker}&page=a%20b&flag",
         )
 
+    def test_probe_url_rejects_raw_query_order_alignment_failure(self) -> None:
+        input_point, template, context = self._query_case(
+            (("q", "book"), ("flag", ""), ("page", "a b")),
+            target="q",
+            url="http://127.0.0.1/search?q=book&page=a%20b&flag",
+        )
+        with self.assertRaisesRegex(
+            ProbePlanningError,
+            planner_module.RAW_QUERY_ALIGNMENT_FAILED,
+        ):
+            self.planner.plan(input_point, template, context)
+
+    def test_probe_url_rejects_raw_query_missing_structured_token(self) -> None:
+        input_point, template, context = self._query_case(
+            (("q", "book"), ("page", "a b")),
+            target="q",
+            url="http://127.0.0.1/search?q=book&page=a%20b&flag",
+        )
+        with self.assertRaisesRegex(
+            ProbePlanningError,
+            planner_module.RAW_QUERY_ALIGNMENT_FAILED,
+        ):
+            self.planner.plan(input_point, template, context)
+
+    def test_probe_url_rejects_raw_query_extra_structured_token(self) -> None:
+        input_point, template, context = self._query_case(
+            (("q", "book"), ("page", "a b"), ("flag", "")),
+            target="q",
+            url="http://127.0.0.1/search?q=book&page=a%20b",
+        )
+        with self.assertRaisesRegex(
+            ProbePlanningError,
+            planner_module.RAW_QUERY_ALIGNMENT_FAILED,
+        ):
+            self.planner.plan(input_point, template, context)
+
     def test_probe_url_preserves_raw_plus_and_empty_flag(self) -> None:
         input_point, template, context = self._query_case(
             (("q", "book"), ("page", "a b"), ("flag", "")),
@@ -192,13 +228,24 @@ class ProbePlannerTests(unittest.TestCase):
     def test_probe_url_preserves_cross_name_order_for_second_repeated_target(
         self,
     ) -> None:
+        first_input, first_template, first_context = self._query_case(
+            (("tag", "a"), ("q", "x"), ("tag", "b")),
+            target="tag",
+            occurrence_index=0,
+            url="http://127.0.0.1/search?tag=a&q=x&tag=b",
+        )
         input_point, template, context = self._query_case(
             (("tag", "a"), ("q", "x"), ("tag", "b")),
             target="tag",
             occurrence_index=1,
             url="http://127.0.0.1/search?tag=a&q=x&tag=b",
         )
+        first_plan = self.planner.plan(first_input, first_template, first_context)
         plan = self.planner.plan(input_point, template, context)
+        self.assertEqual(
+            first_plan.probe_request.url,
+            f"http://127.0.0.1/search?tag={first_plan.probe_marker}&q=x&tag=b",
+        )
         self.assertEqual(
             plan.probe_request.url,
             f"http://127.0.0.1/search?tag=a&q=x&tag={plan.probe_marker}",
@@ -262,6 +309,18 @@ class ProbePlannerTests(unittest.TestCase):
         self.assertEqual(
             plan.probe_request.url,
             f"http://127.0.0.1/search?q={plan.probe_marker}&path=%2fadmin%2findex",
+        )
+
+    def test_probe_url_reconstructs_structured_only_query_context(self) -> None:
+        input_point, template, context = self._query_case(
+            (("q", "book"), ("page", "a b"), ("flag", "")),
+            target="q",
+            url="http://127.0.0.1/search",
+        )
+        plan = self.planner.plan(input_point, template, context)
+        self.assertEqual(
+            plan.probe_request.url,
+            f"http://127.0.0.1/search?q={plan.probe_marker}&page=a+b&flag=",
         )
 
     def test_baseline_form_preservation(self) -> None:

@@ -22,6 +22,7 @@ from spiderman.domain import (
 DEFAULT_MARKER_STRATEGY = "neutral-reflection-marker-v1"
 MARKER_PREFIX = "SPIDERMAN_"
 MARKER_TOKEN_LENGTH = 16
+RAW_QUERY_ALIGNMENT_FAILED = "raw-query-alignment-failed"
 
 
 class ProbePlanningError(ValueError):
@@ -281,6 +282,8 @@ def _probe_url(
                     parts.fragment,
                 )
             )
+        if _url_has_raw_query(request_template.url):
+            raise ProbePlanningError(RAW_QUERY_ALIGNMENT_FAILED)
     return urlunsplit(
         (
             parts.scheme,
@@ -321,6 +324,10 @@ def _split_raw_query_token(token: str) -> tuple[str, str]:
         return token, ""
     raw_name, raw_value = token.split("=", 1)
     return raw_name, raw_value
+
+
+def _url_has_raw_query(url: str) -> bool:
+    return "?" in url.split("#", 1)[0]
 
 
 def _changed_field(input_point: InputPoint) -> str:
