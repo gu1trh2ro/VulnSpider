@@ -26,7 +26,13 @@ from spiderman.scoring import (
     SQLiScorer,
     XSSScorer,
 )
-from spiderman.selection import SelectionError, select_top_k
+from spiderman.selection import (
+    RankedScoringResult,
+    SelectionError,
+    SelectionOutcome,
+    SelectionSummary,
+    select_top_k,
+)
 
 
 class SelectionReportingTests(unittest.TestCase):
@@ -315,6 +321,159 @@ class SelectionReportingTests(unittest.TestCase):
         self.assertEqual(report["schema_version"], "0.1")
         self.assertEqual(report["summary"]["top_k_requested"], 5)
         self.assertEqual(report["summary"]["selected_results"], 1)
+
+
+class SelectionTruthfulnessTests(unittest.TestCase):
+    def _vector(
+        self,
+        input_point_id: str,
+        *,
+        status_code_changed: float = 0.0,
+        response_length_diff_ratio: float = 0.0,
+        marker_reflected: float = 0.0,
+        sql_error_pattern: float = 0.0,
+    ) -> FeatureVector:
+        values = {
+            STATUS_CODE_CHANGED: status_code_changed,
+            RESPONSE_LENGTH_DIFF_RATIO: response_length_diff_ratio,
+            MARKER_REFLECTED: marker_reflected,
+            SQL_ERROR_PATTERN: sql_error_pattern,
+        }
+        return FeatureVector(
+            input_point_id=input_point_id,
+            probe_run_ids=("pair_truthfulness",),
+            features={
+                name: FeatureObservation(
+                    name=name,
+                    value=value,
+                    observed=True,
+                    source="truthfulness-test",
+                    extractor_version="unit-v1",
+                )
+                for name, value in values.items()
+            },
+        )
+
+    def _sqli_65(self) -> ScoringResult:
+        return SQLiScorer().score(
+            self._vector(
+                "inp_truth_sqli",
+                status_code_changed=1.0,
+                response_length_diff_ratio=0.5,
+                sql_error_pattern=1.0,
+            )
+        )
+
+    def test_old_forged_ranked_result_construction_is_closed(self) -> None:
+        result = self._sqli_65()
+        self.assertEqual(result.candidate.rank_score, 65.0)
+        with self.assertRaisesRegex(TypeError, "from_scoring_result"):
+            RankedScoringResult(
+                scoring_result=result,
+                raw_rank_score=0.0,
+                raw_rank_score_max=75.0,
+                selection_priority=0.0,
+            )
+
+    def test_arbitrary_priority_and_wrong_maximum_are_not_public_inputs(self) -> None:
+        sqli = self._sqli_65()
+        xss = XSSScorer().score(
+            self._vector(
+                "inp_truth_xss",
+                response_length_diff_ratio=1.0,
+                marker_reflected=1.0,
+            )
+        )
+        for result, maximum, priority in (
+            (sqli, 45.0, 65.0 / 45.0),
+            (sqli, 75.0, 0.0),
+            (xss, 75.0, 45.0 / 75.0),
+        ):
+            with self.subTest(
+                vulnerability_type=result.candidate.vulnerability_type,
+                maximum=maximum,
+                priority=priority,
+            ):
+                with self.assertRaisesRegex(TypeError, "from_scoring_result"):
+                    RankedScoringResult(
+                        scoring_result=result,
+                        raw_rank_score=float(result.candidate.rank_score or 0.0),
+                        raw_rank_score_max=maximum,
+                        selection_priority=priority,
+                    )
+
+    def test_ranked_factory_derives_authoritative_values(self) -> None:
+        sqli = RankedScoringResult.from_scoring_result(self._sqli_65())
+        xss = RankedScoringResult.from_scoring_result(
+            XSSScorer().score(
+                self._vector(
+                    "inp_truth_xss_factory",
+                    response_length_diff_ratio=1.0,
+                    marker_reflected=1.0,
+                )
+            )
+        )
+        self.assertEqual(sqli.raw_rank_score, 65.0)
+        self.assertEqual(sqli.raw_rank_score_max, 75.0)
+        self.assertAlmostEqual(sqli.selection_priority, 65.0 / 75.0)
+        self.assertEqual(xss.raw_rank_score, 45.0)
+        self.assertEqual(xss.raw_rank_score_max, 45.0)
+        self.assertEqual(xss.selection_priority, 1.0)
+
+    def test_false_selected_count_outcome_is_rejected(self) -> None:
+        valid = select_top_k((self._sqli_65(),), k=1)
+        with self.assertRaisesRegex(TypeError, "select_top_k"):
+            SelectionSummary(
+                total_scoring_results=0,
+                rankable_results=0,
+                unrankable_results=0,
+                selected_results=0,
+                top_k_requested=99,
+            )
+        with self.assertRaisesRegex(TypeError, "select_top_k"):
+            SelectionOutcome(
+                summary=valid.summary,
+                selected=valid.selected,
+                unrankable=(),
+            )
+
+    def test_summary_arithmetic_mismatch_is_rejected(self) -> None:
+        outcome = select_top_k((self._sqli_65(),), k=1)
+        object.__setattr__(outcome.summary, "total_scoring_results", 3)
+        with self.assertRaisesRegex(SelectionError, "rankable plus unrankable"):
+            outcome.summary.validate()
+
+    def test_reporting_boundary_revalidates_outcome(self) -> None:
+        outcome = select_top_k((self._sqli_65(),), k=1)
+        object.__setattr__(outcome.summary, "selected_results", 0)
+        with self.assertRaisesRegex(ReportingError, "internally inconsistent"):
+            render_json_report(outcome)
+
+    def test_reporting_boundary_rejects_corrupted_ranked_values(self) -> None:
+        outcome = select_top_k((self._sqli_65(),), k=1)
+        object.__setattr__(outcome.selected[0], "raw_rank_score", 0.0)
+        object.__setattr__(outcome.selected[0], "selection_priority", 0.0)
+        with self.assertRaisesRegex(ReportingError, "internally inconsistent"):
+            render_json_report(outcome)
+
+    def test_valid_report_counts_match_candidates(self) -> None:
+        sqli = self._sqli_65()
+        xss = XSSScorer().score(
+            self._vector(
+                "inp_truth_xss_report",
+                response_length_diff_ratio=1.0,
+                marker_reflected=1.0,
+            )
+        )
+        outcome = select_top_k((sqli, xss), k=2)
+        report = json.loads(render_json_report(outcome))
+        self.assertEqual(
+            report["summary"]["selected_results"],
+            len(report["candidates"]),
+        )
+        self.assertEqual(report["summary"]["total_scoring_results"], 2)
+        self.assertEqual(report["summary"]["rankable_results"], 2)
+        self.assertEqual(report["summary"]["unrankable_results"], 0)
 
 
 if __name__ == "__main__":

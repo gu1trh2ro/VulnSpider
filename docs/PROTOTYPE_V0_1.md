@@ -444,6 +444,17 @@ the best priority, then `FeatureVector.id`; distinct vulnerability types and
 occurrence-level InputPoints are never merged. Results with no observed scoring
 term are counted as unrankable and excluded. An observed zero remains rankable.
 
+`RankedScoringResult` is created only from an authoritative `ScoringResult` and
+the exact scorer policy; callers do not supply raw score, maximum, or selection
+priority independently. Selection summaries validate non-negative accounting,
+`total = rankable + unrankable`, and selected-count bounds. A
+`SelectionOutcome` validates that summary counts match its selected and
+unrankable contents, that selected identities are unique and ordered, and that
+every ranked entry still matches its underlying `ScoringResult`. JSON reporting
+revalidates the complete outcome before serialization. Summaries and outcomes
+are produced only by `select_top_k()` from its actual input set; direct public
+construction with caller-supplied accounting is unsupported.
+
 Neither RankScore nor `selection_priority` is a vulnerability probability,
 final Confidence, or confirmation state.
 

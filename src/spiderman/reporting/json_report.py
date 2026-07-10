@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from spiderman.domain import ScoreEvidence
-from spiderman.selection import RankedScoringResult, SelectionOutcome
+from spiderman.selection import (
+    RankedScoringResult,
+    SelectionError,
+    SelectionOutcome,
+)
 
 REPORT_SCHEMA_VERSION = "0.1"
 
@@ -24,6 +28,10 @@ def build_json_report(
 ) -> dict[str, Any]:
     if not isinstance(outcome, SelectionOutcome):
         raise ReportingError("outcome must be a SelectionOutcome")
+    try:
+        outcome.validate()
+    except SelectionError as exc:
+        raise ReportingError("selection outcome is internally inconsistent") from exc
     summary = outcome.summary
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
