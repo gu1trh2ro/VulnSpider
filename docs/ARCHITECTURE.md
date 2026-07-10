@@ -243,36 +243,38 @@ BaseScorer
 
 v0.1:
 
-- 취약점 유형별 Top-K 지원
-- global Top-K는 보조 옵션
+- raw RankScore는 취약점 유형 내부의 원래 우선순위 신호로 보존
+- global Top-K는 각 exact scorer maximum으로 나눈 `selection_priority` 사용
+- 동률은 deterministic candidate id 순서로 결정
+- 모든 scoring term이 미관찰인 결과는 unrankable로 집계하고 제외
 
 이유:
 
-SQLi 90과 XSS 90이 동일한 calibration을 가진다고 가정하지 않는다.
+SQLi와 XSS raw RankScore는 서로 다른 범위이므로 raw 값을 직접 비교하지
+않는다. `selection_priority`도 확률이나 Confidence가 아니다.
 
 ---
 
 ### 4.8 `reporting/`
 
-최종 JSON은 최소 다음을 포함한다.
+최종 JSON은 raw score와 cross-type selection key를 구분하고 최소 다음을
+포함한다.
 
 ```json
 {
   "candidate_id": "cand_...",
-  "input_point": {
-    "method": "GET",
-    "endpoint": "/search",
-    "location": "query",
-    "name": "q"
-  },
+  "input_point_id": "inp_...",
+  "feature_vector_id": "fv_...",
   "vulnerability_type": "REFLECTED_XSS",
-  "rank_score": 84.0,
-  "score_evidence": [
+  "raw_rank_score": 45.0,
+  "raw_rank_score_max": 45.0,
+  "selection_priority": 1.0,
+  "evidence": [
     {
-      "feature": "marker_reflected",
-      "value": 1.0,
-      "weight": 30.0,
-      "contribution": 30.0
+      "feature_name": "marker_reflected",
+      "feature_value": 1.0,
+      "weight": 35.0,
+      "contribution": 35.0
     }
   ]
 }
@@ -309,7 +311,9 @@ auth/
 ## 6. 의존성 방향
 
 ```text
-reporting -> domain
+cli -> pipeline + reporting
+pipeline -> discovery + observation + features + scoring + selection
+reporting -> selection -> scoring -> features -> domain
 selection -> scoring -> features -> domain
 observation -> domain
 surface -> domain

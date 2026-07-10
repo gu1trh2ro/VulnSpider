@@ -51,7 +51,7 @@ v0.1은 완성형 취약점 스캐너가 아니다.
 
 ### Selection
 
-- Top-K per vulnerability type
+- deterministic global Top-K using cross-type `selection_priority`
 
 ### Output
 
@@ -108,7 +108,7 @@ spiderman scan \
 11. generate SQLi/XSS Candidates
 12. compute RankScore
 13. store ScoreEvidence
-14. sort Top-K per type
+14. sort global Top-K by deterministic cross-type selection priority
 15. emit JSON
 
 ---
@@ -425,3 +425,68 @@ zero remains `observed=true`, `feature_value=0.0`, and `contribution=0.0`.
 
 Deferred to 05D and later stages: Top-K, CLI/JSON orchestration, focused
 verification, confidence updates, findings, BAC, LLM/RAG, and weight tuning.
+
+## 12. 05D Top-K, JSON, and CLI Semantics
+
+05D preserves each candidate's raw RankScore and derives a separate global
+selection key:
+
+```text
+selection_priority = raw_rank_score / exact_scorer_maximum
+
+SQLi maximum:          75
+Reflected XSS maximum: 45
+```
+
+Selection sorts by `selection_priority` descending and `candidate.id`
+ascending. Multiple request contexts for one exact candidate identity resolve to
+the best priority, then `FeatureVector.id`; distinct vulnerability types and
+occurrence-level InputPoints are never merged. Results with no observed scoring
+term are counted as unrankable and excluded. An observed zero remains rankable.
+
+Neither RankScore nor `selection_priority` is a vulnerability probability,
+final Confidence, or confirmation state.
+
+The deterministic JSON report contains summary counts and selected candidates:
+
+```json
+{
+  "schema_version": "0.1",
+  "summary": {
+    "total_scoring_results": 2,
+    "rankable_results": 2,
+    "unrankable_results": 0,
+    "selected_results": 1,
+    "top_k_requested": 1
+  },
+  "candidates": [
+    {
+      "rank": 1,
+      "candidate_id": "cand_...",
+      "input_point_id": "inp_...",
+      "feature_vector_id": "fv_...",
+      "vulnerability_type": "REFLECTED_XSS",
+      "raw_rank_score": 45.0,
+      "raw_rank_score_max": 45.0,
+      "selection_priority": 1.0,
+      "evidence": []
+    }
+  ]
+}
+```
+
+The CLI boundary is an array of existing `LegacyCrawlerAdapter`-compatible JSON
+records, not a live crawler. The audited legacy runtime is not present as a
+safe callable dependency in this checkout. The command performs only authorized
+localhost/loopback Light Probes:
+
+```text
+spiderman analyze \
+  --input legacy-records.json \
+  --top-k 10 \
+  --output result.json
+```
+
+It reuses the existing planner, `execute_probe_plan()` path, extractor, and
+ownership-validated scorers. Focused verification, findings, confidence, LLM,
+BAC, dynamic crawling, and database persistence remain out of scope.

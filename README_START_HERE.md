@@ -137,3 +137,22 @@ docs/CODEX_SETUP.md
 ```
 
 를 따른다.
+
+---
+
+## 6. v0.1 Top-K 분석 실행
+
+현재 CLI는 live crawler를 실행하지 않는다. 기존
+`LegacyCrawlerAdapter`가 받는 legacy crawl-record JSON 배열을 입력으로
+사용하며, localhost/loopback의 허가된 테스트 대상만 Light Probe한다.
+
+```powershell
+spiderman analyze `
+  --input legacy-records.json `
+  --top-k 10 `
+  --output result.json
+```
+
+출력은 raw RankScore, exact scorer maximum, cross-type
+`selection_priority`, 그리고 ScoreEvidence를 구분해 보존한다. 이 값들은
+취약 확률이나 최종 Confidence가 아니다.

@@ -76,7 +76,7 @@
 
 ## ADR-008 — Type-specific Top-K
 
-**Status:** Accepted
+**Status:** Superseded by ADR-010
 
 **Decision:** v0.1 기본 selection은 vulnerability type별 Top-K다.
 
@@ -91,6 +91,22 @@
 **Decision:** `AGENTS.md`는 짧은 지도이며 세부 설계는 `docs/`에 둔다.
 
 **Reason:** 거대한 단일 instruction file의 context 낭비와 stale rule 문제를 피한다.
+
+---
+
+## ADR-010 — Cross-type Top-K uses explicit selection priority
+
+**Status:** Accepted
+
+**Decision:** SQLi와 Reflected XSS 결과를 하나의 global Top-K로 선택할 때
+raw RankScore를 직접 비교하지 않는다. 각 결과의 exact scorer maximum으로
+raw score를 나눈 `selection_priority`를 사용하고 candidate id로 동률을
+결정한다. raw RankScore는 그대로 보존한다. 이 결정은 ADR-008의
+type-specific-only 기본 selection을 05D CLI에 대해 대체한다.
+
+**Reason:** 현재 SQLi 범위는 0–75, Reflected XSS 범위는 0–45이므로 raw
+값의 global 비교는 유형별 scale bias를 만든다. `selection_priority`는
+확률이나 Confidence가 아니라 selection 전용 비교 key다.
 
 ---
 
