@@ -20,6 +20,8 @@ from spiderman.domain import (
 DEFAULT_TIMEOUT_SECONDS = 5.0
 DEFAULT_MAX_BODY_BYTES = 1_000_000
 EMPTY_BODY_HASH = sha256(b"").hexdigest()
+REQUEST_ROLE_BASELINE = "baseline"
+REQUEST_ROLE_PROBE = "probe"
 
 
 class RequestExecutionError(RuntimeError):
@@ -166,14 +168,16 @@ def execute_probe_plan(
     if not isinstance(probe_plan, ProbePlan):
         raise RequestExecutionError("probe_plan must be a ProbePlan")
     active_transport = transport or UrlLibTransport()
-    baseline_response = execute_request(
-        probe_plan.baseline_request,
+    baseline_response = _execute_plan_request(
+        probe_plan,
+        request_role=REQUEST_ROLE_BASELINE,
         transport=active_transport,
         timeout_seconds=timeout_seconds,
         max_body_bytes=max_body_bytes,
     )
-    probe_response = execute_request(
-        probe_plan.probe_request,
+    probe_response = _execute_plan_request(
+        probe_plan,
+        request_role=REQUEST_ROLE_PROBE,
         transport=active_transport,
         timeout_seconds=timeout_seconds,
         max_body_bytes=max_body_bytes,
@@ -190,12 +194,55 @@ def execute_probe_plan(
     )
 
 
+def _execute_plan_request(
+    probe_plan: ProbePlan,
+    *,
+    request_role: str,
+    transport: RequestTransport,
+    timeout_seconds: float,
+    max_body_bytes: int,
+) -> ResponseSnapshot:
+    if request_role == REQUEST_ROLE_BASELINE:
+        request = probe_plan.baseline_request
+    elif request_role == REQUEST_ROLE_PROBE:
+        request = probe_plan.probe_request
+    else:
+        raise RequestExecutionError("request_role must be baseline or probe")
+    return _execute_request(
+        request,
+        transport=transport,
+        timeout_seconds=timeout_seconds,
+        max_body_bytes=max_body_bytes,
+        probe_plan_id=probe_plan.id,
+        request_role=request_role,
+    )
+
+
 def execute_request(
     request: RequestInstance,
     *,
     transport: RequestTransport,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
+) -> ResponseSnapshot:
+    return _execute_request(
+        request,
+        transport=transport,
+        timeout_seconds=timeout_seconds,
+        max_body_bytes=max_body_bytes,
+        probe_plan_id=None,
+        request_role=None,
+    )
+
+
+def _execute_request(
+    request: RequestInstance,
+    *,
+    transport: RequestTransport,
+    timeout_seconds: float,
+    max_body_bytes: int,
+    probe_plan_id: str | None,
+    request_role: str | None,
 ) -> ResponseSnapshot:
     if not isinstance(request, RequestInstance):
         raise RequestExecutionError("request must be a RequestInstance")
@@ -205,7 +252,12 @@ def execute_request(
     try:
         response = transport.send(request, timeout_seconds=timeout_seconds)
     except RequestExecutionError as exc:
-        return _error_response_snapshot(request, str(exc))
+        return _error_response_snapshot(
+            request,
+            str(exc),
+            probe_plan_id=probe_plan_id,
+            request_role=request_role,
+        )
 
     body = bytes(response.body)
     captured_body = body[:max_body_bytes]
@@ -223,7 +275,27 @@ def execute_request(
         encoding=response.encoding,
         redirect_location=response.redirect_location,
         execution_error=execution_error,
+        probe_plan_id=probe_plan_id,
+        request_role=request_role,
     )
+
+
+def _validate_plan_response(
+    *,
+    label: str,
+    response: ResponseSnapshot,
+    expected_probe_plan_id: str,
+    expected_request_role: str,
+    expected_request_id: str,
+) -> None:
+    if not isinstance(response, ResponseSnapshot):
+        raise RequestExecutionError(f"{label} response must be a ResponseSnapshot")
+    if response.probe_plan_id != expected_probe_plan_id:
+        raise RequestExecutionError(f"{label} response ProbePlan provenance mismatch")
+    if response.request_role != expected_request_role:
+        raise RequestExecutionError(f"{label} response role mismatch")
+    if response.request_id != expected_request_id:
+        raise RequestExecutionError(f"{label} response request mismatch")
 
 
 def pair_probe_responses(
@@ -233,13 +305,24 @@ def pair_probe_responses(
 ) -> ResponsePair:
     if not isinstance(probe_plan, ProbePlan):
         raise RequestExecutionError("probe_plan must be a ProbePlan")
-    if baseline_response.request_id != probe_plan.baseline_request.id:
-        raise RequestExecutionError("baseline response does not match ProbePlan")
-    if probe_response.request_id != probe_plan.probe_request.id:
-        raise RequestExecutionError("probe response does not match ProbePlan")
+    probe_plan_id = probe_plan.id or ""
+    _validate_plan_response(
+        label=REQUEST_ROLE_BASELINE,
+        response=baseline_response,
+        expected_probe_plan_id=probe_plan_id,
+        expected_request_role=REQUEST_ROLE_BASELINE,
+        expected_request_id=probe_plan.baseline_request.id or "",
+    )
+    _validate_plan_response(
+        label=REQUEST_ROLE_PROBE,
+        response=probe_response,
+        expected_probe_plan_id=probe_plan_id,
+        expected_request_role=REQUEST_ROLE_PROBE,
+        expected_request_id=probe_plan.probe_request.id or "",
+    )
     return ResponsePair(
         input_point_id=probe_plan.input_point_id,
-        probe_plan_id=probe_plan.id or "",
+        probe_plan_id=probe_plan_id,
         baseline_response_id=baseline_response.id or "",
         probe_response_id=probe_response.id or "",
     )
@@ -256,6 +339,9 @@ def _decode_body(body: bytes, encoding: str | None) -> str:
 def _error_response_snapshot(
     request: RequestInstance,
     execution_error: str,
+    *,
+    probe_plan_id: str | None,
+    request_role: str | None,
 ) -> ResponseSnapshot:
     return ResponseSnapshot(
         request_id=request.id or "",
@@ -265,6 +351,8 @@ def _error_response_snapshot(
         body_length_bytes=0,
         decoded_text=None,
         execution_error=execution_error,
+        probe_plan_id=probe_plan_id,
+        request_role=request_role,
     )
 
 

@@ -490,15 +490,23 @@ class ResponseSnapshot:
     encoding: str | None = None
     redirect_location: str | None = None
     execution_error: str | None = None
+    probe_plan_id: str | None = None
+    request_role: str | None = None
     id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "headers", dict(self.headers))
         execution_error = None if self.execution_error is None else str(self.execution_error)
+        probe_plan_id = None if self.probe_plan_id is None else str(self.probe_plan_id)
+        request_role = None if self.request_role is None else str(self.request_role)
         object.__setattr__(self, "execution_error", execution_error)
+        object.__setattr__(self, "probe_plan_id", probe_plan_id)
+        object.__setattr__(self, "request_role", request_role)
         if not self.id:
             fingerprint = stable_fingerprint(
                 "response-snapshot",
+                probe_plan_id,
+                request_role,
                 self.request_id,
                 self.status_code,
                 self.body_bytes_hash,

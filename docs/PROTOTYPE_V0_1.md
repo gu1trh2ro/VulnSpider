@@ -351,15 +351,22 @@ planned executable URL from 05A.
 
 `ResponseSnapshot` captures status code, elapsed time, response headers,
 bounded decoded body text, body length, body hash, encoding, redirect location,
-and `execution_error`. HTTP 4xx/5xx responses are normal observations.
+`execution_error`, and optional ProbePlan provenance. Snapshots produced by
+`execute_probe_plan()` carry the exact `probe_plan_id`, `request_role`
+(`baseline` or `probe`), and `request_id` for the request they observed. Direct
+`execute_request()` snapshots are unowned observations and are not accepted as
+ProbePlan-owned pair members. HTTP 4xx/5xx responses are normal observations.
 Transport failures, timeouts, and body capture limit failures use
 `execution_error`; feature extraction treats those observations as missing, not
 as positive vulnerability evidence.
 
 `ResponsePair` attribution is validated before feature extraction: the baseline
-snapshot must belong to `ProbePlan.baseline_request`, the probe snapshot must
-belong to `ProbePlan.probe_request`, and the pair must target the same
-`InputPoint` and `ProbePlan`.
+snapshot must match `ProbePlan.id`, role `baseline`, and
+`ProbePlan.baseline_request.id`; the probe snapshot must match `ProbePlan.id`,
+role `probe`, and `ProbePlan.probe_request.id`; and the pair must target the
+same `InputPoint` and `ProbePlan`. Equal concrete request bytes or equal
+`RequestInstance.id` values across distinct plans do not imply shared
+observation ownership.
 
 The minimal 05B extractor emits `FeatureVector` for exactly one InputPoint and
 one validated response pair. It currently extracts:

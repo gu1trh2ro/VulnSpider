@@ -171,6 +171,8 @@ HTTP 응답 관찰값.
 ```text
 id: str
 request_id: str
+probe_plan_id: str | None
+request_role: "baseline" | "probe" | None
 status_code: int
 elapsed_ms: float
 body_bytes_hash: str
@@ -186,6 +188,13 @@ execution_error: str | None
 
 - 4xx/5xx도 정상적인 관찰 데이터다.
 - Probe Executor에서 `raise_for_status()` 방식으로 버리지 않는다.
+
+ProbePlan-owned observations carry `probe_plan_id`, `request_role`, and
+`request_id`. A snapshot without matching plan ownership is a direct request
+observation and must not be consumed as a baseline/probe pair member. Equal
+`request_id` values can appear in different ProbePlans; observation ownership is
+defined by the complete `(probe_plan_id, request_role, request_id)` tuple, not by
+request bytes alone.
 
 ---
 

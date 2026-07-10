@@ -23,6 +23,8 @@ STATUS_CODE_CHANGED = "status_code_changed"
 RESPONSE_LENGTH_DIFF_RATIO = "response_length_diff_ratio"
 MARKER_REFLECTED = "marker_reflected"
 SQL_ERROR_PATTERN = "sql_error_pattern"
+REQUEST_ROLE_BASELINE = "baseline"
+REQUEST_ROLE_PROBE = "probe"
 
 SQL_ERROR_PATTERNS: tuple[tuple[str, str], ...] = (
     ("sql_syntax", r"\bSQL syntax\b"),
@@ -120,10 +122,38 @@ def _validate_feature_inputs(
         raise FeatureExtractionError("baseline ResponseSnapshot mismatch")
     if response_pair.probe_response_id != probe_response.id:
         raise FeatureExtractionError("probe ResponseSnapshot mismatch")
-    if baseline_response.request_id != probe_plan.baseline_request.id:
-        raise FeatureExtractionError("baseline response request mismatch")
-    if probe_response.request_id != probe_plan.probe_request.id:
-        raise FeatureExtractionError("probe response request mismatch")
+    _validate_response_ownership(
+        label=REQUEST_ROLE_BASELINE,
+        response=baseline_response,
+        expected_probe_plan_id=probe_plan.id or "",
+        expected_request_role=REQUEST_ROLE_BASELINE,
+        expected_request_id=probe_plan.baseline_request.id or "",
+    )
+    _validate_response_ownership(
+        label=REQUEST_ROLE_PROBE,
+        response=probe_response,
+        expected_probe_plan_id=probe_plan.id or "",
+        expected_request_role=REQUEST_ROLE_PROBE,
+        expected_request_id=probe_plan.probe_request.id or "",
+    )
+
+
+def _validate_response_ownership(
+    *,
+    label: str,
+    response: ResponseSnapshot,
+    expected_probe_plan_id: str,
+    expected_request_role: str,
+    expected_request_id: str,
+) -> None:
+    if response.probe_plan_id != expected_probe_plan_id:
+        raise FeatureExtractionError(
+            f"{label} response ProbePlan provenance mismatch"
+        )
+    if response.request_role != expected_request_role:
+        raise FeatureExtractionError(f"{label} response role mismatch")
+    if response.request_id != expected_request_id:
+        raise FeatureExtractionError(f"{label} response request mismatch")
 
 
 def _status_code_changed(
