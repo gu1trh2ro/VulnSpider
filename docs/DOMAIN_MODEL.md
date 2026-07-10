@@ -179,6 +179,7 @@ headers: dict[str, str]
 decoded_text: str | None
 encoding: str | None
 redirect_location: str | None
+execution_error: str | None
 ```
 
 주의:

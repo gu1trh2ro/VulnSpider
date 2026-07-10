@@ -489,16 +489,22 @@ class ResponseSnapshot:
     decoded_text: str | None = None
     encoding: str | None = None
     redirect_location: str | None = None
+    execution_error: str | None = None
     id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "headers", dict(self.headers))
+        execution_error = None if self.execution_error is None else str(self.execution_error)
+        object.__setattr__(self, "execution_error", execution_error)
         if not self.id:
             fingerprint = stable_fingerprint(
                 "response-snapshot",
                 self.request_id,
                 self.status_code,
                 self.body_bytes_hash,
+                self.body_length_bytes,
+                self.redirect_location,
+                execution_error,
             )
             object.__setattr__(self, "id", f"resp_{fingerprint[:16]}")
 

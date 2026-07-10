@@ -335,3 +335,46 @@ method, URL, headers, ordered query pairs, ordered form pairs, and cookies.
 `ProbePlan.id` includes the input point, probe family, selected request
 template, selected request context, marker, marker strategy, baseline request,
 probe request, and the changed field. Built-in Python `hash()` is not used.
+
+## 10. 05B Request Execution and Minimal Observation Semantics
+
+05B consumes an existing valid `ProbePlan`; it does not choose an InputPoint,
+rebuild a request from a template, collect new discovery evidence, generate
+candidates, score, select Top-K, invoke an LLM, or use browser/dynamic crawling.
+
+The request executor sends exactly the plan's `baseline_request` and
+`probe_request` through a narrow transport boundary. Unit tests use fake
+transports. The standard-library transport disables automatic redirects, keeps
+the planned method and executable URL, passes planned headers and cookies, and
+uses ordered form pairs as the form body when present. Query execution uses the
+planned executable URL from 05A.
+
+`ResponseSnapshot` captures status code, elapsed time, response headers,
+bounded decoded body text, body length, body hash, encoding, redirect location,
+and `execution_error`. HTTP 4xx/5xx responses are normal observations.
+Transport failures, timeouts, and body capture limit failures use
+`execution_error`; feature extraction treats those observations as missing, not
+as positive vulnerability evidence.
+
+`ResponsePair` attribution is validated before feature extraction: the baseline
+snapshot must belong to `ProbePlan.baseline_request`, the probe snapshot must
+belong to `ProbePlan.probe_request`, and the pair must target the same
+`InputPoint` and `ProbePlan`.
+
+The minimal 05B extractor emits `FeatureVector` for exactly one InputPoint and
+one validated response pair. It currently extracts:
+
+- `status_code_changed`: `1.0` when baseline and probe status codes differ,
+  otherwise `0.0`.
+- `response_length_diff_ratio`: `abs(probe_length - baseline_length) /
+  max(baseline_length, 1)`, clipped to `1.0`; raw ratio and lengths are kept in
+  details.
+- `marker_reflected`: `1.0` only when the exact 05A probe marker appears in the
+  probe body and not in the baseline body; pre-existing marker text is recorded
+  but not treated as new reflection.
+- `sql_error_pattern`: `1.0` only when a small auditable SQL/DB error pattern
+  appears newly in the probe body; generic HTTP 500 alone is not SQL evidence.
+
+Deferred to later stages: candidate generation, SQLi/XSS scoring, Top-K,
+advanced timing analysis, DOM/browser analysis, BAC, LLM/RAG, and focused
+verification.
