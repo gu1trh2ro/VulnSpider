@@ -635,7 +635,27 @@ class VulnerabilityCandidate:
 class ScoreEvidence:
     candidate_id: str
     feature_name: str
-    feature_value: float
+    feature_value: float | None
     weight: float
-    contribution: float
+    contribution: float | None
     reason: str
+    observed: bool = True
+    vulnerability_type: VulnerabilityType | None = None
+    feature_vector_id: str | None = None
+
+    def __post_init__(self) -> None:
+        vulnerability_type = (
+            None
+            if self.vulnerability_type is None
+            else VulnerabilityType(self.vulnerability_type)
+        )
+        object.__setattr__(self, "vulnerability_type", vulnerability_type)
+        if self.observed:
+            if self.feature_value is None or self.contribution is None:
+                raise ValueError(
+                    "observed score evidence requires a value and contribution"
+                )
+        elif self.feature_value is not None or self.contribution is not None:
+            raise ValueError(
+                "unavailable score evidence must not fabricate a value or contribution"
+            )

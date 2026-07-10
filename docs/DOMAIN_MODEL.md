@@ -293,20 +293,29 @@ RankScore 설명용 기여도.
 
 ```text
 candidate_id: str
+feature_vector_id: str
+vulnerability_type: VulnerabilityType
 feature_name: str
-feature_value: float
+feature_value: float | null
+observed: bool
 weight: float
-contribution: float
+contribution: float | null
 reason: str
 ```
 
 합계 규칙:
 
 ```text
-raw_score = sum(contribution)
+raw_score = sum(contribution for observed evidence)
 ```
 
 정규화가 있다면 raw score와 normalized score를 둘 다 보존한다.
+
+05C에서 `observed=false`인 항은 `feature_value=null`과
+`contribution=null`을 사용한다. 이 항은 숫자 합계에는 참여하지 않지만
+누락 사실과 설정 weight를 evidence에 남긴다. 따라서 관찰된 `0.0`과
+미관찰 값은 구분된다. `feature_vector_id`는 동일 InputPoint의 서로 다른
+관찰 문맥에서 evidence가 섞이지 않도록 정확한 원본 vector를 가리킨다.
 
 ---
 

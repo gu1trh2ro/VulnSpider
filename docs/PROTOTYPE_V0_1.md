@@ -385,3 +385,39 @@ one validated response pair. It currently extracts:
 Deferred to later stages: candidate generation, SQLi/XSS scoring, Top-K,
 advanced timing analysis, DOM/browser analysis, BAC, LLM/RAG, and focused
 verification.
+
+## 11. 05C Candidate Generation and Scoring Semantics
+
+05C consumes one existing `FeatureVector`; it does not read response bodies,
+rerun extraction, send requests, select Top-K, or create findings/confidence.
+It generates the two independent ranking interpretations defined by the exact
+unit `InputPoint x VulnerabilityType`: `SQLI` and `REFLECTED_XSS`.
+
+Candidate ownership comes only from `FeatureVector.input_point_id`; the API has
+no separate caller-supplied InputPoint id. Candidate identity is the stable
+fingerprint of that exact InputPoint id and vulnerability type, so the two types
+cannot collide and occurrence-level InputPoint ids remain distinct even when
+their values are equal. Score evidence also records the exact source
+`FeatureVector.id` so observations from separate request contexts are not mixed.
+
+The deterministic 05C policies use only features currently emitted by 05B:
+
+```text
+SQLi raw RankScore (0..75):
++ 20 * status_code_changed
++ 20 * response_length_diff_ratio
++ 35 * sql_error_pattern
+
+Reflected XSS raw RankScore (0..45):
++ 35 * marker_reflected
++ 10 * response_length_diff_ratio
+```
+
+These are unnormalized verification-priority signals, not vulnerability
+probabilities or final confidence. A missing term is recorded with
+`observed=false`, `feature_value=null`, and `contribution=null`; it supplies no
+numeric contribution and does not renormalize remaining weights. An observed
+zero remains `observed=true`, `feature_value=0.0`, and `contribution=0.0`.
+
+Deferred to 05D and later stages: Top-K, CLI/JSON orchestration, focused
+verification, confidence updates, findings, BAC, LLM/RAG, and weight tuning.

@@ -284,14 +284,39 @@ redirect change
 +  5 * redirect_changed
 ```
 
+### 05C implemented subset
+
+현재 05B가 실제로 추출하는 feature만 사용한다. 아직 추출되지 않는
+`numeric_value`, `reflection_count_norm`, `safe_html_encoding_detected`,
+`dangerous_reflection_context`, `redirect_changed`는 05C에서 값을 만들거나
+0으로 가장하지 않는다.
+
+```text
+SQLi raw RankScore:
++ 20 * status_code_changed
++ 20 * response_length_diff_ratio
++ 35 * sql_error_pattern
+available range: 0..75
+
+Reflected XSS raw RankScore:
++ 35 * marker_reflected
++ 10 * response_length_diff_ratio
+available range: 0..45
+```
+
+두 score는 정규화하지 않으며 vulnerability probability나 최종 Confidence가
+아니다. 서로 다른 scale의 verification-priority 신호다.
+
 ### Missing feature 처리
 
-미관찰 feature는 기본적으로 contribution 0.
+미관찰 feature는 numeric score 합계에 0의 효과만 주지만, evidence의
+`contribution`은 관찰된 숫자 `0.0`으로 만들지 않고 `null`로 기록한다.
 
 단:
 
 - "관찰하지 않았음"을 "안전함"으로 해석하지 않는다.
-- score evidence에 skipped/missing 상태를 별도 기록할 수 있다.
+- score evidence에 `observed=false`, `feature_value=null`,
+  `contribution=null` 상태를 기록한다.
 
 ---
 
