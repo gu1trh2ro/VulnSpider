@@ -1,8 +1,8 @@
-# SPIDERMAN Architecture — Prototype v0.1
+# VulnSpider Architecture — Prototype v0.1
 
 ## 1. 목적
 
-SPIDERMAN은 웹 애플리케이션에서 수집된 다수의 입력점 중 **어떤 입력점을 먼저 검증할 가치가 있는지** 자동으로 순위화하는 시스템이다.
+VulnSpider은 웹 애플리케이션에서 수집된 다수의 입력점 중 **어떤 입력점을 먼저 검증할 가치가 있는지** 자동으로 순위화하는 시스템이다.
 
 v0.1의 연구 질문은 다음과 같다.
 
@@ -285,7 +285,7 @@ SQLi와 XSS raw RankScore는 서로 다른 범위이므로 raw 값을 직접 비
 ## 5. 권장 디렉터리 구조
 
 ```text
-src/spiderman/
+src/vulnspider/
 ├─ domain/
 ├─ scope/
 ├─ discovery/

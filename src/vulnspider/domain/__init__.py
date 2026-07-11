@@ -1,6 +1,6 @@
 """Core domain model package."""
 
-from spiderman.domain.models import (
+from vulnspider.domain.models import (
     Endpoint,
     FeatureObservation,
     FeatureVector,

@@ -1,6 +1,6 @@
 """Discovery package."""
 
-from spiderman.discovery.legacy_adapter import (
+from vulnspider.discovery.legacy_adapter import (
     LegacyAdapterResult,
     LegacyCrawlerAdapter,
     LegacyCrawlRecord,

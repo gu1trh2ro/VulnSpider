@@ -7,7 +7,7 @@ from threading import Thread
 
 import unittest
 
-from spiderman.domain import (
+from vulnspider.domain import (
     Endpoint,
     HttpMethod,
     InputLocation,
@@ -21,7 +21,7 @@ from spiderman.domain import (
     ResponsePair,
     ResponseSnapshot,
 )
-from spiderman.features import (
+from vulnspider.features import (
     MARKER_REFLECTED,
     RESPONSE_LENGTH_DIFF_RATIO,
     SQL_ERROR_PATTERN,
@@ -29,7 +29,7 @@ from spiderman.features import (
     FeatureExtractionError,
     extract_minimal_features,
 )
-from spiderman.observation import (
+from vulnspider.observation import (
     ProbePlanner,
     RequestExecutionError,
     TransportResponse,

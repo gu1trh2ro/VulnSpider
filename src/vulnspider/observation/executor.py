@@ -10,7 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from spiderman.domain import (
+from vulnspider.domain import (
     ProbePlan,
     RequestInstance,
     ResponsePair,

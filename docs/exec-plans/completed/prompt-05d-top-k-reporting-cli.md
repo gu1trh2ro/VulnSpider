@@ -38,7 +38,7 @@ probe transport and injectable transport protocol already exist.
 3. Add stable finite JSON serialization with full identity and evidence.
 4. Add orchestration from adapter-compatible records through current planning,
    execution, extraction, scoring, selection, and reporting boundaries.
-5. Add `spiderman analyze --input ... --top-k ... --output ...` for authorized
+5. Add `vulnspider analyze --input ... --top-k ... --output ...` for authorized
    loopback test records, with injectable transport for deterministic tests.
 
 ## Interfaces / Data Changes

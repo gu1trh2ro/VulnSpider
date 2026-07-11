@@ -2,7 +2,7 @@
 
 ## 1. 권장 시작 방식
 
-SPIDERMAN v0.1에서는 다음 우선순위를 권장한다.
+VulnSpider v0.1에서는 다음 우선순위를 권장한다.
 
 ### Option A — Codex App on Windows
 
@@ -26,7 +26,7 @@ SPIDERMAN v0.1에서는 다음 우선순위를 권장한다.
 
 - Linux-native toolchain이 꼭 필요한 경우
 
-SPIDERMAN v0.1은 Python 중심이므로 **처음에는 native Windows App/CLI로 충분**하다. 불필요하게 환경 복잡도를 늘리지 않는다.
+VulnSpider v0.1은 Python 중심이므로 **처음에는 native Windows App/CLI로 충분**하다. 불필요하게 환경 복잡도를 늘리지 않는다.
 
 ---
 
@@ -55,8 +55,8 @@ codex
 예:
 
 ```powershell
-mkdir C:\dev\spiderman
-cd C:\dev\spiderman
+mkdir C:\dev\vulnspider
+cd C:\dev\vulnspider
 git init
 ```
 
@@ -65,7 +65,7 @@ git init
 결과:
 
 ```text
-spiderman/
+vulnspider/
 ├─ AGENTS.md
 ├─ PLANS.md
 ├─ CODE_REVIEW.md
@@ -221,9 +221,9 @@ Git history
 첫 후보:
 
 ```text
-spiderman-feature-addition
-spiderman-independent-review
-spiderman-experiment-run
+vulnspider-feature-addition
+vulnspider-independent-review
+vulnspider-experiment-run
 ```
 
 처음부터 만들지 않는다.

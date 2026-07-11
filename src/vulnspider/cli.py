@@ -1,4 +1,4 @@
-"""Command-line entrypoint for the SPIDERMAN prototype."""
+"""Command-line entrypoint for the VulnSpider prototype."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from spiderman import __version__
-from spiderman.observation.executor import RequestTransport
-from spiderman.pipeline import analyze_legacy_records
-from spiderman.reporting import write_json_report
+from vulnspider import __version__
+from vulnspider.observation.executor import RequestTransport
+from vulnspider.pipeline import analyze_legacy_records
+from vulnspider.reporting import write_json_report
 
 
 class CLIError(ValueError):
@@ -22,8 +22,8 @@ class CLIError(ValueError):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="spiderman",
-        description="SPIDERMAN prototype command line interface.",
+        prog="vulnspider",
+        description="VulnSpider prototype command line interface.",
     )
     parser.add_argument(
         "--version",
@@ -84,7 +84,7 @@ def main(
             warnings=analysis.warnings,
         )
     except (OSError, ValueError) as exc:
-        print(f"spiderman: error: {exc}", file=sys.stderr)
+        print(f"vulnspider: error: {exc}", file=sys.stderr)
         return 2
     return 0
 

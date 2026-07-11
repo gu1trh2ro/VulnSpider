@@ -4,7 +4,7 @@ import json
 import unittest
 from itertools import permutations
 
-from spiderman.domain import (
+from vulnspider.domain import (
     FeatureObservation,
     FeatureVector,
     InputLocation,
@@ -13,20 +13,20 @@ from spiderman.domain import (
     VulnerabilityCandidate,
     VulnerabilityType,
 )
-from spiderman.features import (
+from vulnspider.features import (
     MARKER_REFLECTED,
     RESPONSE_LENGTH_DIFF_RATIO,
     SQL_ERROR_PATTERN,
     STATUS_CODE_CHANGED,
 )
-from spiderman.reporting import ReportingError, build_json_report, render_json_report
-from spiderman.scoring import (
+from vulnspider.reporting import ReportingError, build_json_report, render_json_report
+from vulnspider.scoring import (
     SQLI_SCORER_VERSION,
     ScoringResult,
     SQLiScorer,
     XSSScorer,
 )
-from spiderman.selection import (
+from vulnspider.selection import (
     RankedScoringResult,
     SelectionError,
     SelectionOutcome,

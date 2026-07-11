@@ -2,7 +2,7 @@
 
 ## Mission
 
-Build **SPIDERMAN**, a graduation-project prototype for input-point-based web vulnerability candidate prioritization and selective verification.
+Build **VulnSpider**, a graduation-project prototype for input-point-based web vulnerability candidate prioritization and selective verification.
 
 The core research contribution is **ranking what should be verified first**, not building a generic full-coverage vulnerability scanner and not delegating final vulnerability judgment to an LLM.
 

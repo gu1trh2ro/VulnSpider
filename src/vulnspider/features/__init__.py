@@ -1,6 +1,6 @@
 """Feature extraction package."""
 
-from spiderman.features.extraction import (
+from vulnspider.features.extraction import (
     FEATURE_SCHEMA_VERSION,
     MARKER_REFLECTED,
     RESPONSE_LENGTH_DIFF_RATIO,

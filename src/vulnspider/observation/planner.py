@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import quote, unquote_plus, urlencode, urlsplit, urlunsplit
 
-from spiderman.domain import (
+from vulnspider.domain import (
     InputLocation,
     InputPoint,
     InputPointRequestContext,
@@ -20,7 +20,7 @@ from spiderman.domain import (
 )
 
 DEFAULT_MARKER_STRATEGY = "neutral-reflection-marker-v1"
-MARKER_PREFIX = "SPIDERMAN_"
+MARKER_PREFIX = "VULNSPIDER_"
 MARKER_TOKEN_LENGTH = 16
 RAW_QUERY_ALIGNMENT_FAILED = "raw-query-alignment-failed"
 

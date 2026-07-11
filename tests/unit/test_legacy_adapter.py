@@ -4,8 +4,8 @@ import json
 import unittest
 from pathlib import Path
 
-from spiderman.discovery import LegacyCrawlerAdapter
-from spiderman.domain import (
+from vulnspider.discovery import LegacyCrawlerAdapter
+from vulnspider.domain import (
     HttpMethod,
     InputLocation,
     RequestContextCompleteness,
@@ -712,7 +712,7 @@ class LegacyCrawlerAdapterTests(unittest.TestCase):
         adapter_source = (
             Path(__file__).resolve().parents[2]
             / "src"
-            / "spiderman"
+            / "vulnspider"
             / "discovery"
             / "legacy_adapter.py"
         ).read_text(encoding="utf-8")

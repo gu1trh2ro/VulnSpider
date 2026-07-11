@@ -80,7 +80,7 @@ v0.1은 완성형 취약점 스캐너가 아니다.
 ## 4. Required User Flow
 
 ```text
-spiderman scan \
+vulnspider scan \
   --target http://127.0.0.1:PORT \
   --max-depth 2 \
   --max-requests 100 \
@@ -314,7 +314,7 @@ The v0.1 marker strategy is `neutral-reflection-marker-v1`. It produces a
 bounded, deterministic, non-destructive marker in this form:
 
 ```text
-SPIDERMAN_<16 uppercase hex characters>
+VULNSPIDER_<16 uppercase hex characters>
 ```
 
 The marker is derived from the marker strategy, probe family, selected
@@ -492,7 +492,7 @@ safe callable dependency in this checkout. The command performs only authorized
 localhost/loopback Light Probes:
 
 ```text
-spiderman analyze \
+vulnspider analyze \
   --input legacy-records.json \
   --top-k 10 \
   --output result.json

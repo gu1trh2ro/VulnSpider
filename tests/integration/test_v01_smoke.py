@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from spiderman import cli
-from spiderman.domain import RequestInstance
-from spiderman.observation import TransportResponse
+from vulnspider import cli
+from vulnspider.domain import RequestInstance
+from vulnspider.observation import TransportResponse
 
 
 @dataclass
@@ -28,7 +28,7 @@ class MarkerTransport:
             (
                 value
                 for _name, value in request.query
-                if value.startswith("SPIDERMAN_")
+                if value.startswith("VULNSPIDER_")
             ),
             None,
         )
@@ -215,7 +215,7 @@ class V01EndToEndSmokeTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as version_exit:
                 cli.main(["--version"])
         self.assertEqual(version_exit.exception.code, 0)
-        self.assertEqual(standard_output.getvalue().strip(), "spiderman 0.1.0")
+        self.assertEqual(standard_output.getvalue().strip(), "vulnspider 0.1.0")
 
 
 if __name__ == "__main__":

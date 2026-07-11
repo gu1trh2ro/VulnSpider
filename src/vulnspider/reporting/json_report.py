@@ -7,8 +7,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from spiderman.domain import ScoreEvidence
-from spiderman.selection import (
+from vulnspider.domain import ScoreEvidence
+from vulnspider.selection import (
     RankedScoringResult,
     SelectionError,
     SelectionOutcome,

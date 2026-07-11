@@ -4,14 +4,14 @@
 
 The legacy WHSPIDER project is a CLI-oriented crawler and analysis tool that combines static crawling, dynamic Playwright crawling, SQLite persistence, export, graph visualization, and local LLM/RAG analysis. Its useful v0.1 asset is the existing page discovery and HTML input extraction knowledge, but the current implementation is page-centric and tightly coupled to a SQLite table, CLI options, graph export, and LLM analysis (`reference/whspider_legacy/cli.py::webspider`, `reference/whspider_legacy/modules/static_crawler.py::fetch_page`, `reference/whspider_legacy/modules/db.py::create_table`, `reference/whspider_legacy/modules/local_llm.py::run_llm_analysis`).
 
-Recommended reuse decision: do not import the legacy package as the new SPIDERMAN architecture. Reuse only selected static crawling outputs through a `LegacyCrawlerAdapter` boundary that converts legacy `crawl_links` rows into the v0.1 `Endpoint`, `InputPoint`, and `RequestTemplate` concepts described in `docs/DOMAIN_MODEL.md`. The old LLM/RAG, dynamic crawler, visualization, export format, and SQLite schema should not become v0.1 domain architecture because v0.1 explicitly excludes LLM payload generation, browser crawling, dashboards, and old schema reuse (`AGENTS.md` Legacy Code Policy; `docs/DECISION_LOG.md` ADR-005, ADR-006; `docs/PROTOTYPE_V0_1.md` Out of Scope).
+Recommended reuse decision: do not import the legacy package as the new VulnSpider architecture. Reuse only selected static crawling outputs through a `LegacyCrawlerAdapter` boundary that converts legacy `crawl_links` rows into the v0.1 `Endpoint`, `InputPoint`, and `RequestTemplate` concepts described in `docs/DOMAIN_MODEL.md`. The old LLM/RAG, dynamic crawler, visualization, export format, and SQLite schema should not become v0.1 domain architecture because v0.1 explicitly excludes LLM payload generation, browser crawling, dashboards, and old schema reuse (`AGENTS.md` Legacy Code Policy; `docs/DECISION_LOG.md` ADR-005, ADR-006; `docs/PROTOTYPE_V0_1.md` Out of Scope).
 
 Top reuse path:
 
 1. Use legacy data only as `RawDiscoveredSurface` input.
 2. Normalize query parameters and form fields into separate `InputPoint`s.
 3. Add a new safety/scope layer outside legacy behavior.
-4. Keep Probe, FeatureVector, Candidate, Scoring, Top-K, and JSON report as new SPIDERMAN code.
+4. Keep Probe, FeatureVector, Candidate, Scoring, Top-K, and JSON report as new VulnSpider code.
 
 ## 2. Repository Module Map
 
@@ -103,7 +103,7 @@ Inserted record shape:
 
 Evidence: `db.py::insert_link` lines 32-41; `static_crawler.py` lines 88-95 and 139-142; `dynamic_crawler.py` lines 96-105 and 193-196.
 
-This schema is not the new SPIDERMAN domain schema. It has no first-class `Endpoint`, `InputPoint`, `RequestTemplate`, `ResponseSnapshot`, `FeatureVector`, `VulnerabilityCandidate`, `ScoreEvidence`, or scorer version. It stores query/form observations as JSON strings nested inside a page row. This conflicts with the v0.1 domain rule that `FeatureVector` belongs to one `InputPoint` and ranking is `InputPoint x VulnerabilityType` (`docs/DOMAIN_MODEL.md` sections 9-11; `docs/DECISION_LOG.md` ADR-001 and ADR-002).
+This schema is not the new VulnSpider domain schema. It has no first-class `Endpoint`, `InputPoint`, `RequestTemplate`, `ResponseSnapshot`, `FeatureVector`, `VulnerabilityCandidate`, `ScoreEvidence`, or scorer version. It stores query/form observations as JSON strings nested inside a page row. This conflicts with the v0.1 domain rule that `FeatureVector` belongs to one `InputPoint` and ranking is `InputPoint x VulnerabilityType` (`docs/DOMAIN_MODEL.md` sections 9-11; `docs/DECISION_LOG.md` ADR-001 and ADR-002).
 
 Exports preserve the old table shape exactly: `export_json` and `export_csv` run `SELECT * FROM crawl_links` and dump the rows (`export.py` lines 18-49). Graphing also reads directly from `crawl_links` (`visualize.py` lines 16-24). LLM analysis selects `link`, `input_fields`, and `query_params` from `crawl_links` (`local_llm.py` lines 547-556).
 
@@ -125,7 +125,7 @@ A typical static or dynamic stored row looks like this conceptually:
 
 The query portion comes from `extract_params_from_url`, which returns a dictionary where a single value becomes a string and repeated values become a list (`params.py` lines 9-18). The form portion comes from `extract_inputs_with_form_context`, which attaches `form_method` and `form_action` to each non-hidden field inside a form (`parser.py` lines 8-23).
 
-Mapping to SPIDERMAN v0.1 should produce at least:
+Mapping to VulnSpider v0.1 should produce at least:
 
 - Endpoint from `link`: method plus normalized scheme/host/path.
 - Query `InputPoint`s from every key in `query_params`.
@@ -162,7 +162,7 @@ For v0.1, the adapter must break these couplings by treating legacy output as ex
 - `modules/parser.py::extract_inputs_with_form_context`: useful as a starting point for form extraction because it records `form_method` and `form_action` (`parser.py` lines 21-22). It must be wrapped because it discards hidden inputs and only preserves selected attributes (`parser.py` lines 13-18 and 28-33).
 - `modules/params.py::extract_params_from_url`: useful as a starting point for query parsing (`params.py` lines 9-18), but the adapter should decide how to preserve blank values, repeated values, and exact baseline values.
 - `modules/url_filter.py`: include/exclude filtering and similarity reduction may be useful for crawl de-duplication (`url_filter.py::is_url_allowed`, `filter_similar_urls`), but deterministic ordering and test coverage are needed because `filter_similar_urls` starts from a `set` (`url_filter.py` line 23).
-- `modules/db.py`: useful only as a reader/writer for legacy crawl records during migration. Its table is not the new SPIDERMAN schema (`db.py::create_table` lines 14-29).
+- `modules/db.py`: useful only as a reader/writer for legacy crawl records during migration. Its table is not the new VulnSpider schema (`db.py::create_table` lines 14-29).
 
 ### refactor later
 
@@ -183,17 +183,17 @@ For v0.1, the adapter must break these couplings by treating legacy output as ex
 
 ## 8. Architecture Mismatches
 
-Legacy model vs SPIDERMAN domain:
+Legacy model vs VulnSpider domain:
 
-- Legacy stores page rows. SPIDERMAN separates `Page`, `Endpoint`, `InputPoint`, and `VulnerabilityCandidate` (`docs/DOMAIN_MODEL.md` section 1; legacy `db.py::create_table`).
-- Legacy nests all query params of a URL into one JSON cell. SPIDERMAN must split each query parameter into a separate `InputPoint` (`docs/PROTOTYPE_V0_1.md` AC-01; legacy `params.py::extract_params_from_url`).
-- Legacy nests all visible form fields into one page row. SPIDERMAN must split each form field into a separate `InputPoint` and normalize the form action/method into an endpoint/request template (`docs/PROTOTYPE_V0_1.md` AC-02; legacy `parser.py::extract_inputs_with_form_context`).
-- Legacy has no one-at-a-time probe representation. SPIDERMAN requires `ProbePlan.changed_fields` length 1 and one target `InputPoint` per probe (`docs/DOMAIN_MODEL.md` section 5; `docs/PROTOTYPE_V0_1.md` AC-03).
-- Legacy does not keep `ResponseSnapshot` status code, elapsed time, headers, body hash, body length, encoding, or redirect location. SPIDERMAN needs these for observation and feature extraction (`docs/DOMAIN_MODEL.md` section 6).
+- Legacy stores page rows. VulnSpider separates `Page`, `Endpoint`, `InputPoint`, and `VulnerabilityCandidate` (`docs/DOMAIN_MODEL.md` section 1; legacy `db.py::create_table`).
+- Legacy nests all query params of a URL into one JSON cell. VulnSpider must split each query parameter into a separate `InputPoint` (`docs/PROTOTYPE_V0_1.md` AC-01; legacy `params.py::extract_params_from_url`).
+- Legacy nests all visible form fields into one page row. VulnSpider must split each form field into a separate `InputPoint` and normalize the form action/method into an endpoint/request template (`docs/PROTOTYPE_V0_1.md` AC-02; legacy `parser.py::extract_inputs_with_form_context`).
+- Legacy has no one-at-a-time probe representation. VulnSpider requires `ProbePlan.changed_fields` length 1 and one target `InputPoint` per probe (`docs/DOMAIN_MODEL.md` section 5; `docs/PROTOTYPE_V0_1.md` AC-03).
+- Legacy does not keep `ResponseSnapshot` status code, elapsed time, headers, body hash, body length, encoding, or redirect location. VulnSpider needs these for observation and feature extraction (`docs/DOMAIN_MODEL.md` section 6).
 - Legacy discards or ignores HTTP status semantics. Static `fetch_page` calls `raise_for_status()` and returns on exceptions (`static_crawler.py` lines 79-83), while v0.1 requires preserving 4xx/5xx as observation data (`docs/PROTOTYPE_V0_1.md` AC-04; `docs/DOMAIN_MODEL.md` section 6).
-- Legacy forces static response encoding to UTF-8 (`static_crawler.py` line 80). SPIDERMAN response snapshots should preserve encoding and not blindly force it (`docs/DOMAIN_MODEL.md` section 6; `CODE_REVIEW.md` HTTP Semantics).
-- Legacy LLM analysis emits `confidence_score` as vulnerability probability (`local_llm.py` lines 501-502). SPIDERMAN v0.1 uses `RankScore` only as verification priority (`docs/DECISION_LOG.md` ADR-003).
-- Legacy has no feature observation missing-vs-zero semantics. SPIDERMAN requires `observed=false, value=null` to differ from `observed=true, value=0` (`docs/FEATURE_SCHEMA.md` section 2; `docs/PROTOTYPE_V0_1.md` AC-05).
+- Legacy forces static response encoding to UTF-8 (`static_crawler.py` line 80). VulnSpider response snapshots should preserve encoding and not blindly force it (`docs/DOMAIN_MODEL.md` section 6; `CODE_REVIEW.md` HTTP Semantics).
+- Legacy LLM analysis emits `confidence_score` as vulnerability probability (`local_llm.py` lines 501-502). VulnSpider v0.1 uses `RankScore` only as verification priority (`docs/DECISION_LOG.md` ADR-003).
+- Legacy has no feature observation missing-vs-zero semantics. VulnSpider requires `observed=false, value=null` to differ from `observed=true, value=0` (`docs/FEATURE_SCHEMA.md` section 2; `docs/PROTOTYPE_V0_1.md` AC-05).
 - Legacy old graph/export/LLM outputs do not produce candidate-level `ScoreEvidence`, type-specific ranking, or Top-K per vulnerability type (`docs/PROTOTYPE_V0_1.md` AC-06 and AC-07).
 
 ## 9. Safety and Correctness Risks
@@ -228,7 +228,7 @@ Legacy crawl source
 Adapter input options:
 
 - Preferred for tests: read legacy `crawl_links` rows from a fixture SQLite DB or JSON export without running network I/O.
-- Optional for local smoke only: invoke legacy static crawler under an explicit SPIDERMAN `ScopeGuard`, using local authorized targets only.
+- Optional for local smoke only: invoke legacy static crawler under an explicit VulnSpider `ScopeGuard`, using local authorized targets only.
 
 Raw legacy record shape:
 
@@ -252,11 +252,11 @@ Adapter responsibilities:
 5. Preserve source page and legacy row ID for traceability.
 6. Emit warnings/details when legacy data is incomplete, for example hidden inputs were omitted or form method/action is missing.
 7. Never compute features, scores, vulnerability probabilities, or LLM analysis.
-8. Never rely on legacy suffix scope checks; scope validation belongs to SPIDERMAN `scope/`.
+8. Never rely on legacy suffix scope checks; scope validation belongs to VulnSpider `scope/`.
 
 Adapter non-goals:
 
-- Do not reuse old SQLite schema as SPIDERMAN domain schema.
+- Do not reuse old SQLite schema as VulnSpider domain schema.
 - Do not import `local_llm`, `rag`, `visualize`, or dynamic crawler for v0.1 core.
 - Do not let legacy crawler decide final in-scope hosts.
 - Do not treat legacy LLM confidence as `RankScore` or `VerificationConfidence`.
@@ -264,7 +264,7 @@ Adapter non-goals:
 ## 11. Migration Plan for v0.1
 
 1. Keep `reference/whspider_legacy/` read-only.
-2. Build the SPIDERMAN scaffold separately under `src/spiderman/`.
+2. Build the VulnSpider scaffold separately under `src/vulnspider/`.
 3. Define new typed domain models from `docs/DOMAIN_MODEL.md`.
 4. Add fixtures that mimic legacy `crawl_links` rows, including query params, visible form fields, hidden-field loss, repeated query params, blank query values, relative form actions, and missing methods.
 5. Implement a `LegacyCrawlerAdapter` that consumes legacy rows or export-like dictionaries and outputs normalized raw discovery records.

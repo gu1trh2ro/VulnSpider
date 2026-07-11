@@ -1,6 +1,6 @@
 """Deterministic candidate selection package."""
 
-from spiderman.selection.top_k import (
+from vulnspider.selection.top_k import (
     RankedScoringResult,
     SelectionError,
     SelectionOutcome,

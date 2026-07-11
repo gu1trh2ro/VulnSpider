@@ -11,7 +11,7 @@ Read:
 
 ## Goal
 
-Implement the smallest adapter that converts legacy WHSPIDER crawl records into normalized SPIDERMAN domain objects.
+Implement the smallest adapter that converts legacy WHSPIDER crawl records into normalized VulnSpider domain objects.
 
 ## Architecture constraint
 

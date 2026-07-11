@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 
 
-def iter_spiderman_modules() -> list[str]:
-    package = importlib.import_module("spiderman")
+def iter_vulnspider_modules() -> list[str]:
+    package = importlib.import_module("vulnspider")
     return sorted(
         module_info.name
         for module_info in pkgutil.walk_packages(
@@ -39,7 +39,7 @@ def validate_type_hints(module_name: str) -> list[str]:
 def main() -> int:
     sys.path.insert(0, str(SRC))
     failures: list[str] = []
-    for module_name in iter_spiderman_modules():
+    for module_name in iter_vulnspider_modules():
         failures.extend(validate_type_hints(module_name))
     if failures:
         print("\n".join(failures))

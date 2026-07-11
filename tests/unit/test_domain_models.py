@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 import unittest
 
-from spiderman.domain import (
+from vulnspider.domain import (
     Endpoint,
     FeatureObservation,
     FeatureVector,

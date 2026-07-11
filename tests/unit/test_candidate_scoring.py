@@ -4,7 +4,7 @@ from dataclasses import replace
 import inspect
 import unittest
 
-from spiderman.domain import (
+from vulnspider.domain import (
     FeatureObservation,
     FeatureVector,
     HttpMethod,
@@ -18,14 +18,14 @@ from spiderman.domain import (
     VulnerabilityCandidate,
     VulnerabilityType,
 )
-from spiderman.features import (
+from vulnspider.features import (
     MARKER_REFLECTED,
     RESPONSE_LENGTH_DIFF_RATIO,
     SQL_ERROR_PATTERN,
     STATUS_CODE_CHANGED,
     extract_minimal_features,
 )
-from spiderman.scoring import (
+from vulnspider.scoring import (
     SQLI_MAX_RANK_SCORE,
     XSS_MAX_RANK_SCORE,
     CandidateGenerator,
@@ -107,7 +107,7 @@ class CandidateScoringTests(unittest.TestCase):
         )
         probe_request = RequestInstance(
             method=HttpMethod.GET,
-            url="http://127.0.0.1/search?q=SPIDERMAN_MARKER",
+            url="http://127.0.0.1/search?q=VULNSPIDER_MARKER",
         )
         probe_plan = ProbePlan(
             input_point_id=input_point.id or "",
@@ -115,7 +115,7 @@ class CandidateScoringTests(unittest.TestCase):
             baseline_request=baseline_request,
             probe_request=probe_request,
             changed_fields=("query.q",),
-            probe_marker="SPIDERMAN_MARKER",
+            probe_marker="VULNSPIDER_MARKER",
         )
         baseline_response = ResponseSnapshot(
             request_id=baseline_request.id or "",

@@ -30,7 +30,7 @@ If the expected legacy directory is missing, stop and report the missing path in
 
 ## Goal
 
-Determine exactly how much of the previous WHSPIDER project should be reused for SPIDERMAN prototype v0.1.
+Determine exactly how much of the previous WHSPIDER project should be reused for VulnSpider prototype v0.1.
 
 ## Critical constraint
 
