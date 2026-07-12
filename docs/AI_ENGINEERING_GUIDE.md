@@ -1,10 +1,10 @@
-# AI Engineering Guide for SPIDERMAN
+# AI Engineering Guide for VulnSpider
 
 ## 0. 먼저 결론
 
 처음부터 "여러 에이전트가 알아서 프로젝트를 완성"하게 만들지 않는다.
 
-SPIDERMAN에는 다음 순서가 가장 안전하다.
+VulnSpider에는 다음 순서가 가장 안전하다.
 
 ```text
 Stage 1: 좋은 단일 Codex 작업
@@ -73,7 +73,7 @@ Goal
 
 에이전트를 둘러싼 **작업 환경과 통제 시스템**을 설계하는 일이다.
 
-SPIDERMAN에서는 다음이 harness다.
+VulnSpider에서는 다음이 harness다.
 
 ```text
 AGENTS.md
@@ -103,7 +103,7 @@ stop conditions
 
 으로 이해하면 된다.
 
-SPIDERMAN 예:
+VulnSpider 예:
 
 ```text
 Issue/Goal
@@ -147,7 +147,7 @@ Security Boundary Reviewer
 
 ---
 
-# 2. SPIDERMAN에 권장하는 단계별 도입
+# 2. VulnSpider에 권장하는 단계별 도입
 
 ## Stage 1 — Single Agent, Strong Task Spec
 
@@ -253,7 +253,7 @@ review_majors = 0
 
 ## Stage 4 — 최소 Multi-Agent
 
-SPIDERMAN 초기에는 다음 3역할만 권장.
+VulnSpider 초기에는 다음 3역할만 권장.
 
 ### A. Planner / Architect
 
@@ -395,7 +395,7 @@ Review the current diff against CODE_REVIEW.md. Do not edit files.
 
 반복 작업이 3번 이상 안정적으로 반복될 때.
 
-SPIDERMAN 후보:
+VulnSpider 후보:
 
 ```text
 legacy-audit skill
@@ -579,6 +579,6 @@ coordination overhead만 증가한다.
 - budget
 - escalation
 
-SPIDERMAN v0.1 목표는 **Level 2~3**이다.
+VulnSpider v0.1 목표는 **Level 2~3**이다.
 
 그 이상은 프로젝트 본체가 안정된 뒤 올린다.

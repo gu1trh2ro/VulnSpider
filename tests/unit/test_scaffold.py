@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-import spiderman
-from spiderman import cli
+import vulnspider
+from vulnspider import cli
 
 
 class ScaffoldTests(unittest.TestCase):
     def test_package_exposes_version(self) -> None:
-        self.assertEqual(spiderman.__version__, "0.1.0")
+        self.assertEqual(vulnspider.__version__, "0.1.0")
 
     def test_cli_entrypoint_accepts_empty_args(self) -> None:
         self.assertEqual(cli.main([]), 0)

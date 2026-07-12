@@ -6,8 +6,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from math import isfinite
 
-from spiderman.domain import VulnerabilityType
-from spiderman.scoring import (
+from vulnspider.domain import VulnerabilityType
+from vulnspider.scoring import (
     SQLI_MAX_RANK_SCORE,
     SQLI_SCORER_VERSION,
     XSS_MAX_RANK_SCORE,

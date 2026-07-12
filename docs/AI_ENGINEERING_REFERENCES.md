@@ -1,6 +1,6 @@
 # AI Engineering References
 
-이 문서는 SPIDERMAN의 AI-assisted development 운영 원칙을 잡을 때 참고한 자료 목록이다.
+이 문서는 VulnSpider의 AI-assisted development 운영 원칙을 잡을 때 참고한 자료 목록이다.
 
 최신 상태는 원문을 다시 확인한다.
 

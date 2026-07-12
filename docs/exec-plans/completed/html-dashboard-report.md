@@ -4,7 +4,7 @@
 
 CLI JSON 출력과 동일한 검증된 데이터(SelectionOutcome, 실제 실행된
 baseline/probe 요청·응답)를 사람이 브라우저에서 바로 검토할 수 있는 단일
-정적 HTML 대시보드 파일로도 생성한다. `spiderman analyze`에 `--html-output`
+정적 HTML 대시보드 파일로도 생성한다. `vulnspider analyze`에 `--html-output`
 옵션을 추가해 JSON 리포트와 함께(또는 대신) 생성할 수 있게 한다.
 
 ## Non-Goals
@@ -34,12 +34,12 @@ baseline/probe 요청·응답)를 사람이 브라우저에서 바로 검토할 
 - `docs/FEATURE_SCHEMA.md`
 - `docs/PROTOTYPE_V0_1.md`
 - `docs/DECISION_LOG.md`
-- `src/spiderman/reporting/json_report.py`
-- `src/spiderman/pipeline.py`
-- `src/spiderman/cli.py`
-- `src/spiderman/observation/executor.py`, `planner.py`
-- `src/spiderman/domain/models.py`
-- `src/spiderman/scoring/engine.py`, `src/spiderman/selection/top_k.py`
+- `src/vulnspider/reporting/json_report.py`
+- `src/vulnspider/pipeline.py`
+- `src/vulnspider/cli.py`
+- `src/vulnspider/observation/executor.py`, `planner.py`
+- `src/vulnspider/domain/models.py`
+- `src/vulnspider/scoring/engine.py`, `src/vulnspider/selection/top_k.py`
 - `tests/unit/test_selection_reporting.py`
 - `tests/integration/test_v01_smoke.py`
 - 사용자가 첨부한 `report.html` (디자인 참고용 목업 — 이 repo의 어느
@@ -170,7 +170,7 @@ cli analyze
 
 ## Acceptance Criteria
 
-- [x] `spiderman analyze --input ... --top-k N --output result.json
+- [x] `vulnspider analyze --input ... --top-k N --output result.json
       --html-output result.html` 실행 시 두 파일 모두 생성된다.
 - [x] `--html-output` 생략 시 기존 동작과 100% 동일(회귀 없음).
 - [x] HTML 리포트의 모든 수치·근거는 JSON 리포트와 동일한 `SelectionOutcome`
@@ -200,8 +200,8 @@ cli analyze
     `probe_observations`/`elapsed_seconds` 필드 추가(순수 추가, 기존
     시그니처 불변). 기존 180개 테스트 회귀 없음 확인.
   - `reporting/html_report.py` 신규 구현. 초안 작성 중 발견/수정한 실제
-    버그: (1) `ScoringResult`를 `spiderman.selection`이 아니라
-    `spiderman.scoring`에서 import해야 했음, (2) 헤더에 `<span "ver">`
+    버그: (1) `ScoringResult`를 `vulnspider.selection`이 아니라
+    `vulnspider.scoring`에서 import해야 했음, (2) 헤더에 `<span "ver">`
     같은 잘못된 HTML 속성, (3) 가장 중요한 문제 — 후보 카드 렌더링에서
     `f"""..."""`(삼중 큰따옴표) f-string의 `{}` 표현식 안에서 동일한
     큰따옴표로 dict 접근(`candidate["rank"]`)을 하거나 `{}` 안에 백슬래시가

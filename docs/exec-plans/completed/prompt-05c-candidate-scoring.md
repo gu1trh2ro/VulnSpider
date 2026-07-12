@@ -23,10 +23,10 @@ updates, LLM/RAG, BAC, grid search, new probes, and new feature extraction.
 - `docs/LEGACY_AUDIT.md`
 - `docs/DECISION_LOG.md`
 - `docs/EVALUATION_PROTOCOL.md`
-- `src/spiderman/domain/models.py`
-- `src/spiderman/observation/planner.py`
-- `src/spiderman/observation/executor.py`
-- `src/spiderman/features/extraction.py`
+- `src/vulnspider/domain/models.py`
+- `src/vulnspider/observation/planner.py`
+- `src/vulnspider/observation/executor.py`
+- `src/vulnspider/features/extraction.py`
 - current unit tests and quality-check scripts
 
 ## Current State

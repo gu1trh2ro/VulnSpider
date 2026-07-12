@@ -1,6 +1,6 @@
 """Observation and probe planning package."""
 
-from spiderman.observation.executor import (
+from vulnspider.observation.executor import (
     DEFAULT_MAX_BODY_BYTES,
     DEFAULT_TIMEOUT_SECONDS,
     RequestExecutionError,
@@ -11,7 +11,7 @@ from spiderman.observation.executor import (
     execute_request,
     pair_probe_responses,
 )
-from spiderman.observation.planner import (
+from vulnspider.observation.planner import (
     DEFAULT_MARKER_STRATEGY,
     MARKER_PREFIX,
     ProbePlanner,

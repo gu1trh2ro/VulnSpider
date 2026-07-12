@@ -9,14 +9,14 @@ from time import monotonic
 from typing import Any
 from urllib.parse import urlsplit
 
-from spiderman.discovery import (
+from vulnspider.discovery import (
     LegacyAdapterResult,
     LegacyCrawlerAdapter,
     LegacyCrawlRecord,
 )
-from spiderman.domain import ProbePlan, ResponseSnapshot
-from spiderman.features import extract_minimal_features
-from spiderman.observation import (
+from vulnspider.domain import ProbePlan, ResponseSnapshot
+from vulnspider.features import extract_minimal_features
+from vulnspider.observation import (
     DEFAULT_MAX_BODY_BYTES,
     DEFAULT_TIMEOUT_SECONDS,
     ProbePlanner,
@@ -24,9 +24,9 @@ from spiderman.observation import (
     RequestExecutor,
     UrlLibTransport,
 )
-from spiderman.observation.executor import RequestTransport
-from spiderman.scoring import ScoringResult, generate_candidates
-from spiderman.selection import SelectionOutcome, select_top_k
+from vulnspider.observation.executor import RequestTransport
+from vulnspider.scoring import ScoringResult, generate_candidates
+from vulnspider.selection import SelectionOutcome, select_top_k
 
 
 class PipelineError(ValueError):

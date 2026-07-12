@@ -1,6 +1,6 @@
 """Candidate generation and type-specific deterministic scoring."""
 
-from spiderman.scoring.engine import (
+from vulnspider.scoring.engine import (
     SQLI_MAX_RANK_SCORE,
     SQLI_SCORER_VERSION,
     SQLI_TERMS,

@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import unittest
 
-import spiderman.observation.planner as planner_module
-from spiderman.discovery import LegacyCrawlerAdapter
-from spiderman.domain import (
+import vulnspider.observation.planner as planner_module
+from vulnspider.discovery import LegacyCrawlerAdapter
+from vulnspider.domain import (
     Endpoint,
     HttpMethod,
     InputLocation,
@@ -16,7 +16,7 @@ from spiderman.domain import (
     RequestContextCompleteness,
     RequestTemplate,
 )
-from spiderman.observation import (
+from vulnspider.observation import (
     MARKER_PREFIX,
     ProbePlanner,
     ProbePlanningError,
@@ -666,7 +666,7 @@ class ProbePlannerTests(unittest.TestCase):
         self.assertEqual(marker, self.planner.plan(input_point, template, context).probe_marker)
 
     def test_marker_collision_uses_deterministic_non_noop_fallback(self) -> None:
-        collision_marker = "SPIDERMAN_AAAAAAAAAAAAAAAA"
+        collision_marker = "VULNSPIDER_AAAAAAAAAAAAAAAA"
         input_point, template, context = self._query_case(
             (("q", collision_marker),),
             target="q",
@@ -693,15 +693,15 @@ class ProbePlannerTests(unittest.TestCase):
         finally:
             planner_module.stable_fingerprint = original_stable_fingerprint  # type: ignore[method-assign]
 
-        self.assertEqual(first.probe_marker, "SPIDERMAN_BBBBBBBBBBBBBBBB")
+        self.assertEqual(first.probe_marker, "VULNSPIDER_BBBBBBBBBBBBBBBB")
         self.assertNotEqual(first.probe_marker, collision_marker)
         self.assertEqual(first.probe_marker, equivalent.probe_marker)
         self.assertEqual(first.id, equivalent.id)
         self.assertEqual(
             first.probe_request.query,
-            (("q", "SPIDERMAN_BBBBBBBBBBBBBBBB"),),
+            (("q", "VULNSPIDER_BBBBBBBBBBBBBBBB"),),
         )
-        self.assertIn("SPIDERMAN_BBBBBBBBBBBBBBBB", first.probe_request.url)
+        self.assertIn("VULNSPIDER_BBBBBBBBBBBBBBBB", first.probe_request.url)
         self.assertNotEqual(first.probe_marker, different_marker.probe_marker)
         self.assertNotEqual(first.id, different_marker.id)
 

@@ -1,4 +1,4 @@
-# SPIDERMAN Prototype v0.1 — Start Here
+# VulnSpider Prototype v0.1 — Start Here
 
 ## 1. 이 패키지의 목적
 
@@ -40,7 +40,7 @@ prompts/07_FIX_REVIEW_LOOP.md
 권장 구조:
 
 ```text
-spiderman/
+vulnspider/
 ├─ AGENTS.md
 ├─ PLANS.md
 ├─ CODE_REVIEW.md
@@ -147,7 +147,7 @@ docs/CODEX_SETUP.md
 사용하며, localhost/loopback의 허가된 테스트 대상만 Light Probe한다.
 
 ```powershell
-spiderman analyze `
+vulnspider analyze `
   --input legacy-records.json `
   --top-k 10 `
   --output result.json

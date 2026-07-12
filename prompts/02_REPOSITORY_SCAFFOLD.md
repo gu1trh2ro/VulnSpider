@@ -14,7 +14,7 @@ Also read `docs/LEGACY_AUDIT.md` if it exists.
 
 ## Goal
 
-Create the minimal Python repository scaffold required for SPIDERMAN prototype v0.1 without implementing crawler, probe, feature extraction, or scoring behavior yet.
+Create the minimal Python repository scaffold required for VulnSpider prototype v0.1 without implementing crawler, probe, feature extraction, or scoring behavior yet.
 
 ## Constraints
 
@@ -31,7 +31,7 @@ Create the minimal Python repository scaffold required for SPIDERMAN prototype v
 At minimum:
 
 ```text
-src/spiderman/
+src/vulnspider/
   domain/
   scope/
   discovery/
@@ -68,7 +68,7 @@ Explain dependency choices before adding them.
 ## Done when
 
 - repository installs in development mode or equivalent,
-- `python -m spiderman...` or planned CLI entrypoint is structurally possible,
+- `python -m vulnspider...` or planned CLI entrypoint is structurally possible,
 - test/lint/type-check commands are documented,
 - no network behavior is implemented,
 - relevant checks pass.

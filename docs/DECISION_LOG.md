@@ -116,7 +116,7 @@ type-specific-only 기본 selection을 05D CLI에 대해 대체한다.
 
 **Decision:** v0.1은 기존 JSON 리포트에 더해, 동일한 검증된
 `SelectionOutcome`과 실제로 실행된 baseline/probe 요청·응답으로부터
-정적 HTML 대시보드 리포트를 생성할 수 있다 (`spiderman analyze
+정적 HTML 대시보드 리포트를 생성할 수 있다 (`vulnspider analyze
 --html-output`). 이는 `AGENTS.md`, `docs/PROTOTYPE_V0_1.md`,
 `docs/ARCHITECTURE.md`가 명시하던 "dashboard is out of scope"를
 대체한다.

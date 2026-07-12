@@ -1,4 +1,4 @@
-"""Typed domain objects for SPIDERMAN prototype v0.1."""
+"""Typed domain objects for VulnSpider prototype v0.1."""
 
 from __future__ import annotations
 

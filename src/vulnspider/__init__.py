@@ -1,4 +1,4 @@
-"""SPIDERMAN prototype package."""
+"""VulnSpider prototype package."""
 
 __all__ = ["__version__"]
 

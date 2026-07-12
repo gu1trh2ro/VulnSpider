@@ -1,6 +1,6 @@
 """Stable JSON and HTML reporting package."""
 
-from spiderman.reporting.html_report import (
+from vulnspider.reporting.html_report import (
     GENERAL_GUIDANCE,
     HTML_REPORT_SCHEMA_VERSION,
     VULNERABILITY_LABELS,
@@ -8,7 +8,7 @@ from spiderman.reporting.html_report import (
     render_html_report,
     write_html_report,
 )
-from spiderman.reporting.json_report import (
+from vulnspider.reporting.json_report import (
     REPORT_SCHEMA_VERSION,
     ReportingError,
     build_json_report,

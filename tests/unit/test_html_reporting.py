@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from spiderman.domain import (
+from vulnspider.domain import (
     Endpoint,
     FeatureObservation,
     FeatureVector,
@@ -14,19 +14,19 @@ from spiderman.domain import (
     RequestInstance,
     ResponseSnapshot,
 )
-from spiderman.features import (
+from vulnspider.features import (
     MARKER_REFLECTED,
     RESPONSE_LENGTH_DIFF_RATIO,
     SQL_ERROR_PATTERN,
     STATUS_CODE_CHANGED,
 )
-from spiderman.reporting import (
+from vulnspider.reporting import (
     ReportingError,
     build_html_report_context,
     render_html_report,
 )
-from spiderman.scoring import SQLiScorer, XSSScorer
-from spiderman.selection import select_top_k
+from vulnspider.scoring import SQLiScorer, XSSScorer
+from vulnspider.selection import select_top_k
 
 
 class HtmlReportingTests(unittest.TestCase):
@@ -83,7 +83,7 @@ class HtmlReportingTests(unittest.TestCase):
         self,
         input_point: InputPoint,
         *,
-        marker: str = "SPIDERMAN_TESTMARKER0000",
+        marker: str = "VULNSPIDER_TESTMARKER0000",
     ) -> tuple[ProbePlan, ResponseSnapshot, ResponseSnapshot]:
         baseline_request = RequestInstance(
             method=HttpMethod.GET,
@@ -214,7 +214,7 @@ class HtmlReportingTests(unittest.TestCase):
         vector = self._vector(input_point.id or "", marker_reflected=1.0)
         result = XSSScorer().score(vector)
         outcome = select_top_k((result,), k=1)
-        marker = "SPIDERMAN_<script>alert('marker')</script>"
+        marker = "VULNSPIDER_<script>alert('marker')</script>"
 
         html_text = render_html_report(
             outcome,

@@ -5,14 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
 
-from spiderman.domain import (
+from vulnspider.domain import (
     FeatureObservation,
     FeatureVector,
     ScoreEvidence,
     VulnerabilityCandidate,
     VulnerabilityType,
 )
-from spiderman.features import (
+from vulnspider.features import (
     MARKER_REFLECTED,
     RESPONSE_LENGTH_DIFF_RATIO,
     SQL_ERROR_PATTERN,

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Mapping, Sequence
 from urllib.parse import parse_qsl, urljoin, urlsplit
 
-from spiderman.domain import (
+from vulnspider.domain import (
     Endpoint,
     HttpMethod,
     InputLocation,
