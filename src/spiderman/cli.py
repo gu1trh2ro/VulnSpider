@@ -5,15 +5,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 from spiderman import __version__
+from spiderman.domain import Endpoint
 from spiderman.observation.executor import RequestTransport
-from spiderman.pipeline import analyze_legacy_records
-from spiderman.reporting import write_json_report
+from spiderman.pipeline import AnalysisResult, analyze_legacy_records
+from spiderman.reporting import write_html_report, write_json_report
 
 
 class CLIError(ValueError):
@@ -57,6 +58,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Destination for the deterministic JSON report.",
     )
+    analyze.add_argument(
+        "--html-output",
+        required=False,
+        default=None,
+        type=Path,
+        help=(
+            "Optional destination for a static HTML dashboard report "
+            "rendering the same data as --output (ADR-011)."
+        ),
+    )
     return parser
 
 
@@ -83,10 +94,46 @@ def main(
             args.output,
             warnings=analysis.warnings,
         )
+        if args.html_output is not None:
+            _write_html_report(analysis, args.html_output)
     except (OSError, ValueError) as exc:
         print(f"spiderman: error: {exc}", file=sys.stderr)
         return 2
     return 0
+
+
+def _write_html_report(analysis: AnalysisResult, destination: Path) -> None:
+    adapter_result = analysis.adapter_result
+    input_points = {
+        input_point.id or "": input_point
+        for input_point in adapter_result.input_points
+    }
+    endpoints = {
+        endpoint.id or "": endpoint for endpoint in adapter_result.endpoints
+    }
+    probe_runs = {
+        observation.feature_vector_id: (
+            observation.probe_plan,
+            observation.baseline_response,
+            observation.probe_response,
+        )
+        for observation in analysis.probe_observations
+    }
+    write_html_report(
+        analysis.selection,
+        destination,
+        warnings=analysis.warnings,
+        input_points=input_points,
+        endpoints=endpoints,
+        probe_runs=probe_runs,
+        target=_target_label(adapter_result.endpoints),
+        elapsed_seconds=analysis.elapsed_seconds,
+    )
+
+
+def _target_label(endpoints: Sequence[Endpoint]) -> str:
+    origins = sorted({f"{endpoint.scheme}://{endpoint.host}" for endpoint in endpoints})
+    return ", ".join(origins)
 
 
 def _positive_integer(value: str) -> int:

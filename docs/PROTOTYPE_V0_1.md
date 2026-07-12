@@ -57,6 +57,9 @@ v0.1은 완성형 취약점 스캐너가 아니다.
 
 - CLI summary
 - JSON report
+- HTML dashboard report (optional `--html-output`; renders the same
+  validated `SelectionOutcome` and the actually-executed baseline/probe
+  pair as the JSON report — see §13 and ADR-011)
 
 ---
 
@@ -67,7 +70,6 @@ v0.1은 완성형 취약점 스캐너가 아니다.
 - focused exploit verification
 - LLM payload generation
 - payload mutation
-- dashboard
 - Playwright dynamic crawler
 - browser network interception
 - ML ranker
@@ -501,3 +503,45 @@ spiderman analyze \
 It reuses the existing planner, `execute_probe_plan()` path, extractor, and
 ownership-validated scorers. Focused verification, findings, confidence, LLM,
 BAC, dynamic crawling, and database persistence remain out of scope.
+
+## 13. HTML Dashboard Report Semantics (ADR-011)
+
+13 adds a second, optional report renderer; it does not add a new pipeline
+stage, new scoring, new vulnerability types, or focused/multi-payload
+verification. It consumes the same `SelectionOutcome` the JSON reporter
+consumes, plus the `InputPoint`/`Endpoint` objects already produced by the
+adapter and the `ProbePlan`/`ResponseSnapshot` pair already produced by
+`execute_probe_plan()` for each `FeatureVector`. It does not recompute a
+score, invent evidence, or call the network.
+
+```text
+spiderman analyze \
+  --input legacy-records.json \
+  --top-k 10 \
+  --output result.json \
+  --html-output result.html
+```
+
+`--html-output` is optional; omitting it leaves CLI behavior identical to
+05D (JSON report only).
+
+Terminology: the dashboard labels `selection_priority` as "priority" / "rank
+score" with its exact scorer maximum shown alongside it. It never uses
+"confidence", "probability", or "confirmed" — the same constraint the JSON
+report's evidence text already follows (AGENTS.md rules 5-6, ADR-010).
+
+Verification content: v0.1's Light Probe sends exactly one baseline request
+and one probe request per `InputPoint` (§2.3). The dashboard's "Executed
+requests" section shows exactly those two real requests/responses (role,
+URL or changed field + injected value, status code, body length, elapsed
+ms) for the `FeatureVector` backing each selected candidate. It does not
+show a multi-row "verification payload" table implying several distinct
+confirmation payloads were sent, because v0.1 does not send them; that
+remains Focused Verification, a later-version concept (§2.2, §3).
+
+Every other figure shown (endpoint, parameter, "why it ranks" evidence
+list, summary counts, warnings, unrankable results) is the same data the
+JSON report already exposes, joined for display only — no new derived
+signal is introduced. All text interpolated from crawled/observed data
+(endpoint path, parameter name, evidence reason strings, warnings) is HTML
+escaped, since that data can come from an untrusted target response.

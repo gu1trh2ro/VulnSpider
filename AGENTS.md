@@ -35,10 +35,10 @@ Scope & Safety Guard
   -> VulnerabilityCandidate generation
   -> Type-specific Scoring
   -> Top-K Selection
-  -> JSON Report
+  -> JSON Report (+ optional HTML Dashboard Report, ADR-011)
 ```
 
-Prototype v0.1 stops here. Focused exploitation, LLM payload mutation, BAC automation, dashboard, and broad active scanning are out of scope unless a later task explicitly changes the scope.
+Prototype v0.1 stops here. Focused exploitation, LLM payload mutation, BAC automation, and broad active scanning are out of scope unless a later task explicitly changes the scope. The HTML dashboard report (ADR-011) renders the same validated `SelectionOutcome` and the actually-executed baseline/probe pair as the JSON report; it does not add focused/multi-payload verification, new scoring, or new vulnerability types.
 
 ## Non-Negotiable Domain Rules
 

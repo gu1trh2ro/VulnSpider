@@ -110,6 +110,51 @@ type-specific-only 기본 selection을 05D CLI에 대해 대체한다.
 
 ---
 
+## ADR-011 — HTML dashboard report added to v0.1 scope
+
+**Status:** Accepted
+
+**Decision:** v0.1은 기존 JSON 리포트에 더해, 동일한 검증된
+`SelectionOutcome`과 실제로 실행된 baseline/probe 요청·응답으로부터
+정적 HTML 대시보드 리포트를 생성할 수 있다 (`spiderman analyze
+--html-output`). 이는 `AGENTS.md`, `docs/PROTOTYPE_V0_1.md`,
+`docs/ARCHITECTURE.md`가 명시하던 "dashboard is out of scope"를
+대체한다.
+
+**Reason:** 사용자가 CLI JSON 출력과 별도로 사람이 브라우저에서 바로
+검토할 수 있는 대시보드 리포트를 명시적으로 요청했다. `PLANS.md`의
+스코프 확장 절차(문서 갱신 + ADR + exec-plan)를 따라 의도적으로 범위를
+넓힌다.
+
+**Constraints (다른 ADR/규칙과의 충돌 방지):**
+
+- `reporting`은 점수를 재계산하지 않는다(§ARCHITECTURE.md 6). HTML
+  리포트는 JSON 리포트와 동일한 `SelectionOutcome`/`ScoreEvidence`만
+  사용한다.
+- `RankScore`/`selection_priority`는 여전히 vulnerability probability나
+  confidence가 아니다(규칙 5-6, ADR-010). HTML 리포트는 "priority"/"rank
+  score" 용어만 사용하고 "confidence"/"probability"/"confirmed"를 쓰지
+  않는다.
+- Focused/multi-payload verification은 계속 out-of-scope다
+  (ARCHITECTURE.md §2.2). HTML 리포트의 "Executed requests" 절은 v0.1이
+  실제로 보낸 baseline 1건 + probe 1건만 표시하며, 존재하지 않는 다건
+  확인용 payload를 만들어 보여주지 않는다.
+- BAC/IDOR 후보는 여전히 생성하지 않는다(ADR-007). 대시보드는 scoring이
+  실제로 만드는 SQLI/REFLECTED_XSS만 렌더링한다.
+
+**Alternatives considered:** 스코프를 바꾸지 않고 문서와 어긋난 채로
+코드만 추가(reject — CODE_REVIEW.md 1번 체크리스트와 충돌); 별도
+저장소(vulnspider 목업)에서만 진행(reject — 사용자가 이 저장소에 명시적
+요청).
+
+**Consequences:** `AGENTS.md`, `docs/PROTOTYPE_V0_1.md`,
+`docs/ARCHITECTURE.md`의 out-of-scope 목록에서 "dashboard"를 제거하고
+in-scope Output에 추가해야 한다. `pipeline.AnalysisResult`가
+`ProbePlan`/`ResponseSnapshot`을 리포팅을 위해 보존하도록 확장된다
+(순수 추가, 기존 필드/시그니처는 유지).
+
+---
+
 ## New Decision Template
 
 ```text
