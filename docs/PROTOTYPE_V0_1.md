@@ -16,6 +16,9 @@ v0.1은 완성형 취약점 스캐너가 아니다.
 
 - SQL Injection candidate ranking
 - Reflected XSS candidate ranking
+- Broken Access Control candidate ranking (ADR-012; §14 참고) — 두 가지
+  점검으로 한정: 자격 증명 제거(`CREDENTIAL_STRIP`)와 숫자 식별자 치환
+  (`IDENTIFIER_SUBSTITUTION`)
 
 ### 수집
 
@@ -65,8 +68,9 @@ v0.1은 완성형 취약점 스캐너가 아니다.
 
 ## 3. Out of Scope
 
-- BAC / IDOR automation
-- authentication role orchestration
+- real multi-account authentication/session orchestration (login flows,
+  credential storage, role management)
+- role-based vertical BAC matrices beyond the two ADR-012 checks
 - focused exploit verification
 - LLM payload generation
 - payload mutation
@@ -237,6 +241,17 @@ Target -> InputPoints -> Features -> Candidates -> Top-K JSON
 ```
 
 전체 흐름이 완료되어야 한다.
+
+---
+
+### AC-11 Broken Access Control Cross-category Top-K (ADR-012)
+
+쿠키/`Authorization` 헤더가 있는 GET `RequestTemplate`과 숫자 식별자를 가진
+GET `InputPoint`가 모두 존재하는 fixture에서, `vulnspider analyze`의 최종
+Top-K JSON에 `category: "BROKEN_ACCESS_CONTROL"` 후보가 `category:
+"INJECTION"` 후보와 함께 `selection_priority` 기준으로 정렬되어 나타나야
+한다. 쿠키도 숫자 식별자도 없는 기존 fixture는 BAC 후보 없이 이전과 동일한
+injection 결과를 내야 한다(`tests/integration/test_bac_smoke.py`).
 
 ---
 
@@ -545,3 +560,100 @@ JSON report already exposes, joined for display only — no new derived
 signal is introduced. All text interpolated from crawled/observed data
 (endpoint path, parameter name, evidence reason strings, warnings) is HTML
 escaped, since that data can come from an untrusted target response.
+
+## 14. Broken Access Control (BAC) Semantics (ADR-012)
+
+14 adds a second, structurally separate candidate pipeline
+(`vulnspider.access`); it does not add a `VulnerabilityType` value, does not
+reuse `VulnerabilityCandidate`/`ScoringResult`/`SQLiScorer`/`XSSScorer`, and
+does not perform real multi-account login. It is only reachable for `GET`
+requests, and only for the two comparisons a normal crawl already gives
+enough information to plan.
+
+### AccessCandidate identity
+
+`docs/DOMAIN_MODEL.md` #12 reserves this shape; `domain.access` implements
+it: `AccessCandidate` = `endpoint_id x check_kind x subject_context x
+resource_reference x input_point_id`. `input_point_id` is `None` for
+`CREDENTIAL_STRIP` (it is not about one InputPoint's value) and set for
+`IDENTIFIER_SUBSTITUTION`.
+
+### CREDENTIAL_STRIP
+
+Eligible only for a probe-ready `GET` `RequestTemplate` that carries cookies
+or an `Authorization` header — i.e. the crawl actually used some credential
+to reach this resource. The comparison request is the exact same request
+with `Cookie`/`Authorization` removed. `subject_context` on the resulting
+candidate is `ANONYMOUS`.
+
+### IDENTIFIER_SUBSTITUTION
+
+Eligible only for a probe-ready `GET` `RequestTemplate` and a `QUERY`/`FORM`
+`InputPoint` whose baseline value is purely numeric digits. The comparison
+request substitutes `baseline + 1` for that one occurrence, exactly as
+05A's one-at-a-time discipline requires for InputPoint mutation (AGENTS.md
+rule 4), except the marker is a plausible alternate identifier instead of an
+injection marker. Non-numeric identifiers (UUIDs, opaque tokens) are never
+substituted — v0.1 does not fabricate a "plausible" alternate value for
+those.
+
+### Features and scoring
+
+Two features, both `access_response_diff`-sourced and both requiring the
+reference request to have actually returned 2xx (otherwise both are
+`observed=False`, never a fabricated zero):
+
+```text
+access_unauthorized_success: 1.0 if the comparison request ALSO returns 2xx
+  (not denied), else 0.0.
+access_body_size_similarity_ratio: 1 - min(abs(comparison_len - reference_len)
+  / max(reference_len, 1), 1.0) — how substantial/similarly-sized the
+  comparison body is to the reference body.
+
+AccessScorer raw rank_score (0..75):
++ 55 * access_unauthorized_success
++ 20 * access_body_size_similarity_ratio
+```
+
+This is the same unnormalized verification-priority signal discipline as
+05C's SQLi/XSS weights (§11) — not a probability, not confidence, not a
+finding.
+
+### Cross-category Top-K
+
+`selection.combined.select_combined_top_k()` merges the existing injection
+`SelectionOutcome` (unmodified `select_top_k()`) and a new
+`AccessSelectionOutcome` (`access.selection.select_top_k_access()`, same
+`RankedScoringResult`-style invariants as 05D §12) into one ranked list, both
+compared through the same `selection_priority = raw_rank_score /
+exact_scorer_maximum` principle ADR-010 established for SQLi vs XSS. Both
+sub-selections must be computed with the same `k`; the merge takes each
+category's own top-`k` and re-sorts, which is exact because any item inside
+the true global top-`k` must already be inside its own category's top-`k`.
+
+### CLI/report output
+
+```text
+vulnspider analyze \
+  --input legacy-records.json \
+  --top-k 10 \
+  --output result.json \
+  --html-output result.html
+```
+
+The CLI flags are unchanged. `--output`/`--html-output` now render the
+combined Top-N (`reporting.combined_report`) instead of the SQLi/XSS-only
+report; the existing `reporting.json_report`/`reporting.html_report` public
+functions and their SQLi/XSS-only behavior are untouched and still directly
+callable. A fixture with no cookies/`Authorization` header and no numeric
+InputPoint produces zero access candidates and an unchanged injection-only
+result (see AC-11).
+
+`discovery.legacy_adapter.LegacyCrawlRecord` gained an optional `cookies`
+field (JSON object or JSON-encoded string) so a crawl record can carry the
+session used to reach it; omitting it is identical to before this field
+existed.
+
+Deferred: real login/session orchestration, role-based vertical BAC checks,
+non-numeric identifier substitution, and any BAC verification beyond the two
+Light Probes above.

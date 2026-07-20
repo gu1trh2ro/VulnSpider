@@ -345,17 +345,61 @@ UNVERIFIED
 REJECTED
 ```
 
-### `AccessCandidate`
+---
 
-BAC용 관계형 후보. InjectionCandidate와 분리한다.
+## 12b. `AccessCandidate` (BAC, ADR-012)
 
-예:
+§10 `VulnerabilityCandidate`와 분리된 관계형 후보. `vulnspider.domain.access`에
+구현되어 있다(§12가 예약해 둔 그대로 `subject_context`/`endpoint`/
+`resource_reference`/`resource_owner_context` 형태).
 
 ```text
-subject_context
-endpoint
-resource_reference
-resource_owner_context
+id: str
+endpoint_id: str
+check_kind: AccessCheckKind          # CREDENTIAL_STRIP | IDENTIFIER_SUBSTITUTION
+subject_context: AccessSubjectContext  # ORIGINAL | ANONYMOUS
+resource_reference: str              # 사람이 읽을 수 있는 대상 설명, 예: "GET /account"
+resource_owner_context: str          # 사람이 읽을 수 있는 소유자 문맥 설명
+access_probe_plan_id: str
+input_point_id: str | None           # IDENTIFIER_SUBSTITUTION만 설정, CREDENTIAL_STRIP은 None
+rank_score: float | None
+scorer_version: str | None
+```
+
+### `AccessProbePlan`
+
+`ProbePlan`과 마찬가지로 실제로 전송된 두 요청을 보존하지만, 하나의
+InputPoint 대신 subject_context(자격 증명 유무) 또는 resource_reference
+(식별자)를 하나만 변화시킨다.
+
+```text
+id: str
+endpoint_id, endpoint_fingerprint, request_template_id: str
+check_kind: AccessCheckKind
+reference_request, comparison_request: RequestInstance
+reference_subject, comparison_subject: AccessSubjectContext
+changed_aspect: str        # "credentials" 또는 "query.<name>"/"form.<name>"
+input_point_id: str | None
+```
+
+두 request 모두 `HttpMethod.GET`이어야 한다 — POST 등 상태를 바꿀 수 있는
+method는 probe하지 않는다.
+
+### `AccessScoreEvidence` / `AccessScoringResult`
+
+`ScoreEvidence`/`ScoringResult`와 동일한 explainability 규칙(관찰되지 않은
+항은 `feature_value=null`/`contribution=null`, `ScoringResult`는 validated
+factory `from_objects()`로만 생성)을 따르되, `vulnerability_type` 대신
+`check_kind`를 쓴다.
+
+### Identity
+
+```text
+AccessProbePlan.id: endpoint_id + endpoint_fingerprint + request_template_id
+  + check_kind + reference_request.id + comparison_request.id
+  + reference_subject + comparison_subject + changed_aspect + input_point_id
+AccessCandidate.id: endpoint_id + check_kind + subject_context
+  + resource_reference + input_point_id  (rank_score/scorer_version은 identity에 포함되지 않음)
 ```
 
 ---

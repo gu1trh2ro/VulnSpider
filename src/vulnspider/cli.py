@@ -14,7 +14,7 @@ from vulnspider import __version__
 from vulnspider.domain import Endpoint
 from vulnspider.observation.executor import RequestTransport
 from vulnspider.pipeline import AnalysisResult, analyze_legacy_records
-from vulnspider.reporting import write_html_report, write_json_report
+from vulnspider.reporting import write_combined_html_report, write_combined_json_report
 
 
 class CLIError(ValueError):
@@ -89,8 +89,8 @@ def main(
             top_k=args.top_k,
             transport=transport,
         )
-        write_json_report(
-            analysis.selection,
+        write_combined_json_report(
+            analysis.combined_selection,
             args.output,
             warnings=analysis.warnings,
         )
@@ -119,13 +119,22 @@ def _write_html_report(analysis: AnalysisResult, destination: Path) -> None:
         )
         for observation in analysis.probe_observations
     }
-    write_html_report(
-        analysis.selection,
+    access_probe_runs = {
+        observation.candidate_id: (
+            observation.access_probe_plan,
+            observation.reference_response,
+            observation.comparison_response,
+        )
+        for observation in analysis.access_probe_observations
+    }
+    write_combined_html_report(
+        analysis.combined_selection,
         destination,
         warnings=analysis.warnings,
         input_points=input_points,
         endpoints=endpoints,
         probe_runs=probe_runs,
+        access_probe_runs=access_probe_runs,
         target=_target_label(adapter_result.endpoints),
         elapsed_seconds=analysis.elapsed_seconds,
     )

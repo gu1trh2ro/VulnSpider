@@ -320,6 +320,58 @@ available range: 0..45
 
 ---
 
+## 7b. Access Control Features (BAC, ADR-012)
+
+별도 schema version `access-feature-v0.1`을 쓴다(§1의 SQLi/XSS
+`feature-v0.1`과 분리). Reference 요청(원래 자격 증명/식별자)이 실제로
+2xx로 성공하지 않았거나 execution error가 있으면 두 feature 모두
+`observed=false`다 — "확인 안 함"을 "안전함"으로 해석하지 않는다는 원칙은
+동일하다.
+
+### `access_unauthorized_success`
+
+목적: comparison 요청(자격 증명 제거 또는 식별자 치환)이 거부되지 않고도
+성공하는지 — BAC의 핵심 신호.
+
+정의:
+
+```text
+1.0: comparison 요청이 execution error 없이 2xx를 반환
+0.0: comparison 요청이 4xx/5xx/execution error 등으로 거부됨
+```
+
+source: `access_response_diff`
+
+### `access_body_size_similarity_ratio`
+
+목적: comparison 응답이 거부 페이지(작은 stub)가 아니라 실질적인 콘텐츠를
+받았는지 — `access_unauthorized_success`의 보조 신호.
+
+정의:
+
+```text
+1 - min(abs(comparison_length - reference_length) / max(reference_length, 1), 1.0)
+```
+
+comparison 요청이 execution error를 냈으면 `observed=false`.
+
+source: `access_response_diff`
+
+### v0.1 AccessScorer 가중치
+
+```text
++ 55 * access_unauthorized_success
++ 20 * access_body_size_similarity_ratio
+available range: 0..75
+```
+
+SQLi(0..75)/XSS(0..45)와 마찬가지로 확률이나 confidence가 아니며,
+`selection.combined.select_combined_top_k()`가 각 카테고리의 exact scorer
+maximum으로 정규화한 `selection_priority`로만 서로 비교한다(ADR-010,
+ADR-012).
+
+---
+
 ## 8. Feature 추가 규칙
 
 새 feature를 추가하기 전에 문서에 다음을 기록한다.

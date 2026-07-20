@@ -224,14 +224,25 @@ def execute_request(
     transport: RequestTransport,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
+    probe_plan_id: str | None = None,
+    request_role: str | None = None,
 ) -> ResponseSnapshot:
+    """Send one request and capture its response.
+
+    ``probe_plan_id``/``request_role`` are optional provenance stamps for
+    callers outside the injection ``ProbePlan`` flow (for example
+    ``vulnspider.access.executor``) that still want the same tested
+    snapshot-construction and body-capture-limit behavior. Direct callers
+    that omit them get an unowned observation, exactly as before.
+    """
+
     return _execute_request(
         request,
         transport=transport,
         timeout_seconds=timeout_seconds,
         max_body_bytes=max_body_bytes,
-        probe_plan_id=None,
-        request_role=None,
+        probe_plan_id=probe_plan_id,
+        request_role=request_role,
     )
 
 

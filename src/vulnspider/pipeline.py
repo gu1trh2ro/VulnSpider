@@ -9,12 +9,21 @@ from time import monotonic
 from typing import Any
 from urllib.parse import urlsplit
 
+from vulnspider.access import (
+    AccessProbeExecutionResult,
+    execute_access_plan,
+    extract_access_features,
+    plan_credential_strip,
+    plan_identifier_substitution,
+    score_access_plan,
+    select_top_k_access,
+)
 from vulnspider.discovery import (
     LegacyAdapterResult,
     LegacyCrawlerAdapter,
     LegacyCrawlRecord,
 )
-from vulnspider.domain import ProbePlan, ResponseSnapshot
+from vulnspider.domain import AccessProbePlan, AccessScoringResult, ProbePlan, ResponseSnapshot
 from vulnspider.features import extract_minimal_features
 from vulnspider.observation import (
     DEFAULT_MAX_BODY_BYTES,
@@ -26,7 +35,12 @@ from vulnspider.observation import (
 )
 from vulnspider.observation.executor import RequestTransport
 from vulnspider.scoring import ScoringResult, generate_candidates
-from vulnspider.selection import SelectionOutcome, select_top_k
+from vulnspider.selection import (
+    CombinedSelectionOutcome,
+    SelectionOutcome,
+    select_combined_top_k,
+    select_top_k,
+)
 
 
 class PipelineError(ValueError):
@@ -50,6 +64,18 @@ class ProbeObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class AccessProbeObservation:
+    """The one executed reference/comparison request pair behind an
+    AccessCandidate. Same reporting-join purpose as :class:`ProbeObservation`,
+    for the separate BAC pipeline (ADR-012)."""
+
+    candidate_id: str
+    access_probe_plan: AccessProbePlan
+    reference_response: ResponseSnapshot
+    comparison_response: ResponseSnapshot
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisResult:
     adapter_result: LegacyAdapterResult
     scoring_results: tuple[ScoringResult, ...]
@@ -57,6 +83,9 @@ class AnalysisResult:
     warnings: tuple[str, ...]
     probe_observations: tuple[ProbeObservation, ...]
     elapsed_seconds: float
+    access_scoring_results: tuple[AccessScoringResult, ...]
+    access_probe_observations: tuple[AccessProbeObservation, ...]
+    combined_selection: CombinedSelectionOutcome
 
 
 def analyze_legacy_records(
@@ -87,6 +116,9 @@ def analyze_legacy_records(
     planner = ProbePlanner()
     scoring_results: list[ScoringResult] = []
     probe_observations: list[ProbeObservation] = []
+    access_scoring_results: list[AccessScoringResult] = []
+    access_probe_observations: list[AccessProbeObservation] = []
+    credential_strip_planned_templates: set[str] = set()
     warnings = list(adapter_result.warnings)
     started = monotonic()
 
@@ -126,8 +158,35 @@ def analyze_legacy_records(
         )
         scoring_results.extend(generate_candidates(feature_vector))
 
+        template_id = request_template.id or ""
+        if template_id not in credential_strip_planned_templates:
+            credential_strip_planned_templates.add(template_id)
+            credential_plan = plan_credential_strip(request_template)
+            if credential_plan is not None:
+                _run_access_plan(
+                    credential_plan,
+                    transport=active_transport,
+                    timeout_seconds=timeout_seconds,
+                    max_body_bytes=max_body_bytes,
+                    access_scoring_results=access_scoring_results,
+                    access_probe_observations=access_probe_observations,
+                )
+
+        identifier_plan = plan_identifier_substitution(input_point, request_template)
+        if identifier_plan is not None:
+            _run_access_plan(
+                identifier_plan,
+                transport=active_transport,
+                timeout_seconds=timeout_seconds,
+                max_body_bytes=max_body_bytes,
+                access_scoring_results=access_scoring_results,
+                access_probe_observations=access_probe_observations,
+            )
+
     elapsed_seconds = monotonic() - started
     selection = select_top_k(scoring_results, k=top_k)
+    access_selection = select_top_k_access(access_scoring_results, k=top_k)
+    combined_selection = select_combined_top_k(selection, access_selection, k=top_k)
     return AnalysisResult(
         adapter_result=adapter_result,
         scoring_results=tuple(scoring_results),
@@ -135,6 +194,41 @@ def analyze_legacy_records(
         warnings=tuple(warnings),
         probe_observations=tuple(probe_observations),
         elapsed_seconds=elapsed_seconds,
+        access_scoring_results=tuple(access_scoring_results),
+        access_probe_observations=tuple(access_probe_observations),
+        combined_selection=combined_selection,
+    )
+
+
+def _run_access_plan(
+    plan: AccessProbePlan,
+    *,
+    transport: RequestTransport,
+    timeout_seconds: float,
+    max_body_bytes: int,
+    access_scoring_results: list[AccessScoringResult],
+    access_probe_observations: list[AccessProbeObservation],
+) -> None:
+    execution: AccessProbeExecutionResult = execute_access_plan(
+        plan,
+        transport=transport,
+        timeout_seconds=timeout_seconds,
+        max_body_bytes=max_body_bytes,
+    )
+    features = extract_access_features(
+        plan,
+        execution.reference_response,
+        execution.comparison_response,
+    )
+    result = score_access_plan(plan, features)
+    access_scoring_results.append(result)
+    access_probe_observations.append(
+        AccessProbeObservation(
+            candidate_id=result.candidate.id or "",
+            access_probe_plan=plan,
+            reference_response=execution.reference_response,
+            comparison_response=execution.comparison_response,
+        )
     )
 
 

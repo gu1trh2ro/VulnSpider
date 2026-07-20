@@ -51,6 +51,12 @@ Candidate B2: query.page x SQLI
 
 v0.1은 Observation과 Ranking까지 구현한다. Focused Verification은 후속 버전이다.
 
+BAC는 ADR-012로 §4.9의 별도 `vulnspider.access` 파이프라인으로 in-scope에
+추가됐다. Discovery/Observation/Verification 구분은 BAC에도 동일하게 적용된다 —
+다만 BAC의 "Observation"은 InputPoint 하나를 변화시키는 대신 subject_context
+(자격 증명 유무) 또는 resource_reference(식별자)를 하나만 변화시켜 같은 요청을
+재전송한다(§2.3 참고).
+
 ### 2.3 한 번에 하나의 입력점만 변경
 
 동일한 RequestTemplate을 유지하고 target InputPoint 하나만 변화시킨다.
@@ -113,12 +119,26 @@ v0.1에는 RankScore만 존재한다.
       +--> SQLiScorer
       +--> XSSScorer
       |
-[11] TopKSelector
+[4b] AccessProbePlanner (vulnspider.access, ADR-012)
+      |
+      +--> CREDENTIAL_STRIP plan (RequestTemplate has cookies/Authorization)
+      +--> IDENTIFIER_SUBSTITUTION plan (numeric InputPoint baseline)
+      |
+[5b] AccessProbe RequestExecutor (same RequestTransport boundary)
+      |
+      +--> reference ResponseSnapshot
+      +--> comparison ResponseSnapshot
+      |
+[7b] Access FeatureExtractor
+      |
+[9b] AccessCandidate generation + AccessScorer
+      |
+[11] Cross-category TopKSelector (select_combined_top_k, ADR-012)
       |
 [12] Reporting
       |
-      +--> JsonReporter
-      +--> HtmlDashboardReporter (optional, ADR-011)
+      +--> JsonReporter / HtmlDashboardReporter (SQLi/XSS-only, unchanged)
+      +--> Combined JsonReporter / HtmlDashboardReporter (ADR-012, all 3 types)
 ```
 
 ---
@@ -258,17 +278,59 @@ SQLi와 XSS raw RankScore는 서로 다른 범위이므로 raw 값을 직접 비
 
 ---
 
-### 4.8 `reporting/`
+### 4.8 `access/` (ADR-012)
 
-두 개의 렌더러가 동일한 `SelectionOutcome`을 소비한다: `json_report`
-(필수)와 `html_report`(선택, ADR-011). 어느 쪽도 점수를 재계산하지
-않는다.
+책임:
 
-`html_report`는 표시용으로 `InputPoint`/`Endpoint`(adapter 출력)와
-`ProbePlan`/`ResponseSnapshot`(observation 출력, 둘 다 `domain` 타입) 조인을
-추가로 받지만, `reporting`은 `observation`이나 `pipeline`을 직접 import하지
-않는다 — 이 값들은 호출자(`pipeline`이 만들고 `cli`가 전달)가 조립해서
-넘긴다. 의존성 방향은 §6과 동일하게 유지된다.
+- BAC(Broken Access Control) 후보 관찰과 채점
+- `CREDENTIAL_STRIP`: 크롤 시 사용된 cookies/`Authorization` 헤더를 제거한
+  동일 GET 요청 재전송
+- `IDENTIFIER_SUBSTITUTION`: 숫자 InputPoint 값을 `baseline + 1`로 치환한
+  동일 GET 요청 재전송
+- `AccessCandidate`(subject_context x resource_reference) 생성과 `AccessScorer`
+  채점
+
+금지:
+
+- `domain.models`의 `VulnerabilityType`/`VulnerabilityCandidate`를 재사용하지
+  않는다(`docs/DOMAIN_MODEL.md` #12, ADR-007/ADR-012) — 별도의 `domain.access`
+  타입만 사용한다.
+- POST 등 상태 변경 가능성이 있는 method는 probe하지 않는다(GET 전용).
+- 실제 로그인/다중 계정 세션을 오케스트레이션하지 않는다 — 크롤러가 이미
+  관찰한 자격 증명/식별자만 사용한다.
+
+출력:
+
+```text
+AccessProbePlan[]
+AccessCandidate[] (with AccessScoreEvidence)
+```
+
+`selection.combined.select_combined_top_k()`가 이 출력과 §4.7의 injection
+`SelectionOutcome`을 병합해 하나의 cross-category Top-K를 만든다. 이 함수는
+`selection.top_k.select_top_k()`를 수정하지 않고, 두 카테고리를 동일한 k로
+각자 선택한 뒤 병합한다 — 전역 top-k의 모든 항목은 이미 자기 카테고리의
+top-k 안에 있어야 하므로 이 방식은 정확하다.
+
+---
+
+### 4.9 `reporting/`
+
+네 개의 렌더러가 있다: SQLi/XSS 전용 `json_report`(필수)와
+`html_report`(선택, ADR-011), 그리고 SQLi/XSS/BAC 통합
+`combined_report`(ADR-012)의 JSON/HTML 렌더러. 어느 쪽도 점수를 재계산하지
+않는다. `combined_report`는 `json_report`/`html_report`의 기존 공개 함수를
+바꾸지 않고 그 위에 추가된 렌더러다 — `cli.py`의 `analyze` 명령은
+`combined_report`를 사용해 `--output`/`--html-output`에 통합 Top-N을 쓴다.
+
+`html_report`/`combined_report`는 표시용으로 `InputPoint`/`Endpoint`(adapter
+출력)와 `ProbePlan`/`AccessProbePlan`/`ResponseSnapshot`(observation/access
+출력, 모두 `domain` 타입) 조인을 추가로 받지만, `reporting`은 `observation`,
+`access`의 실행/계획 로직, `pipeline`을 직접 import하지 않는다 — 이 값들은
+호출자(`pipeline`이 만들고 `cli`가 전달)가 조립해서 넘긴다. `combined_report`가
+같은 패키지 내 `html_report`의 렌더링 헬퍼를 재사용하는 것은 예외로 허용한다
+(§4.8/§4.9 사이의 재사용이며, `pipeline`으로의 역방향 의존은 아니다). 의존성
+방향은 §6과 동일하게 유지된다.
 
 최종 JSON은 raw score와 cross-type selection key를 구분하고 최소 다음을
 포함한다.
@@ -300,14 +362,18 @@ SQLi와 XSS raw RankScore는 서로 다른 범위이므로 raw 값을 직접 비
 ```text
 src/vulnspider/
 ├─ domain/
+│   └─ access.py      (AccessCandidate 관계형 모델, ADR-012)
 ├─ scope/
 ├─ discovery/
 ├─ surface/
 ├─ observation/
+├─ access/            (BAC probe planning/execution/features/scoring, ADR-012)
 ├─ features/
 ├─ scoring/
 ├─ selection/
+│   └─ combined.py    (cross-category Top-K merge, ADR-012)
 ├─ reporting/
+│   └─ combined_report.py  (SQLi/XSS/BAC 통합 JSON/HTML, ADR-012)
 └─ cli.py
 ```
 
@@ -316,7 +382,8 @@ src/vulnspider/
 ```text
 verification/
 llm/
-auth/
+auth/       (실제 다중 계정 로그인/세션 오케스트레이션 — access/의 두 점검과는
+             다르게, 자격 증명을 직접 발급/관리하는 인프라)
 ```
 
 ---
@@ -325,10 +392,13 @@ auth/
 
 ```text
 cli -> pipeline + reporting
-pipeline -> discovery + observation + features + scoring + selection
+pipeline -> discovery + observation + features + scoring + selection + access
 reporting -> selection -> scoring -> features -> domain
+reporting.combined_report -> selection.combined -> access.selection -> access -> domain
 selection -> scoring -> features -> domain
+selection.combined -> selection.top_k + access.selection
 observation -> domain
+access -> observation.executor (request execution reuse only) + domain
 surface -> domain
 discovery -> domain adapters
 scope -> shared boundary checks
@@ -340,22 +410,27 @@ scope -> shared boundary checks
 - `features`는 HTTP 전송을 직접 하지 않는다.
 - `scoring`은 HTTP 응답 원문을 직접 해석하지 않는다.
 - `reporting`은 점수를 재계산하지 않는다.
+- `access`는 `domain.models`의 `VulnerabilityType`/`VulnerabilityCandidate`를
+  재사용하지 않는다(§4.8, ADR-012) — `domain.access`의 별도 타입만 사용한다.
 
 ---
 
 ## 7. v0.1에서 하지 않는 것
 
-- Broken Access Control 자동화
 - LLM payload mutation
 - exploit-style focused/multi-payload verification (HTML 대시보드의
-  "Executed requests"는 실제로 전송된 baseline/probe 1쌍만 보여주며 이
-  항목에 해당하지 않는다 — §4.8, ADR-011)
+  "Executed requests"는 실제로 전송된 요청 쌍만 보여주며 이 항목에 해당하지
+  않는다 — §4.9, ADR-011/ADR-012)
 - Playwright browser collector
 - ML ranking model
 - grid search weight tuning
 - ZAP 대체 구현
+- 실제 다중 계정 로그인/세션 오케스트레이션, role 기반 vertical BAC 매트릭스
+  (BAC 자체는 ADR-012로 §4.8의 두 점검에 한해 in-scope다 — 그 이상은 여전히
+  범위 밖이다)
 
 이 항목을 의도적으로 제외해야 첫 프로토타입이 연구 핵심을 빠르게 검증할 수 있다.
 
-dashboard는 ADR-011로 in-scope로 전환됐다(§4.8). 위 목록의 다른 항목,
-특히 focused verification과 BAC는 여전히 제외된다.
+dashboard는 ADR-011로, BAC의 두 점검(§4.8)은 ADR-012로 in-scope로
+전환됐다. 위 목록의 다른 항목, 특히 focused verification과 실제
+다중 계정 세션 오케스트레이션은 여전히 제외된다.

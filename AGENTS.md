@@ -28,17 +28,30 @@ Scope & Safety Guard
   -> Discovery
   -> Attack Surface Normalization
   -> Endpoint + InputPoint
-  -> Baseline / One-at-a-time Light Probe
+  -> Baseline / One-at-a-time Light Probe (SQLi / Reflected XSS)
   -> Response Normalization
   -> Feature Extraction
   -> Feature Vector
   -> VulnerabilityCandidate generation
   -> Type-specific Scoring
-  -> Top-K Selection
-  -> JSON Report (+ optional HTML Dashboard Report, ADR-011)
+  ---
+  -> Broken Access Control probing (vulnspider.access, ADR-012)
+     credential-strip / identifier-substitution
+  -> AccessCandidate generation + AccessScorer
+  ---
+  -> Cross-category Top-K Selection (select_combined_top_k, ADR-012)
+  -> JSON Report (+ optional HTML Dashboard Report, ADR-011/ADR-012)
 ```
 
-Prototype v0.1 stops here. Focused exploitation, LLM payload mutation, BAC automation, and broad active scanning are out of scope unless a later task explicitly changes the scope. The HTML dashboard report (ADR-011) renders the same validated `SelectionOutcome` and the actually-executed baseline/probe pair as the JSON report; it does not add focused/multi-payload verification, new scoring, or new vulnerability types.
+Prototype v0.1 stops at focused exploitation, LLM payload mutation, and broad
+active scanning — those remain out of scope. Broken Access Control (BAC) is
+now in scope as of ADR-012, but only its two credential/identifier-comparison
+checks (`vulnspider.access`); real multi-account session orchestration and
+role-based vertical checks remain out of scope. The HTML dashboard report
+(ADR-011/ADR-012) renders the same validated `SelectionOutcome`/
+`AccessSelectionOutcome` and the actually-executed request pairs as the JSON
+report; it does not add focused/multi-payload verification or new scoring
+beyond `SQLiScorer`/`XSSScorer`/`AccessScorer`.
 
 ## Non-Negotiable Domain Rules
 
@@ -49,7 +62,7 @@ Prototype v0.1 stops here. Focused exploitation, LLM payload mutation, BAC autom
 5. `RankScore` means "verification priority", not "probability of vulnerability".
 6. `VerificationConfidence` is a later concept and must not be derived by simply adding RankScore to verification bonuses.
 7. SQLi and Reflected XSS use independent scorers.
-8. BAC is not part of v0.1 and must not be forced into the injection-candidate model.
+8. BAC is not forced into the injection-candidate model (`InputPoint x VulnerabilityType`). It is a separate relational `AccessCandidate` (subject_context x resource_reference) pipeline under `vulnspider.access` (ADR-012), merged into the final Top-K only at selection time via `select_combined_top_k()`.
 9. Missing feature != observed zero. Preserve observation state.
 10. Every score must be explainable through feature contributions.
 

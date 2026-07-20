@@ -7,9 +7,19 @@ Run:  python demo_target_server.py
 Serves on http://127.0.0.1:8899
 
 - GET /product?id=...   -> looks SQLi-ish: a marker value makes the
-  "backend" blow up with a SQL-error-looking 500 response.
+  "backend" blow up with a SQL-error-looking 500 response. It also
+  demonstrates IDOR: any digit id returns 200 with substantial, differing
+  content and no ownership check, so incrementing id (VulnSpider's
+  IDENTIFIER_SUBSTITUTION check) exposes another "record" with no
+  rejection.
 - GET /search?q=...     -> looks XSS-ish: the query value is reflected
   back into the page without escaping.
+- GET /account          -> looks like a Broken Access Control bug: it
+  returns the same sensitive-looking content whether or not a session
+  cookie is sent, so VulnSpider's CREDENTIAL_STRIP check flags it. To
+  reach this via `vulnspider analyze --input records.json`, give the
+  legacy record a "cookies" field, e.g.
+  {"link": "http://127.0.0.1:8899/account", "cookies": {"session": "demo"}, ...}
 """
 from __future__ import annotations
 
@@ -43,6 +53,18 @@ class Handler(BaseHTTPRequestHandler):
         if parts.path == "/search":
             value = query.get("q", [""])[0]
             body = f"<html><body>Results for: {value}</body></html>".encode()
+            self._respond(200, body)
+            return
+
+        if parts.path == "/account":
+            # Vulnerable on purpose: no check of the Cookie header at all,
+            # so this "protected" page is equally reachable with or
+            # without the session cookie a real crawl would have used.
+            body = (
+                b"<html><body>Account overview: balance $4,821.00, "
+                b"plan: Pro, next billing date hidden for brevity"
+                b"</body></html>"
+            )
             self._respond(200, body)
             return
 

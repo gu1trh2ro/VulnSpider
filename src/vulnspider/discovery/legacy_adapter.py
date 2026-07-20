@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from dataclasses import dataclass, field, replace
+from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 from urllib.parse import parse_qsl, urljoin, urlsplit
 
@@ -34,6 +35,7 @@ class LegacyCrawlRecord:
     input_fields: str | Sequence[Mapping[str, Any]] | None = None
     collected_time: str | None = None
     source: str = "legacy_static"
+    cookies: str | Mapping[str, Any] | None = None
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> LegacyCrawlRecord:
@@ -46,6 +48,7 @@ class LegacyCrawlRecord:
             input_fields=raw.get("input_fields"),
             collected_time=_optional_str(raw.get("collected_time")),
             source=str(raw.get("source") or "legacy_static"),
+            cookies=raw.get("cookies"),
         )
 
 
@@ -102,6 +105,7 @@ class LegacyCrawlerAdapter:
                 warnings.append(f"legacy record skipped: invalid link: {record.link}")
                 continue
 
+            cookies = _parse_cookies(record, warnings)
             query_pairs = _parse_query_pairs(record, warnings)
             if query_pairs:
                 endpoint = _endpoint_from_url(record.link, HttpMethod.GET)
@@ -111,6 +115,7 @@ class LegacyCrawlerAdapter:
                     record.link,
                     query_pairs,
                     record,
+                    cookies,
                 )
                 request_templates.setdefault(request_template.id or "", request_template)
                 name_counts = Counter(pair_name for pair_name, _ in query_pairs)
@@ -172,6 +177,7 @@ class LegacyCrawlerAdapter:
                     context,
                     form_values,
                     record,
+                    cookies,
                 )
                 request_templates.setdefault(request_template.id or "", request_template)
                 if context.boundary_status == "unavailable":
@@ -361,16 +367,33 @@ def _finalize_input_points(
     return finalized
 
 
+_OBJECT_DEFAULT_LABELS = {"query_params", "cookies"}
+
+
 def _parse_json_object(raw: Any, *, label: str, link: str, warnings: list[str]) -> Any:
     if raw is None or raw == "":
-        return {} if label == "query_params" else []
+        return {} if label in _OBJECT_DEFAULT_LABELS else []
     if isinstance(raw, str):
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
             warnings.append(f"{label} on {link} is not valid JSON")
-            return {} if label == "query_params" else []
+            return {} if label in _OBJECT_DEFAULT_LABELS else []
     return raw
+
+
+def _parse_cookies(record: LegacyCrawlRecord, warnings: list[str]) -> dict[str, str]:
+    parsed = _parse_json_object(
+        record.cookies,
+        label="cookies",
+        link=record.link,
+        warnings=warnings,
+    )
+    if not isinstance(parsed, Mapping):
+        if parsed:
+            warnings.append(f"cookies on {record.link} is not an object")
+        return {}
+    return {str(key): str(value) for key, value in parsed.items()}
 
 
 def _parse_query_pairs(
@@ -544,6 +567,7 @@ def _query_request_template(
     url: str,
     query_pairs: ParamPairs,
     record: LegacyCrawlRecord,
+    cookies: Mapping[str, str] = MappingProxyType({}),
 ) -> RequestTemplate:
     return RequestTemplate(
         endpoint_id=endpoint.id or "",
@@ -551,6 +575,7 @@ def _query_request_template(
         method=HttpMethod.GET,
         url=url,
         query=query_pairs,
+        cookies=dict(cookies),
         completeness=RequestContextCompleteness.COMPLETE,
         context_key=f"legacy-query:{url}",
         metadata={
@@ -646,6 +671,7 @@ def _form_request_template(
     context: _FormFieldContext,
     form_values: ParamPairs,
     record: LegacyCrawlRecord,
+    cookies: Mapping[str, str] = MappingProxyType({}),
 ) -> RequestTemplate:
     context_key = (
         f"legacy-form:{record.link}:{context.method.value}:{context.form_url}:"
@@ -660,6 +686,7 @@ def _form_request_template(
         method=endpoint.method,
         url=context.form_url,
         form=form_values,
+        cookies=dict(cookies),
         completeness=RequestContextCompleteness.PARTIAL,
         context_key=context_key,
         provenance=(
