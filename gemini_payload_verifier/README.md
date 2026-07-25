@@ -1,5 +1,8 @@
 # Gemini verifier v3
 
+패키지 미리 설치하기
+pip install -r requirements.txt
+
 - Payload 후보 수: 정확히 3개 또는 4개
 - Validator: URL/포트/경로, destructive pattern, 길이, method, count/role 검사
 - SQLI: 2 true + 2 false boolean/behavior 비교
