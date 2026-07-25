@@ -1,0 +1,27 @@
+{
+  "candidate_id": "cand_xss_001",
+  "vulnerability_type": "XSS",
+  "initial_rank_score": 0.62,
+  "request_context": {
+    "method": "GET",
+    "url": "http://localhost:8899/search?q=hello",
+    "parameter_name": "q",
+    "parameter_location": "query",
+    "parameter_occurrence": 0,
+    "original_value": "hello",
+    "headers": {}
+  },
+  "observed_evidence": [
+    {
+      "feature": "input_reflected",
+      "value": 1.0
+    },
+    {
+      "feature": "html_context_detected",
+      "value": 1.0
+    }
+  ],
+  "verification_hints": {
+    "marker_prefix": "xss-probe"
+  }
+}

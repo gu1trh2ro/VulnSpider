@@ -1,0 +1,54 @@
+{
+  "verification_group_id": "vg_bac_001",
+  "candidate_id": "cand_bac_001",
+  "vulnerability_type": "BAC",
+  "target": {
+    "parameter_name": "id",
+    "parameter_location": "query",
+    "parameter_occurrence": 0
+  },
+  "verification_type": "role_resource_comparison",
+  "payloads": [
+    {
+      "payload_id": "p_01",
+      "payload": "1001",
+      "payload_role": "authorization_control",
+      "expected_observation": "200 OK",
+      "rationale": "Baseline request for user-a accessing their own resource.",
+      "destructive": false,
+      "auth_context_id": "user_a",
+      "expected_access": "allow"
+    },
+    {
+      "payload_id": "p_02",
+      "payload": "2002",
+      "payload_role": "authorization_variant",
+      "expected_observation": "403 Forbidden",
+      "rationale": "Same-role/different-resource check: user-a accessing user-b's resource.",
+      "destructive": false,
+      "auth_context_id": "user_a",
+      "expected_access": "deny"
+    },
+    {
+      "payload_id": "p_03",
+      "payload": "9000",
+      "payload_role": "authorization_variant",
+      "expected_observation": "403 Forbidden",
+      "rationale": "Different-role/restricted-resource check: user-a accessing admin-only resource.",
+      "destructive": false,
+      "auth_context_id": "user_a",
+      "expected_access": "deny"
+    },
+    {
+      "payload_id": "p_04",
+      "payload": "9000",
+      "payload_role": "authorization_variant",
+      "expected_observation": "200 OK",
+      "rationale": "Different-role/restricted-resource check: admin accessing admin-only resource.",
+      "destructive": false,
+      "auth_context_id": "admin",
+      "expected_access": "allow"
+    }
+  ],
+  "generation_rationale": "The payloads are designed to verify Broken Access Control by comparing resource access across different users and roles. The control payload establishes baseline access, while variants test horizontal and vertical authorization boundaries."
+}

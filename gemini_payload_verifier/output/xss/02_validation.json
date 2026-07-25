@@ -1,0 +1,39 @@
+{
+  "verification_group_id": "vg_xss_001",
+  "candidate_id": "cand_xss_001",
+  "allowed_payloads": [
+    {
+      "payload_id": "p_ctrl_001",
+      "payload": "hello",
+      "payload_role": "control",
+      "expected_observation": "The string hello is reflected in the response body without modification.",
+      "rationale": "Establishes a baseline for normal reflection behavior.",
+      "destructive": false,
+      "auth_context_id": null,
+      "expected_access": "unknown"
+    },
+    {
+      "payload_id": "p_mark_001",
+      "payload": "xss-probe-1",
+      "payload_role": "reflection_marker",
+      "expected_observation": "The string xss-probe-1 is reflected in the response body.",
+      "rationale": "Verifies that the parameter is reflected in the HTML context without sanitization.",
+      "destructive": false,
+      "auth_context_id": null,
+      "expected_access": "unknown"
+    },
+    {
+      "payload_id": "p_mark_002",
+      "payload": "xss-probe-2",
+      "payload_role": "reflection_marker",
+      "expected_observation": "The string xss-probe-2 is reflected in the response body.",
+      "rationale": "Confirms consistent reflection behavior for the target parameter.",
+      "destructive": false,
+      "auth_context_id": null,
+      "expected_access": "unknown"
+    }
+  ],
+  "rejected_payloads": [],
+  "executable": true,
+  "validator_version": "prototype-3.0"
+}
