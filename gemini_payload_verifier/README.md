@@ -10,9 +10,10 @@ verifier 루트에서 실행:
 
 ```powershell
 $env:PYTHONPATH="$PWD\src"
-python -m payload_verifier.cli examples\candidate_sqli.json --out output\sqli
-python -m payload_verifier.cli examples\candidate_xss.json --out output\xss
-python -m payload_verifier.cli examples\candidate_bac.json --out output\bac
+```1, 2, 3을 하나씩 실행하면 됩니다.```
+1. python -m payload_verifier.cli examples\candidate_sqli.json --out output\sqli
+2. python -m payload_verifier.cli examples\candidate_xss.json --out output\xss
+3. python -m payload_verifier.cli examples\candidate_bac.json --out output\bac
 ```
 
 기존 127.0.0.1:8899 데모 서버를 사용할 수 있습니다.
