@@ -1,0 +1,49 @@
+{
+  "verification_group_id": "vg_cand_95f94a52b26a7a93_sqli_bool",
+  "candidate_id": "cand_95f94a52b26a7a93",
+  "allowed_payloads": [
+    {
+      "payload_id": "true_1",
+      "payload": "1 AND 1=1",
+      "payload_role": "true_condition",
+      "expected_observation": "Response behavior should match or closely resemble the valid baseline response.",
+      "rationale": "Tests a true boolean predicate without modifying data or extracting information.",
+      "destructive": false,
+      "auth_context_id": null,
+      "expected_access": "unknown"
+    },
+    {
+      "payload_id": "true_2",
+      "payload": "1 AND 2=2",
+      "payload_role": "true_condition",
+      "expected_observation": "Response behavior should match or closely resemble the valid baseline and the first true-condition response.",
+      "rationale": "Provides an independent true predicate for repeatable response comparison.",
+      "destructive": false,
+      "auth_context_id": null,
+      "expected_access": "unknown"
+    },
+    {
+      "payload_id": "false_1",
+      "payload": "1 AND 1=2",
+      "payload_role": "false_condition",
+      "expected_observation": "Response status, body length, or content should consistently differ from the true-condition responses if injectable.",
+      "rationale": "Tests a false boolean predicate using non-destructive behavior comparison.",
+      "destructive": false,
+      "auth_context_id": null,
+      "expected_access": "unknown"
+    },
+    {
+      "payload_id": "false_2",
+      "payload": "1 AND 2=3",
+      "payload_role": "false_condition",
+      "expected_observation": "Response behavior should resemble the first false-condition response and differ consistently from both true-condition responses.",
+      "rationale": "Provides an independent false predicate to reduce false positives.",
+      "destructive": false,
+      "auth_context_id": null,
+      "expected_access": "unknown"
+    }
+  ],
+  "rejected_payloads": [],
+  "executable": true,
+  "validator_version": "prototype-3.0"
+}

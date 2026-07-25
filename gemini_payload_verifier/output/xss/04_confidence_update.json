@@ -1,0 +1,20 @@
+{
+  "candidate_id": "cand_xss_001",
+  "vulnerability_type": "XSS",
+  "initial_rank_score": 0.62,
+  "verification_bonus": 0.08,
+  "safety_encoding_penalty": 0.05,
+  "inconsistency_penalty": 0.0,
+  "raw_confidence": 0.65,
+  "final_confidence": 0.65,
+  "confidence_delta": 0.03,
+  "confidence_level": "medium",
+  "decision": "needs_review",
+  "bonus_reasons": [
+    "XSS 마커 원문 반사",
+    "XSS 반사가 반복 재현됨"
+  ],
+  "penalty_reasons": [
+    "마커가 반사됐지만 위험 문맥이 확인되지 않음"
+  ]
+}
