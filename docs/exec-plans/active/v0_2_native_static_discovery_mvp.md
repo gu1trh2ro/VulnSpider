@@ -1465,7 +1465,7 @@ before expanding scope.
       verdict, role/session access result, or global Top-K policy.
 - [ ] Legacy compatibility preserves current child ids/provenance and never
       claims native collector provenance.
-- [ ] CLI accepts exactly one of legacy `--input` or native `--url`.
+- [x] CLI accepts exactly one of legacy `--input` or native `--url`.
 - [ ] root URL and every requested redirect/link use exact same-origin scope.
 - [ ] cross-origin links and redirects are recorded but never sent.
 - [ ] request/page/depth/time/redirect/response-size limits are enforced before
@@ -1476,7 +1476,7 @@ before expanding scope.
 - [ ] native method/action omission follows HTML defaults with provenance.
 - [ ] deterministic queueing and URL deduplication prevent duplicate requests
       without losing distinct request contexts.
-- [ ] URL input reaches existing observation/features/scoring/Top-K and creates
+- [x] URL input reaches existing observation/features/scoring/Top-K and creates
       JSON plus optional HTML reports.
 - [ ] loopback E2E proves off-scope request absence, POST non-submission,
       redirect/budget behavior and report generation.
@@ -1556,9 +1556,34 @@ before expanding scope.
   cross-hash-seed determinism, body-read bounds, and loopback-only network
   checks passed. Independent Gate Review iteration 1 reached `PASS` with no
   Critical, High, or Minor findings.
+- 2026-07-27: Implemented Milestone 4 with separate legacy-record and native-URL
+  entries converging on one observation/features/scoring/Top-K loop. The native
+  entry consumes `CanonicalDiscoveryResult` directly, forwards only structured
+  `READY` contexts, and executes only GET templates; POST forms remain visible
+  discovery surfaces and are reported as skipped without submission.
+- 2026-07-27: Added seven native pipeline/CLI tests for URL and legacy source
+  exclusivity, malformed URL and crawler-policy validation, JSON plus HTML
+  output, empty and partial crawl results, crawler warnings, and GET-only
+  observation. The unchanged v0.1 smoke suite passed all 7 tests.
+- 2026-07-27: Milestone 4 Gate Review iteration 1 reached `PASS` with no
+  Critical or High findings. The focused suite passed 7 tests and the full
+  suite passed all 265 tests; format, lint, type-hint, and `git diff --check`
+  passed.
 
 ## Decision Log
 
+- Decision: Native analysis consumes `CanonicalDiscoveryResult.ready_contexts()`
+  directly and applies an additional GET-only execution filter while retaining
+  skipped POST contexts as warnings.
+  Reason: canonical readiness is the discovery handoff boundary, while the
+  static URL integration safety policy forbids automatic form submission and
+  all POST execution.
+- Decision: Keep crawler-policy CLI options URL-specific, allow zero depth and
+  zero redirects as explicit bounded policies, and require positive page,
+  request, and timeout budgets.
+  Reason: root-only and no-redirect crawling are finite valid configurations,
+  while zero pages, requests, or timeout cannot perform meaningful bounded
+  discovery.
 - Decision: Expose `CrawlPolicy`, GET-only crawler request/response transport
   types, `StaticCrawler.crawl()`, immutable `StaticCrawlResult`, and URL
   canonicalization from `vulnspider.discovery`.
