@@ -1,158 +1,121 @@
-# VulnSpider Prototype v0.1 — Start Here
+# VulnSpider - Start Here
 
-## 1. 이 패키지의 목적
+## Repository status
 
-이 폴더는 Codex와 함께 첫 프로토타입을 만들기 위한 **agent-ready repository starter**다.
+This repository is the **Completed and Frozen v0.1 checkpoint** for
+VulnSpider. It is no longer an empty starter repository.
 
-중요 문서:
+- **Implemented:** the `prototype/v0.1` legacy-record analysis path, JSON
+  report, and optional HTML report.
+- **Planned for v0.2:** native discovery, BAC prioritization, and
+  LLM-assisted focused verification.
+- **Historical:** the Prompt 01-07 sequence that produced and reviewed v0.1.
 
-```text
-AGENTS.md
-PLANS.md
-CODE_REVIEW.md
-docs/ARCHITECTURE.md
-docs/DOMAIN_MODEL.md
-docs/FEATURE_SCHEMA.md
-docs/PROTOTYPE_V0_1.md
-docs/EVALUATION_PROTOCOL.md
-docs/AI_ENGINEERING_GUIDE.md
-docs/DECISION_LOG.md
-```
+Planning documents do not imply that v0.2 production code exists.
 
-Codex prompt:
+## Read first
 
-```text
-prompts/01_LEGACY_AUDIT.md
-prompts/02_REPOSITORY_SCAFFOLD.md
-prompts/03_DOMAIN_MODEL.md
-prompts/04_LEGACY_ADAPTER.md
-prompts/05_PROBE_FEATURE_SCORING.md
-prompts/06_INDEPENDENT_REVIEW.md
-prompts/07_FIX_REVIEW_LOOP.md
-```
+New contributors should read these documents in order:
 
----
+1. [AGENTS.md](AGENTS.md) - frozen scope, authorized v0.2 scope, safety, and
+   Git rules.
+2. [Architecture](docs/ARCHITECTURE.md) - implemented v0.1, target v0.2, and
+   legacy path.
+3. [Prototype v0.1](docs/PROTOTYPE_V0_1.md) - the completed v0.1 checkpoint.
+4. [Prototype v0.2](docs/PROTOTYPE_V0_2.md) - the authorized v0.2 plan.
+5. [Team Interfaces v0.2](docs/TEAM_INTERFACES_V0_2.md) - proposed cross-owner
+   contracts.
+6. [Git Workflow](docs/GIT_WORKFLOW.md) - branch, PR, review, and
+   secret-handling policy.
+7. [Decision Log](docs/DECISION_LOG.md) - accepted and superseded decisions.
 
-## 2. 첫 작업 전 준비
+Use `docs/DOMAIN_MODEL.md`, `docs/FEATURE_SCHEMA.md`, and
+`docs/EVALUATION_PROTOCOL.md` when changing their respective boundaries.
 
-새 Git repository를 만든다.
+## Implemented v0.1 path
 
-권장 구조:
+The current CLI does not crawl a target URL. It consumes an array of legacy
+crawl records, then performs authorized localhost/loopback Light Probes:
 
 ```text
-vulnspider/
-├─ AGENTS.md
-├─ PLANS.md
-├─ CODE_REVIEW.md
-├─ docs/
-├─ prompts/
-├─ reference/
-└─ ...
+Legacy record JSON
+  -> LegacyCrawlerAdapter
+  -> Endpoint / InputPoint / RequestTemplate / InputPointRequestContext
+  -> baseline + one-at-a-time probe
+  -> minimal differential / reflection / SQL features
+  -> SQLi and Reflected XSS scoring
+  -> deterministic global Top-K by selection_priority
+  -> JSON report
+  -> optional HTML report
 ```
-
-기존 WHSPIDER 코드는 다음에 둔다.
-
-```text
-reference/whspider_legacy/
-```
-
-처음에는 legacy를 수정하지 않는다.
-
----
-
-## 3. 실제 실행 순서
-
-### Step 1 — Audit only
-
-Codex에:
-
-```text
-prompts/01_LEGACY_AUDIT.md
-```
-
-내용을 전달한다.
-
-Audit 결과를 사람이 검토한다.
-
-### Step 2 — Scaffold
-
-```text
-prompts/02_REPOSITORY_SCAFFOLD.md
-```
-
-### Step 3 — Domain model
-
-```text
-prompts/03_DOMAIN_MODEL.md
-```
-
-### Step 4 — Legacy adapter
-
-```text
-prompts/04_LEGACY_ADAPTER.md
-```
-
-### Step 5 — Probe/Feature/Scoring vertical slice
-
-```text
-prompts/05_PROBE_FEATURE_SCORING.md
-```
-
-### Step 6 — Independent review
-
-새 Codex thread에서:
-
-```text
-prompts/06_INDEPENDENT_REVIEW.md
-```
-
-### Step 7 — Fix loop
-
-리뷰 findings가 있으면:
-
-```text
-prompts/07_FIX_REVIEW_LOOP.md
-```
-
----
-
-## 4. 초보자에게 가장 중요한 규칙
-
-1. 한 prompt에 프로젝트 전체를 맡기지 않는다.
-2. 구현 전 plan을 시킨다.
-3. "done when"을 쓴다.
-4. 테스트 없이 완료를 믿지 않는다.
-5. 같은 실수가 두 번 반복되면 문서/테스트/harness를 고친다.
-6. 첫 프로토타입에는 LLM mutation과 BAC를 넣지 않는다.
-7. 병렬 multi-agent는 repo가 안정된 뒤 도입한다.
-
----
-
-## 5. Windows/Codex 설정
-
-처음 설정은:
-
-```text
-docs/CODEX_SETUP.md
-```
-
-를 따른다.
-
----
-
-## 6. v0.1 Top-K 분석 실행
-
-현재 CLI는 live crawler를 실행하지 않는다. 기존
-`LegacyCrawlerAdapter`가 받는 legacy crawl-record JSON 배열을 입력으로
-사용하며, localhost/loopback의 허가된 테스트 대상만 Light Probe한다.
 
 ```powershell
 vulnspider analyze `
   --input legacy-records.json `
   --top-k 10 `
-  --output result.json
+  --output result.json `
+  --html-output result.html
 ```
 
-출력은 raw RankScore, exact scorer maximum, cross-type
-`selection_priority`, 그리고 ScoreEvidence를 구분해 보존한다. 이 값들은
-취약 확률이나 최종 Confidence가 아니다.
+`--html-output` is optional. The HTML renderer displays the same validated
+`SelectionOutcome`, `ScoreEvidence`, and executed baseline/probe provenance as
+the JSON path. It does not recompute scores or confirm vulnerabilities.
+Equivalent JSON and HTML output paths are rejected before either report is
+written.
+
+## Implemented and not implemented
+
+### Implemented
+
+- Legacy crawl-record JSON input.
+- `LegacyCrawlerAdapter` normalization into canonical v0.1 domain models.
+- Deterministic probe planning and loopback-only baseline/probe execution.
+- Minimal differential, reflection, and SQL signal extraction.
+- Independent SQLi and Reflected XSS scoring with `ScoreEvidence`.
+- Deterministic global Top-K using `selection_priority`.
+- JSON report and optional escaped HTML report.
+- Unit and integration coverage for the implemented path.
+
+### Planned for v0.2, not implemented
+
+- Direct target URL input.
+- Native static crawler.
+- Native dynamic/browser crawler prototype.
+- BAC preprocessing, features, scoring, and role/session orchestration.
+- Feature cache and automated quantitative ranking evaluation.
+- GPT/Gemini comparison harness.
+- LLM-assisted payload mutation and payload validation.
+- Focused verification, `VerificationEvidence`, and
+  `VerificationConfidence`.
+- Rule-based confidence updates.
+
+Fine-tuning is **Deferred** unless the v0.2 API comparison and failure analysis
+meet the decision gate in [Prototype v0.2](docs/PROTOTYPE_V0_2.md).
+
+## Historical v0.1 build process
+
+The Prompt 01-07 flow is retained as project history, not as the current
+onboarding workflow:
+
+1. `prompts/01_LEGACY_AUDIT.md`
+2. `prompts/02_REPOSITORY_SCAFFOLD.md`
+3. `prompts/03_DOMAIN_MODEL.md`
+4. `prompts/04_LEGACY_ADAPTER.md`
+5. `prompts/05_PROBE_FEATURE_SCORING.md`
+6. `prompts/06_INDEPENDENT_REVIEW.md`
+7. `prompts/07_FIX_REVIEW_LOOP.md`
+
+These files document how v0.1 was built and reviewed. New v0.2 work starts from
+the current code and the v0.2 documents, not by replaying the prompts.
+
+## Development checks
+
+```text
+python -B -m unittest discover -s tests
+python tools/check_format.py
+python tools/check_lint.py
+python tools/check_types.py
+git diff --check
+```
+
+Windows and Codex setup details remain in `docs/CODEX_SETUP.md`.
