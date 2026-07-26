@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -83,6 +84,7 @@ def main(
     if args.command != "analyze":
         parser.error(f"unsupported command: {args.command}")
     try:
+        _reject_shared_report_destinations(args.output, args.html_output)
         records = _load_legacy_records(args.input)
         analysis = analyze_legacy_records(
             records,
@@ -134,6 +136,24 @@ def _write_html_report(analysis: AnalysisResult, destination: Path) -> None:
 def _target_label(endpoints: Sequence[Endpoint]) -> str:
     origins = sorted({f"{endpoint.scheme}://{endpoint.host}" for endpoint in endpoints})
     return ", ".join(origins)
+
+
+def _reject_shared_report_destinations(
+    json_destination: Path,
+    html_destination: Path | None,
+) -> None:
+    if html_destination is None:
+        return
+    if _normalized_destination(json_destination) == _normalized_destination(
+        html_destination
+    ):
+        raise CLIError("--output and --html-output must refer to different files")
+
+
+def _normalized_destination(destination: Path) -> str:
+    return os.path.normcase(
+        os.path.normpath(os.fspath(destination.resolve(strict=False)))
+    )
 
 
 def _positive_integer(value: str) -> int:

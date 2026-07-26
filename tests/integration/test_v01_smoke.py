@@ -163,6 +163,46 @@ class V01EndToEndSmokeTests(unittest.TestCase):
                 ["records.json", "report.json"],
             )
 
+    def test_cli_rejects_equivalent_report_destinations_before_writing(self) -> None:
+        records = [
+            {
+                "link": "http://127.0.0.1/search?q=book",
+                "query_params": '{"q":"book"}',
+                "input_fields": "[]",
+            }
+        ]
+        transport = MarkerTransport()
+        with TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            input_path = self._write_records(directory, records)
+            json_output_path = directory / "reports" / ".." / "report.json"
+            html_output_path = directory / "report.json"
+            error_output = io.StringIO()
+
+            with redirect_stderr(error_output):
+                exit_code = cli.main(
+                    [
+                        "analyze",
+                        "--input",
+                        str(input_path),
+                        "--top-k",
+                        "1",
+                        "--output",
+                        str(json_output_path),
+                        "--html-output",
+                        str(html_output_path),
+                    ],
+                    transport=transport,
+                )
+
+            self.assertEqual(exit_code, 2)
+            self.assertIn("must refer to different files", error_output.getvalue())
+            self.assertEqual(transport.requests, [])
+            self.assertEqual(
+                sorted(path.name for path in directory.iterdir()),
+                ["records.json"],
+            )
+
     def test_cli_rejects_invalid_top_k_and_missing_required_input(self) -> None:
         with redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit) as invalid_k:
