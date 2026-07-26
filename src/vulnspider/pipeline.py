@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from ipaddress import ip_address
+from time import monotonic
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -13,6 +14,7 @@ from vulnspider.discovery import (
     LegacyCrawlerAdapter,
     LegacyCrawlRecord,
 )
+from vulnspider.domain import ProbePlan, ResponseSnapshot
 from vulnspider.features import extract_minimal_features
 from vulnspider.observation import (
     DEFAULT_MAX_BODY_BYTES,
@@ -32,11 +34,29 @@ class PipelineError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class ProbeObservation:
+    """The one executed baseline/probe request pair behind a FeatureVector.
+
+    Retained only for reporting (ADR-011): it lets a report join a selected
+    candidate back to the real request it was derived from without
+    reporting recomputing or re-deriving anything.
+    """
+
+    feature_vector_id: str
+    input_point_id: str
+    probe_plan: ProbePlan
+    baseline_response: ResponseSnapshot
+    probe_response: ResponseSnapshot
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisResult:
     adapter_result: LegacyAdapterResult
     scoring_results: tuple[ScoringResult, ...]
     selection: SelectionOutcome
     warnings: tuple[str, ...]
+    probe_observations: tuple[ProbeObservation, ...]
+    elapsed_seconds: float
 
 
 def analyze_legacy_records(
@@ -66,7 +86,9 @@ def analyze_legacy_records(
     )
     planner = ProbePlanner()
     scoring_results: list[ScoringResult] = []
+    probe_observations: list[ProbeObservation] = []
     warnings = list(adapter_result.warnings)
+    started = monotonic()
 
     for context in sorted(
         adapter_result.input_point_request_contexts,
@@ -93,14 +115,26 @@ def analyze_legacy_records(
             execution.baseline_response,
             execution.probe_response,
         )
+        probe_observations.append(
+            ProbeObservation(
+                feature_vector_id=feature_vector.id or "",
+                input_point_id=input_point.id or "",
+                probe_plan=probe_plan,
+                baseline_response=execution.baseline_response,
+                probe_response=execution.probe_response,
+            )
+        )
         scoring_results.extend(generate_candidates(feature_vector))
 
+    elapsed_seconds = monotonic() - started
     selection = select_top_k(scoring_results, k=top_k)
     return AnalysisResult(
         adapter_result=adapter_result,
         scoring_results=tuple(scoring_results),
         selection=selection,
         warnings=tuple(warnings),
+        probe_observations=tuple(probe_observations),
+        elapsed_seconds=elapsed_seconds,
     )
 
 

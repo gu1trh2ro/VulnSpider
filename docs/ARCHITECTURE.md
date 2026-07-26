@@ -115,7 +115,10 @@ v0.1에는 RankScore만 존재한다.
       |
 [11] TopKSelector
       |
-[12] JsonReporter
+[12] Reporting
+      |
+      +--> JsonReporter
+      +--> HtmlDashboardReporter (optional, ADR-011)
 ```
 
 ---
@@ -257,6 +260,16 @@ SQLi와 XSS raw RankScore는 서로 다른 범위이므로 raw 값을 직접 비
 
 ### 4.8 `reporting/`
 
+두 개의 렌더러가 동일한 `SelectionOutcome`을 소비한다: `json_report`
+(필수)와 `html_report`(선택, ADR-011). 어느 쪽도 점수를 재계산하지
+않는다.
+
+`html_report`는 표시용으로 `InputPoint`/`Endpoint`(adapter 출력)와
+`ProbePlan`/`ResponseSnapshot`(observation 출력, 둘 다 `domain` 타입) 조인을
+추가로 받지만, `reporting`은 `observation`이나 `pipeline`을 직접 import하지
+않는다 — 이 값들은 호출자(`pipeline`이 만들고 `cli`가 전달)가 조립해서
+넘긴다. 의존성 방향은 §6과 동일하게 유지된다.
+
 최종 JSON은 raw score와 cross-type selection key를 구분하고 최소 다음을
 포함한다.
 
@@ -334,11 +347,15 @@ scope -> shared boundary checks
 
 - Broken Access Control 자동화
 - LLM payload mutation
-- exploit-style focused verification
-- dashboard
+- exploit-style focused/multi-payload verification (HTML 대시보드의
+  "Executed requests"는 실제로 전송된 baseline/probe 1쌍만 보여주며 이
+  항목에 해당하지 않는다 — §4.8, ADR-011)
 - Playwright browser collector
 - ML ranking model
 - grid search weight tuning
 - ZAP 대체 구현
 
 이 항목을 의도적으로 제외해야 첫 프로토타입이 연구 핵심을 빠르게 검증할 수 있다.
+
+dashboard는 ADR-011로 in-scope로 전환됐다(§4.8). 위 목록의 다른 항목,
+특히 focused verification과 BAC는 여전히 제외된다.
