@@ -1517,9 +1517,44 @@ before expanding scope.
 - 2026-07-26: Independent Milestone 1 Gate Review reached `PASS` with no
   Critical, High, or Minor residual after the authorized two-iteration unblock
   review. Milestone 2 has not started.
+- 2026-07-26: Implemented Milestone 2 as a pure standard-library HTML parser
+  with deterministic navigable-link metadata and canonical endpoint, input,
+  request-template, request-context, provenance, readiness, statistics, and
+  structured-warning output. No transport, form submission, pipeline, CLI,
+  legacy, observation, scoring, selection, or reporting code changed.
+- 2026-07-26: Added normal and adversarial extractor tests for relative and
+  fragment links, raw/repeated/blank query occurrences, GET/POST form defaults,
+  successful controls, malformed boundaries/actions, sensitive warning
+  redaction, canonical ordering, immutability, and cross-hash-seed identity.
+- 2026-07-26: Independent Milestone 2 Gate Review iteration 1 found one High
+  issue: occurrence counting used raw names while `InputPoint` canonicalizes
+  names. Added a failing `A`/`a` and decoded-empty-name regression, aligned
+  counting with canonical names, and received iteration 2 `PASS` with no
+  Critical, High, or Minor residual.
+- 2026-07-26: Final Milestone 2 verification passed 14 extractor tests and all
+  241 repository tests. Format, lint, type-hint, `git diff --check`, secret
+  pattern, determinism, and no-network checks passed.
 
 ## Decision Log
 
+- Decision: Implement the latest task-named public module as
+  `vulnspider.discovery.html_extractor` with `extract_static_html()` returning
+  immutable `StaticExtractionResult` and `NavigableLink` records.
+  Reason: the milestone task explicitly names this API, and it keeps extraction
+  separate from the future Milestone 3 crawl engine.
+- Decision: Use `html.parser.HTMLParser` and URL utilities from the standard
+  library, with no parser-owned transport or third-party dependency.
+  Reason: Milestone 2 accepts HTML text and source context only; fetching,
+  redirects, scope enforcement, budgets, and form submission are out of scope.
+- Decision: Preserve raw query tokens and request pair order while canonicalizing
+  names only for `InputPoint` identity and repeated-occurrence counting.
+  Reason: request reconstruction needs lossless raw evidence, while ownership
+  validation requires the same `strip().lower()` identity rule as the domain.
+- Decision: Preserve safely recoverable malformed forms as partial,
+  non-probe-ready contexts; skip unusable links/actions/controls with structured
+  warnings whose URL evidence is fingerprinted rather than echoed.
+  Reason: malformed input must not abort document extraction or fabricate a
+  probe-ready request, and diagnostic payloads must not leak sensitive values.
 - Decision: Aggregate validation re-runs each discovery-owned child's semantic
   validator before checking stable identity, ownership, and references.
   Reason: recomputing an ID must not legitimize mutated scope references,

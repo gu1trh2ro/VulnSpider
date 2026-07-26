@@ -18,6 +18,11 @@ from vulnspider.discovery.contracts import (
     discovery_run_id_for,
     scope_id_for_root,
 )
+from vulnspider.discovery.html_extractor import (
+    NavigableLink,
+    StaticExtractionResult,
+    extract_static_html,
+)
 from vulnspider.discovery.legacy_adapter import (
     LegacyAdapterResult,
     LegacyCrawlerAdapter,
@@ -38,10 +43,13 @@ __all__ = [
     "LegacyAdapterResult",
     "LegacyCrawlerAdapter",
     "LegacyCrawlRecord",
+    "NavigableLink",
     "NonProbeReadyReason",
     "ProbeReadiness",
     "ProbeReadyStatus",
     "ScopeMetadata",
+    "StaticExtractionResult",
     "discovery_run_id_for",
+    "extract_static_html",
     "scope_id_for_root",
 ]
