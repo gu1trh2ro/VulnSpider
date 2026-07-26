@@ -838,7 +838,7 @@ clock, fake sleeper를 사용한다.
 
 ### Loopback integration
 
-`tests/integration/test_native_static_e2e.py`:
+`tests/integration/test_native_static_discovery_e2e.py`:
 
 - ephemeral loopback server의 root URL에서 실제 crawler transport 실행
 - fixture의 links/forms/query/redirect/non-HTML surface를 canonical contract로
@@ -880,7 +880,7 @@ python -B -m unittest tests.unit.test_static_extractor
 python -B -m unittest tests.unit.test_static_crawler
 python -B -m unittest tests.unit.test_native_pipeline_cli
 python -B -m unittest tests.integration.test_discovery_contract_compatibility
-python -B -m unittest tests.integration.test_native_static_e2e
+python -B -m unittest tests.integration.test_native_static_discovery_e2e
 ```
 
 Regression and full gate:
@@ -1323,7 +1323,7 @@ feat(pipeline): analyze native static discovery results
 Files:
 
 - add `tests/fixtures/native_static_site.py` or an integration-local equivalent
-- add `tests/integration/test_native_static_e2e.py`
+- add `tests/integration/test_native_static_discovery_e2e.py`
 - update this plan's Progress/Decision Log with actual evidence
 
 Work:
@@ -1339,7 +1339,7 @@ Narrow test:
 
 ```powershell
 $env:PYTHONPATH='src'
-python -B -m unittest tests.integration.test_native_static_e2e -v
+python -B -m unittest tests.integration.test_native_static_discovery_e2e -v
 ```
 
 Done When:
@@ -1364,7 +1364,7 @@ After Milestone 5, run:
 $env:PYTHONPATH='src'
 python -B -m unittest discover -s tests
 python -B -m unittest tests.integration.test_v01_smoke -v
-python -B -m unittest tests.integration.test_native_static_e2e -v
+python -B -m unittest tests.integration.test_native_static_discovery_e2e -v
 python -B tools/check_format.py
 python -B tools/check_lint.py
 python -B tools/check_types.py
@@ -1414,7 +1414,7 @@ tests/unit/test_static_crawler.py                             new
 tests/unit/test_native_pipeline_cli.py                        new
 tests/unit/test_legacy_adapter_contract.py                    new only if wrapper is added
 tests/integration/test_discovery_contract_compatibility.py    new only if wrapper is added
-tests/integration/test_native_static_e2e.py                   new
+tests/integration/test_native_static_discovery_e2e.py         new
 tests/unit/test_domain_models.py                              minimal regression update if domain immutability changes
 docs/exec-plans/active/v0_2_native_static_discovery_mvp.md    progress updates during implementation
 ```
@@ -1440,49 +1440,49 @@ before expanding scope.
 
 ## Acceptance Criteria
 
-- [ ] `CanonicalDiscoveryResult` is a versioned, validated aggregate with
+- [x] `CanonicalDiscoveryResult` is a versioned, validated aggregate with
       discovery, scope, statistics, provenance, readiness, warning, and BAC
       static-hint boundaries.
-- [ ] Native-shaped fixtures construct canonical child models directly and do
+- [x] Native-shaped fixtures construct canonical child models directly and do
       not create legacy records first.
-- [ ] Existing `Endpoint`, `InputPoint`, `RequestTemplate`,
+- [x] Existing `Endpoint`, `InputPoint`, `RequestTemplate`,
       `InputPointRequestContext` identity and ownership semantics are reused.
-- [ ] persistent identity uses canonical SHA-256 rules and never Python
+- [x] persistent identity uses canonical SHA-256 rules and never Python
       built-in `hash()`.
-- [ ] repeated parameter name, occurrence index, equal repeated values, blank
+- [x] repeated parameter name, occurrence index, equal repeated values, blank
       values, ordered pairs, and raw percent-encoded query context are preserved.
-- [ ] hidden inputs and duplicate form fields are preserved with stable form
+- [x] hidden inputs and duplicate form fields are preserved with stable form
       boundary and completeness provenance.
-- [ ] omitted/relative native form method/action follow explicit HTML semantics;
+- [x] omitted/relative native form method/action follow explicit HTML semantics;
       lossy legacy assumptions remain distinguishable and fail-closed.
-- [ ] unresolved references, ownership mismatch, endpoint fingerprint mismatch,
+- [x] unresolved references, ownership mismatch, endpoint fingerprint mismatch,
       duplicate canonical ids, and legacy object leakage reject the contract.
-- [ ] incomplete but honest discovery remains visible as `NOT_READY` with
+- [x] incomplete but honest discovery remains visible as `NOT_READY` with
       structured reason and cannot be executed as `READY`.
-- [ ] output tuples and primitive serialization are deterministic under input
+- [x] output tuples and primitive serialization are deterministic under input
       permutation and hash-seed changes.
-- [ ] BAC static hints are not forced under one InputPoint and contain no score,
+- [x] BAC static hints are not forced under one InputPoint and contain no score,
       verdict, role/session access result, or global Top-K policy.
-- [ ] Legacy compatibility preserves current child ids/provenance and never
+- [x] Legacy compatibility preserves current child ids/provenance and never
       claims native collector provenance.
 - [x] CLI accepts exactly one of legacy `--input` or native `--url`.
-- [ ] root URL and every requested redirect/link use exact same-origin scope.
-- [ ] cross-origin links and redirects are recorded but never sent.
-- [ ] request/page/depth/time/redirect/response-size limits are enforced before
+- [x] root URL and every requested redirect/link use exact same-origin scope.
+- [x] cross-origin links and redirects are recorded but never sent.
+- [x] request/page/depth/time/redirect/response-size limits are enforced before
       the corresponding work.
-- [ ] only HTML response bodies are parsed.
-- [ ] anchors, query pairs, GET/POST forms, input/textarea/select and relative
+- [x] only HTML response bodies are parsed.
+- [x] anchors, query pairs, GET/POST forms, input/textarea/select and relative
       action are extracted without submitting forms.
-- [ ] native method/action omission follows HTML defaults with provenance.
-- [ ] deterministic queueing and URL deduplication prevent duplicate requests
+- [x] native method/action omission follows HTML defaults with provenance.
+- [x] deterministic queueing and URL deduplication prevent duplicate requests
       without losing distinct request contexts.
 - [x] URL input reaches existing observation/features/scoring/Top-K and creates
       JSON plus optional HTML reports.
-- [ ] loopback E2E proves off-scope request absence, POST non-submission,
+- [x] loopback E2E proves off-scope request absence, POST non-submission,
       redirect/budget behavior and report generation.
-- [ ] v0.1 adapter/planner/CLI regression tests pass unchanged.
-- [ ] focused tests, full suite, format, lint, type, and `git diff --check` pass.
-- [ ] independent Gate Review reaches `PASS` or `PASS WITH MINOR`.
+- [x] v0.1 adapter/planner/CLI regression tests pass unchanged.
+- [x] focused tests, full suite, format, lint, type, and `git diff --check` pass.
+- [x] independent Gate Review reaches `PASS` or `PASS WITH MINOR`.
 
 ## Progress Log
 
@@ -1569,9 +1569,38 @@ before expanding scope.
   Critical or High findings. The focused suite passed 7 tests and the full
   suite passed all 265 tests; format, lint, type-hint, and `git diff --check`
   passed.
+- 2026-07-27: Added the Milestone 5 real-transport CLI E2E with an ephemeral
+  primary loopback site and a distinct-port loopback origin sentinel. The
+  fixture covers duplicate and fragment links, repeated/blank/percent-encoded
+  query contexts, GET/POST/default/relative forms, hidden input, textarea,
+  select, local/external redirects, non-HTML, 404, and depth enforcement.
+- 2026-07-27: The E2E completed with 12 bounded crawler GETs and 18 observation
+  GETs. The external-origin sentinel and POST handler each received zero
+  requests; duplicate canonical `/search?q=hello` was fetched once, the
+  depth-two link was not fetched, and JSON/HTML represented the same selected
+  candidate IDs, feature-vector IDs, evidence, and existing scores.
+- 2026-07-27: Final Milestone 5 verification passed the focused E2E, all 266
+  repository tests, and all 7 unchanged v0.1 smoke tests. Format, lint,
+  type-hint, `git diff --check`, branch-diff review, and changed-file secret
+  pattern checks passed.
+- 2026-07-27: Independent final Gate Review reached `PASS` with no Critical,
+  High, or Minor findings. All 25 acceptance criteria are complete; dynamic
+  crawling, login/session automation, and JavaScript/SPA rendering remain
+  explicitly deferred. Moved this plan from `active/` to `completed/`.
 
 ## Decision Log
 
+- Decision: Use one real urllib CLI E2E with server-side request logs and a
+  distinct-port loopback sentinel rather than any public target.
+  Reason: this exercises the production crawler and observation transports
+  while proving same-origin, GET-only, redirect, form, and credential
+  boundaries without external network access.
+- Decision: Verify blank and percent-encoded contexts in the crawler/request
+  log while verifying the selected canonical candidate and evidence in both
+  reports.
+  Reason: multiple request contexts can share one InputPoint candidate ID, and
+  Top-K intentionally deduplicates that candidate without erasing the
+  discovery or execution contexts.
 - Decision: Native analysis consumes `CanonicalDiscoveryResult.ready_contexts()`
   directly and applies an additional GET-only execution filter while retaining
   skipped POST contexts as warnings.
