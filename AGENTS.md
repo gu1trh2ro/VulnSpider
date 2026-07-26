@@ -2,124 +2,202 @@
 
 ## Mission
 
-Build **VulnSpider**, a graduation-project prototype for input-point-based web vulnerability candidate prioritization and selective verification.
+Build **VulnSpider**, a graduation-project prototype for input-point-based web
+vulnerability candidate prioritization and selective verification.
 
-The core research contribution is **ranking what should be verified first**, not building a generic full-coverage vulnerability scanner and not delegating final vulnerability judgment to an LLM.
+The research contribution is ranking what should be verified first. VulnSpider
+is not a generic full-coverage scanner, and an LLM is never the final
+vulnerability judge.
 
-## Read First
+## Read first
 
-Before making non-trivial changes, read the smallest relevant set of documents:
+Before non-trivial work, read the smallest relevant set:
 
-- `docs/ARCHITECTURE.md` — system boundaries and dependency direction
-- `docs/DOMAIN_MODEL.md` — Endpoint, InputPoint, Candidate, Evidence, Finding
-- `docs/FEATURE_SCHEMA.md` — v0.1 feature definitions and missing-value rules
-- `docs/PROTOTYPE_V0_1.md` — exact first-prototype scope and acceptance criteria
-- `docs/EVALUATION_PROTOCOL.md` — experiment rules and leakage prevention
-- `docs/DECISION_LOG.md` — accepted architectural decisions
-- `PLANS.md` — execution-plan rules for complex tasks
-- `CODE_REVIEW.md` — review checklist
+- `README_START_HERE.md` - repository checkpoint and onboarding.
+- `docs/ARCHITECTURE.md` - implemented and target architecture.
+- `docs/PROTOTYPE_V0_1.md` - **Completed and Frozen** v0.1.
+- `docs/PROTOTYPE_V0_2.md` - **Planned for v0.2** scope.
+- `docs/TEAM_INTERFACES_V0_2.md` - **Proposed Contract** boundaries.
+- `docs/GIT_WORKFLOW.md` - branch, PR, review, artifact, and secret policy.
+- `docs/DOMAIN_MODEL.md` - canonical v0.1 model semantics.
+- `docs/FEATURE_SCHEMA.md` - feature and missing-value rules.
+- `docs/EVALUATION_PROTOCOL.md` - evaluation and leakage prevention.
+- `docs/DECISION_LOG.md` - architectural decisions.
+- `PLANS.md` and `CODE_REVIEW.md` - execution and review rules.
 
-Treat `docs/` as the repository system of record. Do not silently contradict it.
+Treat `docs/` as the system of record. Do not describe planned work as
+implemented.
 
-## Core Pipeline
+## Frozen v0.1 Scope
 
-```text
-Scope & Safety Guard
-  -> Discovery
-  -> Attack Surface Normalization
-  -> Endpoint + InputPoint
-  -> Baseline / One-at-a-time Light Probe
-  -> Response Normalization
-  -> Feature Extraction
-  -> Feature Vector
-  -> VulnerabilityCandidate generation
-  -> Type-specific Scoring
-  -> Top-K Selection
-  -> JSON Report (+ optional HTML Dashboard Report, ADR-011)
-```
+**Completed and Frozen:** `prototype/v0.1` accepts legacy crawl-record JSON and
+implements:
 
-Prototype v0.1 stops here. Focused exploitation, LLM payload mutation, BAC automation, and broad active scanning are out of scope unless a later task explicitly changes the scope. The HTML dashboard report (ADR-011) renders the same validated `SelectionOutcome` and the actually-executed baseline/probe pair as the JSON report; it does not add focused/multi-payload verification, new scoring, or new vulnerability types.
+- `LegacyCrawlerAdapter` conversion to `Endpoint`, `InputPoint`,
+  `RequestTemplate`, and `InputPointRequestContext`.
+- Deterministic `ProbePlan` creation.
+- Authorized localhost/loopback baseline plus one-at-a-time Light Probe.
+- Minimal differential, reflection, and SQL feature extraction.
+- Independent SQLi and Reflected XSS scoring with `ScoreEvidence`.
+- Deterministic global Top-K using cross-type `selection_priority`.
+- JSON report and optional escaped HTML report.
 
-## Non-Negotiable Domain Rules
+The HTML report consumes the same validated `SelectionOutcome` and actual
+baseline/probe provenance as JSON. It does not recompute scores, add focused
+verification, or claim a confirmed vulnerability.
+
+Changes to frozen semantics require an explicit ADR, compatibility analysis,
+tests, and review. v0.2 work must not silently redefine v0.1 behavior.
+
+## Authorized v0.2 Scope
+
+The following items are **Planned for v0.2**, not implemented merely because
+they are listed here:
+
+- Native static crawler as the primary discovery path.
+- Native dynamic/browser crawler prototype after the static crawler.
+- Scope control, redirect revalidation, request budget, depth, and delay.
+- Canonical discovery output shared by static and dynamic collectors.
+- BAC preprocessing, feature extraction, and independent scoring.
+- GPT/Gemini API comparison harness.
+- LLM context construction and LLM-assisted payload mutation.
+- Mandatory `PayloadValidator` before any model-produced payload executes.
+- Focused verification producing `VerificationEvidence`.
+- Evidence-based, rule-driven `VerificationConfidence` updates.
+- Feature cache, ground truth, ranking evaluation, weight experiments, and
+  ablation.
+
+The v0.2 primary path must not use `LegacyCrawlerAdapter`. The adapter remains
+for legacy input compatibility and regression tests.
+
+## Future / Deferred
+
+- Broad Internet scanning.
+- Autonomous exploit chains or destructive verification.
+- Account creation, persistence, shell execution, denial of service, or data
+  modification.
+- General-purpose ZAP replacement.
+- Production browser crawler beyond the bounded v0.2 prototype.
+- ML ranker or automatic weight search beyond documented experiments.
+- Fine-tuning before API comparison and failure analysis prove it necessary.
+- LLM-only vulnerability verdicts.
+
+## Non-negotiable domain rules
 
 1. `Page != Endpoint != InputPoint != VulnerabilityCandidate`.
 2. The atomic observation unit is `InputPoint`.
-3. The atomic ranking unit is `InputPoint x VulnerabilityType`.
-4. Change only one InputPoint per probe request unless a documented experiment explicitly requires otherwise.
-5. `RankScore` means "verification priority", not "probability of vulnerability".
-6. `VerificationConfidence` is a later concept and must not be derived by simply adding RankScore to verification bonuses.
-7. SQLi and Reflected XSS use independent scorers.
-8. BAC is not part of v0.1 and must not be forced into the injection-candidate model.
-9. Missing feature != observed zero. Preserve observation state.
-10. Every score must be explainable through feature contributions.
+3. The atomic injection-ranking unit is `InputPoint x VulnerabilityType`.
+4. BAC is a separate relationship-oriented observation/scoring family.
+5. Change one InputPoint per probe unless a reviewed experiment says otherwise.
+6. `RankScore` is verification priority, not vulnerability probability.
+7. `VerificationConfidence` is independent evidence from focused verification.
+8. Missing feature is not observed zero.
+9. Every score and confidence update must retain explainable provenance.
+10. Reporting displays authoritative results; it does not reconstruct them.
 
-## Safety and Scope Rules
+## Safety and scope rules
 
 - Operate only on explicitly authorized local test targets.
-- Default allowed hosts: `localhost`, `127.0.0.1`, and explicitly configured local Docker targets.
-- Never expand scope because of redirects, suffix matching, discovered external links, or model suggestions.
-- Do not add destructive verification behavior.
-- Do not add data modification, deletion, account creation, persistence, shell execution, or denial-of-service behavior.
-- v0.1 Light Probes must be observational and low-impact.
-- Preserve configurable crawl depth, request count, delay, and timeout limits.
-- Do not reuse a crawler's HTTP error-handling assumptions inside the Probe Executor.
+- Default allowed hosts are `localhost`, loopback IPs, and explicitly
+  configured local Docker targets.
+- Revalidate the final redirect target before following it.
+- Never expand scope from suffix matching, discovered links, redirects, or
+  model suggestions.
+- Enforce request budget, crawl depth, delay, timeout, and response-size bounds.
+- Keep crawler transport separate from probe/verification transport.
+- Model output cannot execute until a deterministic `PayloadValidator` accepts
+  it.
+- Do not add destructive payloads or state-changing verification behavior.
 
-## Legacy Code Policy
+## Team contract rules
 
-- `reference/whspider_legacy/` is previous WHS project code.
-- Treat legacy code as read-only by default.
-- First audit it, then reuse through adapters where practical.
-- Prefer `LegacyCrawlerAdapter` over invasive refactoring.
-- Do not reuse the old LLM/RAG pipeline by default.
-- Do not reuse the old database schema as the new domain schema.
+- Cross-owner data flows use the contracts in
+  `docs/TEAM_INTERFACES_V0_2.md`.
+- Proposed contracts are not implemented classes.
+- Producers own construction and validation at their boundary.
+- Consumers must not reconstruct IDs, scores, evidence, request provenance, or
+  confidence from display text or partial data.
+- Contract changes require review from every affected producer and consumer.
 
-## Engineering Rules
+## Legacy code policy
 
-- Python-first implementation.
-- Development commands:
-  - Install/editable import path: `python -m pip install -e .`
-  - Tests: `python -m unittest discover -s tests`
-  - Format check: `python tools/check_format.py`
-  - Lint check: `python tools/check_lint.py`
-  - Type-hint check: `python tools/check_types.py`
-- Use explicit typed models for core domain objects.
-- Keep network I/O behind interfaces so unit tests do not require live targets.
-- Prefer deterministic functions for normalization, feature extraction, scoring, and explanations.
-- Keep modules small and dependency direction explicit.
-- Do not add a dependency without documenting why the standard library or existing dependency is insufficient.
-- Do not perform broad unrelated refactors in feature tasks.
-- Keep generated artifacts and experimental caches out of source modules.
+- Treat `reference/whspider_legacy/` as a read-only reference by default.
+- Audit legacy behavior before reusing it, and isolate approved reuse behind
+  compatibility adapters.
+- Do not reuse the historical LLM/RAG pipeline or database schema as a new core
+  contract without explicit validation, compatibility analysis, and review.
 
-## Required Verification Loop
+## Git collaboration rules
 
-For every meaningful implementation task:
+- Do not commit directly to `prototype/v0.1` or, after promotion, `main`.
+- Use a short-lived branch and PR for every change.
+- Keep one PR focused on one goal.
+- Never commit API keys, cookies, session secrets, credentials, or `.env`
+  contents.
+- Public contract changes require affected-owner review.
+- Network scope or payload execution changes should receive two reviewers.
+- Default to squash merge. A merge commit is allowed for integration PRs when
+  preserving existing commits is materially important.
+- Never rewrite or force-push a teammate's branch.
+- Follow `docs/GIT_WORKFLOW.md` for base updates and conflict resolution.
 
-1. Inspect relevant docs and existing code.
-2. State or write a short plan before coding.
-3. Add or update tests.
-4. Run the narrowest relevant test set.
-5. Run formatting, linting, and type checks when configured.
-6. Review the diff against `CODE_REVIEW.md`.
-7. Fix findings.
-8. Re-run verification.
-9. Update docs or `docs/DECISION_LOG.md` if behavior or architecture changed.
+## Engineering and verification rules
 
-Never claim completion without reporting the checks actually run and their outcomes.
+- Python-first implementation with typed core models.
+- Keep network I/O behind interfaces.
+- Prefer deterministic normalization, extraction, scoring, and explanations.
+- Do not add dependencies without documenting why existing tools are
+  insufficient.
+- Avoid unrelated refactors and generated artifacts.
+- For implementation work: inspect, plan, test narrowly, run the full checks,
+  review the diff, and update docs/ADRs when behavior changes.
+
+Required verification loop for meaningful implementation work:
+
+1. Implement within the approved scope and contract.
+2. Run the narrowest relevant tests.
+3. Run the full test and static-check suite.
+4. Request an independent Gate Review of the resulting diff.
+5. Fix blocking findings and re-run the affected checks.
+
+Development checks:
+
+```text
+python -B -m unittest discover -s tests
+python tools/check_format.py
+python tools/check_lint.py
+python tools/check_types.py
+git diff --check
+```
+
+Never claim completion without reporting the checks actually run.
 
 ## Definition of Done
 
 A task is done only when:
 
 - requested behavior exists,
-- scope constraints are preserved,
-- relevant tests pass,
+- scope and safety constraints are preserved,
+- relevant narrow and full checks pass,
 - edge cases are documented or tested,
 - no unrelated changes remain,
-- the diff has been reviewed,
+- an independent Gate Review has reached `PASS` or `PASS WITH MINOR`, and
 - documentation matches implementation.
 
-## When You Are Unsure
+## Execution plans
 
-Do not guess hidden repository behavior. Inspect code, tests, fixtures, and docs first.
+- Create and maintain an execution plan under `docs/exec-plans/active/` when a
+  change affects three or more modules, changes network behavior, or adds a new
+  domain model.
+- Follow `PLANS.md` for the plan format and keep progress and decisions current.
+- After the phase is complete, move its plan from `active/` to
+  `docs/exec-plans/completed/`.
 
-For a complex or ambiguous change, create an execution plan under `docs/exec-plans/active/` using `PLANS.md`, keep progress and decisions current, and move it to `completed/` when finished.
+## Gate Review outcomes
+
+- `PASS`: no blocking correctness, safety, invariant, or contract issue remains.
+- `PASS WITH MINOR`: only non-blocking issues remain and they are recorded.
+- `BLOCK`: at least one Critical or High correctness, safety, invariant, or
+  contract issue remains.
+- Naming preferences, optional future refactors, and speculative extensions do
+  not justify `BLOCK`. Do not prolong review indefinitely over such items.

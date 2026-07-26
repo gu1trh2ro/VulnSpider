@@ -1,5 +1,15 @@
 # Prototype v0.1 Specification
 
+> **Status: Completed and Frozen**
+>
+> The implemented checkpoint is `prototype/v0.1`, including the optional HTML
+> report merged under ADR-011. Sections 9-13 describe the final implemented
+> vertical slice. Earlier requirements and acceptance criteria are retained as
+> **Historical** planning context and do not imply that a native crawler or
+> direct target-URL CLI was implemented.
+>
+> Next version: [`PROTOTYPE_V0_2.md`](PROTOTYPE_V0_2.md) (**Planned for v0.2**).
+
 ## 1. 목표
 
 첫 번째 프로토타입은 다음 연구 가설을 빠르게 검증한다.
@@ -19,7 +29,8 @@ v0.1은 완성형 취약점 스캐너가 아니다.
 
 ### 수집
 
-- 기존 WHSPIDER static crawler 재사용 가능
+- `LegacyCrawlerAdapter` 호환 crawl-record JSON 입력
+- legacy crawler 자체는 실행하지 않음
 - query parameter
 - HTML form input
 - form action/method
@@ -79,23 +90,27 @@ v0.1은 완성형 취약점 스캐너가 아니다.
 
 ---
 
-## 4. Required User Flow
+## 4. Implemented User Flow
 
 ```text
-vulnspider scan \
-  --target http://127.0.0.1:PORT \
-  --max-depth 2 \
-  --max-requests 100 \
-  --delay-ms 100 \
+vulnspider analyze \
+  --input legacy-records.json \
   --top-k 10 \
-  --output result.json
+  --output result.json \
+  --html-output result.html
 ```
 
-정확한 CLI 문법은 구현 중 조정 가능하지만 의미는 유지한다.
+`--html-output`은 선택 사항이다. 직접 target URL을 받는 `scan` 명령과
+native crawler는 v0.1에 구현되지 않았다. 초기 문서에서 계획했던 `scan`
+흐름은 Historical 계획이며 v0.2의 native discovery 계획으로 대체된다.
 
 ---
 
-## 5. Required Functional Flow
+## 5. Historical Required Functional Flow
+
+이 목록은 초기 v0.1 계획을 보존한다. 실제 완료 범위는 legacy record
+입력에서 시작하는 §9-13의 vertical slice이며, 1-3의 native target/scope/
+crawl 단계는 구현 완료로 간주하지 않는다.
 
 1. target URL validation
 2. scope allowlist validation
@@ -545,3 +560,10 @@ JSON report already exposes, joined for display only — no new derived
 signal is introduced. All text interpolated from crawled/observed data
 (endpoint path, parameter name, evidence reason strings, warnings) is HTML
 escaped, since that data can come from an untrusted target response.
+
+## 14. Frozen checkpoint and successor
+
+v0.1 is **Completed and Frozen**. Compatibility fixes may be accepted through
+the normal ADR and PR process, but native crawler, BAC, LLM-assisted mutation,
+focused verification, and confidence work belongs to
+[`PROTOTYPE_V0_2.md`](PROTOTYPE_V0_2.md).
