@@ -1505,9 +1505,35 @@ before expanding scope.
   to the bounded native static crawler, pipeline/CLI integration, loopback E2E,
   focused commit, and final Gate Review scope. Production code remains
   unchanged at Milestone 0.
+- 2026-07-26: Implemented Milestone 1 canonical discovery metadata, scope and
+  crawl summaries, provenance, readiness, structured warnings, BAC static
+  hints, aggregate ownership/identity validation, deterministic ordering, and
+  primitive serialization while reusing the existing four domain child models.
+- 2026-07-26: Added normal and adversarial contract coverage, including
+  post-construction scope-reference mutation, recomputed-ID attacks, negative
+  provenance depth, and BAC score/confidence/ranking/finding-decision
+  boundaries. The focused suite passed 71 tests and the full suite passed 227
+  tests; format, lint, type, and `git diff --check` also passed.
+- 2026-07-26: Independent Milestone 1 Gate Review reached `PASS` with no
+  Critical, High, or Minor residual after the authorized two-iteration unblock
+  review. Milestone 2 has not started.
 
 ## Decision Log
 
+- Decision: Aggregate validation re-runs each discovery-owned child's semantic
+  validator before checking stable identity, ownership, and references.
+  Reason: recomputing an ID must not legitimize mutated scope references,
+  negative depth, duplicate readiness reasons, mutable evidence, or forbidden
+  BAC decision semantics.
+- Decision: Treat scope-decision references as sorted, unique, non-empty opaque
+  tokens and deep-check warning/BAC evidence as immutable canonical JSON.
+  Reason: the MVP reserves future ScopeGuard authority without accepting forged
+  mutable handoff state or inventing an unapproved scope-decision registry.
+- Decision: Reject BAC static-evidence keys that encode scoring, confidence,
+  ranking priority, finding decisions, scorer maxima, or global Top-K
+  selection, including normalized hyphen/underscore aliases.
+  Reason: Milestone 1 owns static discovery hints only; BAC decision and ranking
+  policy remain explicitly unapproved.
 - Decision: Place run-level contract models under `vulnspider.discovery`, not
   in a parallel replacement for the existing domain package.
   Reason: 상현 owns the producer boundary, while existing child models are
