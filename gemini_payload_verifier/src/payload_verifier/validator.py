@@ -1,5 +1,5 @@
 from __future__ import annotations
-import ipaddress,re
+import ipaddress,re,os
 from collections import Counter
 from urllib.parse import urlparse
 from .models import Candidate,PayloadItem,RejectedPayload,ValidationResult,VerificationGroup,VulnerabilityType
@@ -21,21 +21,25 @@ STATE_PATH=re.compile(r"/(delete|remove|destroy|purchase|checkout|transfer|withd
 
 class PayloadValidator:
     def __init__(self,allowed_hosts=None,allowed_ports=None,max_payload_length=200):
+    #def __init__(self,max_payload_length=200):
         self.allowed_hosts=allowed_hosts or {"localhost","127.0.0.1","::1"}
         self.allowed_ports=allowed_ports or {3000,8899}
         self.max_payload_length=max_payload_length
+        self.enforce_url_restriction = (os.getenv("ENFORCE_URL_RESTRICTION","true",).strip().lower() == "true")
 
     def _url(self,url):
         p=urlparse(url); out=[]
         if p.scheme not in {"http","https"}: out.append("scheme must be http/https")
         if p.username or p.password: out.append("userinfo in URL is blocked")
         if p.fragment: out.append("URL fragment is blocked")
-        host=p.hostname
-        try: loopback=host in self.allowed_hosts or ipaddress.ip_address(host).is_loopback
-        except Exception: loopback=host in self.allowed_hosts
-        if not loopback: out.append("host outside loopback allowlist")
-        port=p.port or (443 if p.scheme=="https" else 80)
-        if port not in self.allowed_ports: out.append(f"port {port} not allowed")
+        if self.enforce_url_restriction:
+            host=p.hostname
+            try: loopback=host in self.allowed_hosts or ipaddress.ip_address(host).is_loopback
+            except Exception: loopback=host in self.allowed_hosts
+            if not loopback: out.append("host outside loopback allowlist")
+            port=p.port or (443 if p.scheme=="https" else 80)
+            if port not in self.allowed_ports: out.append(f"port {port} not allowed")
+        
         if STATE_PATH.search(p.path): out.append("state-changing path blocked")
         return out
 
