@@ -1534,9 +1534,58 @@ before expanding scope.
 - 2026-07-26: Final Milestone 2 verification passed 14 extractor tests and all
   241 repository tests. Format, lint, type-hint, `git diff --check`, secret
   pattern, determinism, and no-network checks passed.
+- 2026-07-27: Confirmed the Milestone 3 baseline on
+  `feat/native-static-discovery-mvp`: all 241 tests passed and the worktree was
+  clean at `2df1d30`; the existing stash remained read-only.
+- 2026-07-27: Implemented the bounded synchronous native static crawler with
+  exact effective-origin scope, canonical `(depth, URL)` traversal, explicit
+  redirects, GET-only transport, request/page/depth/elapsed/redirect/delay/
+  timeout budgets, bounded response reads, HTML-only extraction, deterministic
+  aggregate merging, and structured warning/skip accounting.
+- 2026-07-27: Added fake-transport normal/adversarial coverage and a
+  test-owned `127.0.0.1` loopback fixture covering local and cross-origin
+  redirects, loops, repeated query input, non-HTML, 404, timeout, oversized
+  response, duplicate/fragment URLs, GET/POST forms, and an off-scope sentinel.
+  The sentinel received zero requests and every primary-server request was GET.
+- 2026-07-27: During local boundary review, bounded transport timeout was capped
+  to remaining elapsed budget, responses completing after that budget were not
+  parsed, redirect statistics were tied to actual reserved requests, and HTTP
+  error-body read failures were converted to typed transport warnings.
+- 2026-07-27: Final Milestone 3 verification passed 17 focused crawler tests and
+  all 258 repository tests. Format, lint, type-hint, `git diff --check`,
+  cross-hash-seed determinism, body-read bounds, and loopback-only network
+  checks passed. Independent Gate Review iteration 1 reached `PASS` with no
+  Critical, High, or Minor findings.
 
 ## Decision Log
 
+- Decision: Expose `CrawlPolicy`, GET-only crawler request/response transport
+  types, `StaticCrawler.crawl()`, immutable `StaticCrawlResult`, and URL
+  canonicalization from `vulnspider.discovery`.
+  Reason: transport injection makes scope and budget boundaries testable while
+  keeping Milestone 3 independent from the frozen probe executor and Milestone
+  4 pipeline/CLI integration.
+- Decision: Define origin as normalized `(scheme, hostname, effective port)`,
+  remove default ports and fragments, preserve raw path/query bytes and ordered
+  occurrences, and queue by `(depth, canonical_url)`.
+  Reason: this gives exact same-origin enforcement and deterministic duplicate
+  handling without lossy query decoding or suffix-based scope expansion.
+- Decision: Disable urllib automatic redirects and read at most
+  `max_response_bytes + 1`; reserve every initial or redirect-hop request before
+  transport and revalidate redirect destinations before following them.
+  Reason: off-scope redirects and oversized bodies must be blocked at the
+  transport boundary rather than detected after an unsafe request or unbounded
+  allocation.
+- Decision: Count only unique HTML documents passed to `extract_static_html()`
+  against `max_pages`; redirects, non-HTML, HTTP errors, timeouts, and oversized
+  responses consume request/skip accounting but not the HTML page budget.
+  Reason: this matches the execution plan's parser-page budget while retaining
+  truthful transport statistics.
+- Decision: Merge each per-document canonical result under one crawler
+  metadata/scope identity and combine same-identity InputPoint baseline
+  evidence before calling `CanonicalDiscoveryResult.create()`.
+  Reason: cross-page provenance must be retained without duplicate child IDs or
+  context validation failures when one canonical input is observed repeatedly.
 - Decision: Implement the latest task-named public module as
   `vulnspider.discovery.html_extractor` with `extract_static_html()` returning
   immutable `StaticExtractionResult` and `NavigableLink` records.
