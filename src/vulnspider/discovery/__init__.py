@@ -9,6 +9,7 @@ from vulnspider.discovery.contracts import (
     DiscoveryContractError,
     DiscoveryMetadata,
     DiscoveryProvenance,
+    DiscoverySafetyInvariant,
     DiscoverySubjectKind,
     DiscoveryWarning,
     NonProbeReadyReason,
@@ -28,6 +29,11 @@ from vulnspider.discovery.legacy_adapter import (
     LegacyAdapterResult,
     LegacyCrawlerAdapter,
     LegacyCrawlRecord,
+)
+from vulnspider.discovery.merge import (
+    DiscoveryMergePolicy,
+    DynamicIntegrityError,
+    merge_discovery_results,
 )
 from vulnspider.discovery.static_crawler import (
     CrawlPolicy,
@@ -51,9 +57,12 @@ __all__ = [
     "CrawlStatistics",
     "DiscoveryContractError",
     "DiscoveryMetadata",
+    "DiscoveryMergePolicy",
     "DiscoveryProvenance",
+    "DiscoverySafetyInvariant",
     "DiscoverySubjectKind",
     "DiscoveryWarning",
+    "DynamicIntegrityError",
     "LegacyAdapterResult",
     "LegacyCrawlerAdapter",
     "LegacyCrawlRecord",
@@ -75,5 +84,6 @@ __all__ = [
     "canonicalize_crawl_url",
     "discovery_run_id_for",
     "extract_static_html",
+    "merge_discovery_results",
     "scope_id_for_root",
 ]

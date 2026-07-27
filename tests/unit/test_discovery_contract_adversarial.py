@@ -356,6 +356,14 @@ class CanonicalDiscoveryAdversarialTests(unittest.TestCase):
         with self.assertRaisesRegex(DiscoveryContractError, "discovery run"):
             result.validate()
 
+    def test_rejects_mixed_provenance_outside_aggregate_result(self) -> None:
+        result = build_contract()
+        item = result.crawl_provenance[0]
+        object.__setattr__(item, "collector_kind", CollectorKind.NATIVE_DYNAMIC)
+        object.__setattr__(item, "id", item._expected_id())
+        with self.assertRaisesRegex(DiscoveryContractError, "collector kind"):
+            result.validate()
+
     def test_rejects_stale_contract_owned_record_ids(self) -> None:
         mutations = (
             ("provenance", "crawl_provenance", "source_url", "http://changed/"),
@@ -499,6 +507,16 @@ class CanonicalDiscoveryAdversarialTests(unittest.TestCase):
                     CrawlStatistics(
                         requests_attempted=value,  # type: ignore[arg-type]
                     ).validate()
+
+    def test_rejects_more_html_pages_than_processed_pages(self) -> None:
+        with self.assertRaisesRegex(
+            DiscoveryContractError,
+            "HTML pages",
+        ):
+            CrawlStatistics(
+                pages_processed=1,
+                html_pages=2,
+            ).validate()
 
     def test_rejects_top_level_custom_object(self) -> None:
         result = build_contract()

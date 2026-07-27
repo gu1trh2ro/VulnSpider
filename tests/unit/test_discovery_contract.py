@@ -10,7 +10,9 @@ from vulnspider.discovery import (
     CrawlStatistics,
     DiscoveryMetadata,
     DiscoveryProvenance,
+    DiscoverySafetyInvariant,
     DiscoverySubjectKind,
+    NonProbeReadyReason,
     ProbeReadiness,
     ProbeReadyStatus,
     ScopeMetadata,
@@ -33,6 +35,7 @@ def build_contract(
     *,
     reverse: bool = False,
     query_provenance: tuple[tuple[str, str], ...] = (("query", "raw-url"),),
+    safety_invariants: tuple[DiscoverySafetyInvariant, ...] = (),
 ) -> CanonicalDiscoveryResult:
     root_url = "http://127.0.0.1:8080/"
     endpoint = Endpoint(
@@ -154,10 +157,52 @@ def build_contract(
         probe_readiness=tuple(reversed(readiness)) if reverse else readiness,
         crawl_provenance=tuple(reversed(provenance)) if reverse else provenance,
         bac_static_hints=(hint,),
+        safety_invariants=safety_invariants,
     )
 
 
 class CanonicalDiscoveryContractTests(unittest.TestCase):
+    def test_aggregate_collector_and_authority_reason_are_canonical(self) -> None:
+        self.assertEqual(
+            CollectorKind.NATIVE_COMBINED.value,
+            "NATIVE_COMBINED",
+        )
+        self.assertEqual(
+            NonProbeReadyReason.REQUEST_NOT_AUTHORIZED.value,
+            "REQUEST_NOT_AUTHORIZED",
+        )
+        self.assertEqual(
+            DiscoverySafetyInvariant
+            .SENSITIVE_FORM_PRE_CANONICAL_ELISION.value,
+            "SENSITIVE_FORM_PRE_CANONICAL_ELISION",
+        )
+
+    def test_safety_invariant_is_canonical_and_additive(self) -> None:
+        invariant = (
+            DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION
+        )
+        default_result = build_contract()
+        marked_result = build_contract(safety_invariants=(invariant,))
+
+        self.assertEqual(default_result.safety_invariants, ())
+        self.assertNotIn("safety_invariants", default_result.to_dict())
+        self.assertEqual(marked_result.safety_invariants, (invariant,))
+        self.assertEqual(
+            marked_result.to_dict()["safety_invariants"],
+            [invariant.value],
+        )
+
+    def test_duplicate_or_unknown_safety_invariant_is_rejected(self) -> None:
+        invariant = (
+            DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION
+        )
+        with self.assertRaisesRegex(ValueError, "unique"):
+            build_contract(safety_invariants=(invariant, invariant))
+        with self.assertRaisesRegex(ValueError, "known canonical"):
+            build_contract(
+                safety_invariants=("UNKNOWN",),  # type: ignore[arg-type]
+            )
+
     def test_valid_contract_reuses_existing_models(self) -> None:
         result = build_contract()
         self.assertEqual(len(result.endpoints), 1)

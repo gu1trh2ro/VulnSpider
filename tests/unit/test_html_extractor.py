@@ -6,6 +6,7 @@ import unittest
 
 from vulnspider.discovery import (
     CollectorKind,
+    DiscoverySafetyInvariant,
     ProbeReadyStatus,
     SensitiveFormElisionPolicy,
     StaticExtractionResult,
@@ -204,6 +205,11 @@ class StaticHtmlExtractorTests(unittest.TestCase):
         """
 
         result = extract_static_html(html, SOURCE_URL)
+        marked = extract_static_html(
+            html,
+            SOURCE_URL,
+            sensitive_form_policy=SENSITIVE_FORM_POLICY,
+        )
 
         template = next(
             item
@@ -217,6 +223,16 @@ class StaticHtmlExtractorTests(unittest.TestCase):
         self.assertNotIn(
             "SENSITIVE_FORM_ELIDED",
             {item.code for item in result.warnings},
+        )
+        invariant = (
+            DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION
+        )
+        self.assertEqual(result.discovery.safety_invariants, ())
+        self.assertNotIn("safety_invariants", result.discovery.to_dict())
+        self.assertEqual(marked.discovery.safety_invariants, (invariant,))
+        self.assertEqual(
+            marked.discovery.to_dict()["safety_invariants"],
+            [invariant.value],
         )
 
     def test_elides_password_get_form_before_canonical_construction(self) -> None:

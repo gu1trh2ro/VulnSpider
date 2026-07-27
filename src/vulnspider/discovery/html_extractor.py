@@ -15,6 +15,7 @@ from vulnspider.discovery.contracts import (
     DiscoveryContractError,
     DiscoveryMetadata,
     DiscoveryProvenance,
+    DiscoverySafetyInvariant,
     DiscoverySubjectKind,
     DiscoveryWarning,
     NonProbeReadyReason,
@@ -836,6 +837,7 @@ class _CanonicalBuilder:
         *,
         link_count: int,
         form_count: int,
+        safety_invariants: Sequence[DiscoverySafetyInvariant] = (),
     ) -> CanonicalDiscoveryResult:
         points = self._finalize_points()
         provenance: list[DiscoveryProvenance] = []
@@ -881,6 +883,7 @@ class _CanonicalBuilder:
             probe_readiness=tuple(self.readiness.values()),
             crawl_provenance=tuple(provenance),
             warnings=tuple(self.warnings.values()),
+            safety_invariants=safety_invariants,
         )
 
     def _add_endpoint(
@@ -1346,6 +1349,14 @@ def extract_static_html(
     discovery = builder.build(
         link_count=len(links),
         form_count=len(parser.forms),
+        safety_invariants=(
+            (
+                DiscoverySafetyInvariant
+                .SENSITIVE_FORM_PRE_CANONICAL_ELISION
+            ),
+        )
+        if sensitive_form_policy is not None
+        else (),
     )
     ordered_links = tuple(
         sorted(
