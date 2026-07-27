@@ -43,6 +43,11 @@ _CHECKABLE_INPUT_TYPES = frozenset({"checkbox", "radio"})
 
 
 @dataclass(frozen=True, slots=True)
+class SensitiveFormElisionPolicy:
+    """Opt into pre-canonical elision of structurally sensitive forms."""
+
+
+@dataclass(frozen=True, slots=True)
 class NavigableLink:
     """One HTTP(S) anchor observation, separate from later scope enforcement."""
 
@@ -168,8 +173,10 @@ class _ActiveSelect:
 
 @dataclass(slots=True)
 class _RawForm:
+    occurrence_index: int
     raw_method: str | None
     raw_action: str | None
+    sensitive: bool = False
     controls: list[_RawControl] = field(default_factory=list)
     malformed_reasons: set[str] = field(default_factory=set)
     closed: bool = False
@@ -187,8 +194,53 @@ class _PointState:
     hidden: bool = False
 
 
-class _StaticHtmlParser(HTMLParser):
+class _SensitiveFormClassifier(HTMLParser):
     def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.form_count = 0
+        self.form_occurrence: int | None = None
+        self.sensitive_form_occurrences: set[int] = set()
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if tag == "form":
+            self.form_occurrence = self.form_count
+            self.form_count += 1
+            return
+        if (
+            tag == "input"
+            and self.form_occurrence is not None
+            and _normalized_input_type(attrs) == "password"
+        ):
+            self.sensitive_form_occurrences.add(self.form_occurrence)
+
+    def handle_startendtag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        self.handle_starttag(tag, attrs)
+        if tag == "form":
+            self.handle_endtag(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "form":
+            self.form_occurrence = None
+
+    def finish(self) -> None:
+        self.close()
+        self.form_occurrence = None
+
+
+class _StaticHtmlParser(HTMLParser):
+    def __init__(
+        self,
+        *,
+        sensitive_form_occurrences: frozenset[int] = frozenset(),
+    ) -> None:
         super().__init__(convert_charrefs=True)
         self.raw_links: list[str | None] = []
         self.forms: list[_RawForm] = []
@@ -197,12 +249,20 @@ class _StaticHtmlParser(HTMLParser):
         self.textarea: _ActiveTextarea | None = None
         self.select: _ActiveSelect | None = None
         self._control_index = 0
+        self._form_occurrence_count = 0
+        self._sensitive_form_occurrences = sensitive_form_occurrences
 
     def handle_starttag(
         self,
         tag: str,
         attrs: list[tuple[str, str | None]],
     ) -> None:
+        if (
+            self.form is not None
+            and self.form.sensitive
+            and tag in {"button", "input", "option", "select", "textarea"}
+        ):
+            return
         attributes = _attribute_map(attrs)
         if tag == "a":
             self.raw_links.append(attributes.get("href"))
@@ -275,9 +335,13 @@ class _StaticHtmlParser(HTMLParser):
             nested_reason = {"nested-form"}
         else:
             nested_reason = set()
+        occurrence_index = self._form_occurrence_count
+        self._form_occurrence_count += 1
         self.form = _RawForm(
+            occurrence_index=occurrence_index,
             raw_method=attributes.get("method"),
             raw_action=attributes.get("action"),
+            sensitive=occurrence_index in self._sensitive_form_occurrences,
             malformed_reasons=nested_reason,
         )
         self._control_index = 0
@@ -1104,6 +1168,7 @@ def extract_static_html(
     scope_metadata: ScopeMetadata | None = None,
     parent_url: str | None = None,
     depth: int = 0,
+    sensitive_form_policy: SensitiveFormElisionPolicy | None = None,
 ) -> StaticExtractionResult:
     """Extract one HTML string without fetching, submitting, or executing it."""
 
@@ -1113,6 +1178,12 @@ def extract_static_html(
         raise TypeError("source_url must be a string")
     if type(depth) is not int or depth < 0:
         raise ValueError("depth must be a non-negative integer")
+    if sensitive_form_policy is not None and (
+        type(sensitive_form_policy) is not SensitiveFormElisionPolicy
+    ):
+        raise TypeError(
+            "sensitive_form_policy must be a SensitiveFormElisionPolicy or None"
+        )
     _, canonical_source = _resolve_http_url(source_url, base_url=None)
     canonical_parent = None
     if parent_url is not None:
@@ -1143,9 +1214,29 @@ def extract_static_html(
     )
     scope.validate()
 
-    parser = _StaticHtmlParser()
+    sensitive_form_occurrences: frozenset[int] = frozenset()
+    classified_form_count: int | None = None
+    if sensitive_form_policy is not None:
+        classifier = _SensitiveFormClassifier()
+        classifier.feed(html)
+        classifier.finish()
+        sensitive_form_occurrences = frozenset(
+            classifier.sensitive_form_occurrences
+        )
+        classified_form_count = classifier.form_count
+
+    parser = _StaticHtmlParser(
+        sensitive_form_occurrences=sensitive_form_occurrences
+    )
     parser.feed(html)
     parser.finish()
+    if (
+        classified_form_count is not None
+        and classified_form_count != len(parser.forms)
+    ):
+        raise ValueError(
+            "sensitive form classification did not align with canonical parsing"
+        )
 
     builder = _CanonicalBuilder(
         source_url=canonical_source,
@@ -1231,9 +1322,20 @@ def extract_static_html(
             observation_key=f"link:{link.id}",
         )
 
-    form_signatures = [_form_signature(item) for item in parser.forms]
     form_seen: Counter[str] = Counter()
-    for raw_form, signature in zip(parser.forms, form_signatures, strict=True):
+    for raw_form in parser.forms:
+        if raw_form.sensitive:
+            builder.add_warning(
+                "SENSITIVE_FORM_ELIDED",
+                "sensitive form was elided before canonical construction",
+                {
+                    "depth": depth,
+                    "form_occurrence_index": raw_form.occurrence_index,
+                    "producer_kind": CollectorKind.NATIVE_STATIC.value,
+                },
+            )
+            continue
+        signature = _form_signature(raw_form)
         duplicate_index = form_seen[signature]
         form_seen[signature] += 1
         boundary_key = (
@@ -1268,6 +1370,16 @@ def _attribute_map(
     attrs: Sequence[tuple[str, str | None]],
 ) -> dict[str, str | None]:
     return {name.lower(): value for name, value in attrs}
+
+
+def _normalized_input_type(
+    attrs: Sequence[tuple[str, str | None]],
+) -> str:
+    raw_type: str | None = None
+    for name, value in attrs:
+        if name.lower() == "type":
+            raw_type = value
+    return (raw_type or "text").strip().lower() or "text"
 
 
 def _non_empty_attribute(

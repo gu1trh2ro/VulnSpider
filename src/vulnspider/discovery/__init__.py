@@ -20,6 +20,7 @@ from vulnspider.discovery.contracts import (
 )
 from vulnspider.discovery.html_extractor import (
     NavigableLink,
+    SensitiveFormElisionPolicy,
     StaticExtractionResult,
     extract_static_html,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "ProbeReadiness",
     "ProbeReadyStatus",
     "ScopeMetadata",
+    "SensitiveFormElisionPolicy",
     "StaticCrawler",
     "StaticCrawlerError",
     "StaticCrawlerRequest",

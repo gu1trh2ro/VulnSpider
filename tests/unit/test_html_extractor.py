@@ -7,6 +7,7 @@ import unittest
 from vulnspider.discovery import (
     CollectorKind,
     ProbeReadyStatus,
+    SensitiveFormElisionPolicy,
     StaticExtractionResult,
     extract_static_html,
 )
@@ -19,6 +20,7 @@ from vulnspider.domain import (
 
 
 SOURCE_URL = "http://example.test/app/index.html"
+SENSITIVE_FORM_POLICY = SensitiveFormElisionPolicy()
 
 
 class StaticHtmlExtractorTests(unittest.TestCase):
@@ -193,6 +195,123 @@ class StaticHtmlExtractorTests(unittest.TestCase):
             sort_keys=True,
         )
         self.assertNotIn(secret, warning_payload)
+
+    def test_sensitive_form_elision_policy_is_opt_in(self) -> None:
+        html = """
+        <form method="post" action="/login">
+          <input type="password" name="password" value="current-static-value">
+        </form>
+        """
+
+        result = extract_static_html(html, SOURCE_URL)
+
+        template = next(
+            item
+            for item in result.discovery.request_templates
+            if item.method == HttpMethod.POST
+        )
+        self.assertEqual(
+            template.form,
+            (("password", "current-static-value"),),
+        )
+        self.assertNotIn(
+            "SENSITIVE_FORM_ELIDED",
+            {item.code for item in result.warnings},
+        )
+
+    def test_elides_password_get_form_before_canonical_construction(self) -> None:
+        result = extract_static_html(
+            """
+            <form method="get" action="/password-only-get">
+              <input type="password" name="password" value="not-canonical">
+            </form>
+            """,
+            SOURCE_URL,
+            sensitive_form_policy=SENSITIVE_FORM_POLICY,
+        )
+
+        self.assertNotIn(
+            "/password-only-get",
+            {item.path for item in result.discovery.endpoints},
+        )
+        self.assertEqual(result.discovery.input_points, ())
+        self.assertEqual(result.discovery.request_templates, ())
+        self.assertEqual(result.discovery.input_point_request_contexts, ())
+        self.assertEqual(result.discovery.probe_readiness, ())
+        self.assertEqual(
+            [item.code for item in result.warnings],
+            ["SENSITIVE_FORM_ELIDED"],
+        )
+        result.discovery.validate()
+
+    def test_elides_password_post_form_with_secret_free_warning(self) -> None:
+        password_sentinel = "PW_SENTINEL"
+        result = extract_static_html(
+            f"""
+            <form method="post" action="/password-only-post">
+              <input type="password" name="password" value="{password_sentinel}">
+            </form>
+            """,
+            SOURCE_URL,
+            sensitive_form_policy=SENSITIVE_FORM_POLICY,
+        )
+
+        self.assertNotIn(
+            "/password-only-post",
+            {item.path for item in result.discovery.endpoints},
+        )
+        self.assertEqual(result.discovery.input_points, ())
+        self.assertEqual(result.discovery.request_templates, ())
+        self.assertEqual(result.discovery.input_point_request_contexts, ())
+        warnings = [
+            item
+            for item in result.warnings
+            if item.code == "SENSITIVE_FORM_ELIDED"
+        ]
+        self.assertEqual(len(warnings), 1)
+        warning_text = json.dumps(
+            result.discovery.to_dict()["warnings"],
+            sort_keys=True,
+        )
+        self.assertFalse(password_sentinel in warning_text)
+        self.assertFalse(password_sentinel in repr(warnings))
+
+    def test_elides_only_sensitive_form_on_mixed_page(self) -> None:
+        result = extract_static_html(
+            """
+            <form method="post" action="/login">
+              <input type="password" name="password" value="not-canonical">
+              <input type="hidden" name="csrf" value="also-not-canonical">
+            </form>
+            <form method="get" action="/search">
+              <input name="q" value="books">
+            </form>
+            """,
+            SOURCE_URL,
+            sensitive_form_policy=SENSITIVE_FORM_POLICY,
+        )
+
+        self.assertNotIn(
+            "/login",
+            {item.path for item in result.discovery.endpoints},
+        )
+        self.assertIn(
+            "/search",
+            {item.path for item in result.discovery.endpoints},
+        )
+        self.assertEqual(
+            {item.name for item in result.discovery.input_points},
+            {"q"},
+        )
+        self.assertEqual(
+            {
+                item.code
+                for item in result.warnings
+                if item.code == "SENSITIVE_FORM_ELIDED"
+            },
+            {"SENSITIVE_FORM_ELIDED"},
+        )
+        result.discovery.validate()
 
 
 if __name__ == "__main__":
