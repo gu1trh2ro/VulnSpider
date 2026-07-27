@@ -106,6 +106,21 @@ def _freeze_json_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
     return frozen
 
 
+def _freeze_string_mapping(
+    value: Mapping[str, str],
+    *,
+    label: str,
+) -> Mapping[str, str]:
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{label} must be a mapping")
+    frozen: dict[str, str] = {}
+    for key, item in value.items():
+        if type(key) is not str or type(item) is not str:
+            raise TypeError(f"{label} keys and values must be strings")
+        frozen[key] = item
+    return MappingProxyType(frozen)
+
+
 def stable_fingerprint(*parts: object) -> str:
     serialized = json.dumps(
         [_stable_value(part) for part in parts],
@@ -202,7 +217,7 @@ class InputPoint:
     type_hint: str | None = None
     source_page: str | None = None
     auth_context_id: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
     id: str | None = None
     fingerprint: str = field(init=False)
 
@@ -240,7 +255,7 @@ class InputPoint:
         object.__setattr__(self, "occurrence_index", occurrence_index)
         object.__setattr__(self, "baseline_value", baseline_value)
         object.__setattr__(self, "baseline_values", baseline_values)
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "metadata", _freeze_json_mapping(self.metadata))
         object.__setattr__(self, "fingerprint", fingerprint)
         object.__setattr__(self, "id", self.id or f"inp_{fingerprint[:16]}")
 
@@ -271,26 +286,26 @@ class RequestTemplate:
     endpoint_fingerprint: str
     method: HttpMethod
     url: str
-    headers: dict[str, str] = field(default_factory=dict)
+    headers: Mapping[str, str] = field(default_factory=dict)
     query: ParamInput = field(default_factory=tuple)
     form: ParamInput = field(default_factory=tuple)
-    cookies: dict[str, str] = field(default_factory=dict)
+    cookies: Mapping[str, str] = field(default_factory=dict)
     completeness: RequestContextCompleteness = RequestContextCompleteness.UNKNOWN
     context_key: str | None = None
     provenance: ParamInput = field(default_factory=tuple)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
     id: str | None = None
     fingerprint: str = field(init=False)
 
     def __post_init__(self) -> None:
         method = HttpMethod(self.method)
-        headers = dict(self.headers)
+        headers = _freeze_string_mapping(self.headers, label="request headers")
         query = canonical_param_pairs(self.query)
         form = canonical_param_pairs(self.form)
-        cookies = dict(self.cookies)
+        cookies = _freeze_string_mapping(self.cookies, label="request cookies")
         completeness = RequestContextCompleteness(self.completeness)
         provenance = canonical_param_pairs(self.provenance)
-        metadata = dict(self.metadata)
+        metadata = _freeze_json_mapping(self.metadata)
         fingerprint = stable_fingerprint(
             "request-template",
             self.endpoint_id,

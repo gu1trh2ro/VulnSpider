@@ -1,14 +1,77 @@
 """Discovery package."""
 
+from vulnspider.discovery.contracts import (
+    BACStaticHint,
+    CONTRACT_VERSION,
+    CanonicalDiscoveryResult,
+    CollectorKind,
+    CrawlStatistics,
+    DiscoveryContractError,
+    DiscoveryMetadata,
+    DiscoveryProvenance,
+    DiscoverySubjectKind,
+    DiscoveryWarning,
+    NonProbeReadyReason,
+    ProbeReadiness,
+    ProbeReadyStatus,
+    ScopeMetadata,
+    discovery_run_id_for,
+    scope_id_for_root,
+)
+from vulnspider.discovery.html_extractor import (
+    NavigableLink,
+    StaticExtractionResult,
+    extract_static_html,
+)
 from vulnspider.discovery.legacy_adapter import (
     LegacyAdapterResult,
     LegacyCrawlerAdapter,
     LegacyCrawlRecord,
 )
+from vulnspider.discovery.static_crawler import (
+    CrawlPolicy,
+    StaticCrawler,
+    StaticCrawlerError,
+    StaticCrawlerRequest,
+    StaticCrawlerResponse,
+    StaticCrawlerTransport,
+    StaticCrawlerTransportError,
+    StaticCrawlResult,
+    UrlLibStaticCrawlerTransport,
+    canonicalize_crawl_url,
+)
 
 __all__ = [
+    "BACStaticHint",
+    "CONTRACT_VERSION",
+    "CanonicalDiscoveryResult",
+    "CollectorKind",
+    "CrawlPolicy",
+    "CrawlStatistics",
+    "DiscoveryContractError",
+    "DiscoveryMetadata",
+    "DiscoveryProvenance",
+    "DiscoverySubjectKind",
+    "DiscoveryWarning",
     "LegacyAdapterResult",
     "LegacyCrawlerAdapter",
     "LegacyCrawlRecord",
+    "NavigableLink",
+    "NonProbeReadyReason",
+    "ProbeReadiness",
+    "ProbeReadyStatus",
+    "ScopeMetadata",
+    "StaticCrawler",
+    "StaticCrawlerError",
+    "StaticCrawlerRequest",
+    "StaticCrawlerResponse",
+    "StaticCrawlerTransport",
+    "StaticCrawlerTransportError",
+    "StaticCrawlResult",
+    "StaticExtractionResult",
+    "UrlLibStaticCrawlerTransport",
+    "canonicalize_crawl_url",
+    "discovery_run_id_for",
+    "extract_static_html",
+    "scope_id_for_root",
 ]
-

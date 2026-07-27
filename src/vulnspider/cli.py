@@ -12,9 +12,14 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from vulnspider import __version__
+from vulnspider.discovery import CrawlPolicy, StaticCrawlerTransport
 from vulnspider.domain import Endpoint
 from vulnspider.observation.executor import RequestTransport
-from vulnspider.pipeline import AnalysisResult, analyze_legacy_records
+from vulnspider.pipeline import (
+    AnalysisResult,
+    analyze_legacy_records,
+    analyze_url,
+)
 from vulnspider.reporting import write_html_report, write_json_report
 
 
@@ -35,17 +40,21 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
     analyze = subparsers.add_parser(
         "analyze",
-        help="Run authorized loopback Light Probes from legacy crawl-record JSON.",
+        help="Analyze a native root URL or legacy crawl-record JSON.",
         description=(
-            "Analyze adapter-compatible legacy crawl records for authorized "
-            "localhost or loopback test targets."
+            "Analyze one native static root URL or adapter-compatible legacy "
+            "crawl records for authorized localhost or loopback test targets."
         ),
     )
-    analyze.add_argument(
+    source = analyze.add_mutually_exclusive_group(required=True)
+    source.add_argument(
         "--input",
-        required=True,
         type=Path,
         help="JSON array of LegacyCrawlerAdapter-compatible crawl records.",
+    )
+    source.add_argument(
+        "--url",
+        help="Root URL for bounded native static discovery.",
     )
     analyze.add_argument(
         "--top-k",
@@ -69,6 +78,36 @@ def build_parser() -> argparse.ArgumentParser:
             "rendering the same data as --output (ADR-011)."
         ),
     )
+    analyze.add_argument(
+        "--max-pages",
+        type=_positive_integer,
+        default=None,
+        help="Maximum number of HTML pages to process for --url.",
+    )
+    analyze.add_argument(
+        "--max-depth",
+        type=_non_negative_integer,
+        default=None,
+        help="Maximum link depth to schedule for --url.",
+    )
+    analyze.add_argument(
+        "--max-requests",
+        type=_positive_integer,
+        default=None,
+        help="Maximum number of crawler requests for --url.",
+    )
+    analyze.add_argument(
+        "--timeout-seconds",
+        type=_positive_number,
+        default=None,
+        help="Per-request crawler timeout for --url.",
+    )
+    analyze.add_argument(
+        "--max-redirects",
+        type=_non_negative_integer,
+        default=None,
+        help="Maximum redirects followed per URL for --url.",
+    )
     return parser
 
 
@@ -76,6 +115,7 @@ def main(
     argv: list[str] | None = None,
     *,
     transport: RequestTransport | None = None,
+    crawler_transport: StaticCrawlerTransport | None = None,
 ) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -85,12 +125,22 @@ def main(
         parser.error(f"unsupported command: {args.command}")
     try:
         _reject_shared_report_destinations(args.output, args.html_output)
-        records = _load_legacy_records(args.input)
-        analysis = analyze_legacy_records(
-            records,
-            top_k=args.top_k,
-            transport=transport,
-        )
+        if args.input is not None:
+            _reject_native_policy_with_legacy_input(args)
+            records = _load_legacy_records(args.input)
+            analysis = analyze_legacy_records(
+                records,
+                top_k=args.top_k,
+                transport=transport,
+            )
+        else:
+            analysis = analyze_url(
+                args.url,
+                top_k=args.top_k,
+                crawl_policy=_crawl_policy_from_args(args),
+                crawler_transport=crawler_transport,
+                transport=transport,
+            )
         write_json_report(
             analysis.selection,
             args.output,
@@ -105,13 +155,12 @@ def main(
 
 
 def _write_html_report(analysis: AnalysisResult, destination: Path) -> None:
-    adapter_result = analysis.adapter_result
     input_points = {
         input_point.id or "": input_point
-        for input_point in adapter_result.input_points
+        for input_point in analysis.input_points
     }
     endpoints = {
-        endpoint.id or "": endpoint for endpoint in adapter_result.endpoints
+        endpoint.id or "": endpoint for endpoint in analysis.endpoints
     }
     probe_runs = {
         observation.feature_vector_id: (
@@ -128,9 +177,15 @@ def _write_html_report(analysis: AnalysisResult, destination: Path) -> None:
         input_points=input_points,
         endpoints=endpoints,
         probe_runs=probe_runs,
-        target=_target_label(adapter_result.endpoints),
+        target=_analysis_target(analysis),
         elapsed_seconds=analysis.elapsed_seconds,
     )
+
+
+def _analysis_target(analysis: AnalysisResult) -> str:
+    if analysis.discovery_result is not None:
+        return analysis.discovery_result.scope_metadata.root_url
+    return _target_label(analysis.endpoints)
 
 
 def _target_label(endpoints: Sequence[Endpoint]) -> str:
@@ -160,10 +215,82 @@ def _positive_integer(value: str) -> int:
     try:
         parsed = int(value)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError("top-k must be a positive integer") from exc
+        raise argparse.ArgumentTypeError(
+            "value must be a positive integer"
+        ) from exc
     if parsed <= 0:
-        raise argparse.ArgumentTypeError("top-k must be a positive integer")
+        raise argparse.ArgumentTypeError("value must be a positive integer")
     return parsed
+
+
+def _non_negative_integer(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "value must be a non-negative integer"
+        ) from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError(
+            "value must be a non-negative integer"
+        )
+    return parsed
+
+
+def _positive_number(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "value must be a positive number"
+        ) from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive number")
+    return parsed
+
+
+def _reject_native_policy_with_legacy_input(args: argparse.Namespace) -> None:
+    if any(
+        getattr(args, name) is not None
+        for name in (
+            "max_pages",
+            "max_depth",
+            "max_requests",
+            "timeout_seconds",
+            "max_redirects",
+        )
+    ):
+        raise CLIError("crawler policy options require --url")
+
+
+def _crawl_policy_from_args(args: argparse.Namespace) -> CrawlPolicy:
+    defaults = CrawlPolicy()
+    return CrawlPolicy(
+        max_pages=(
+            defaults.max_pages if args.max_pages is None else args.max_pages
+        ),
+        max_depth=(
+            defaults.max_depth if args.max_depth is None else args.max_depth
+        ),
+        max_requests=(
+            defaults.max_requests
+            if args.max_requests is None
+            else args.max_requests
+        ),
+        timeout_seconds=(
+            defaults.timeout_seconds
+            if args.timeout_seconds is None
+            else args.timeout_seconds
+        ),
+        max_redirects=(
+            defaults.max_redirects
+            if args.max_redirects is None
+            else args.max_redirects
+        ),
+        delay_seconds=defaults.delay_seconds,
+        max_elapsed_seconds=defaults.max_elapsed_seconds,
+        max_response_bytes=defaults.max_response_bytes,
+    )
 
 
 def _load_legacy_records(path: Path) -> tuple[Mapping[str, Any], ...]:
