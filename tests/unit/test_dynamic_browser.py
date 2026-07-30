@@ -370,6 +370,10 @@ class ManagedFakePage:
         self.events = events
         self.close_error = close_error
         self.url = "about:blank"
+        self.handlers: dict[str, object] = {}
+
+    def on(self, event: str, handler: object) -> None:
+        self.handlers[event] = handler
 
     def goto(self, url: str, **kwargs: object) -> None:
         self.events.append("navigate")
@@ -403,6 +407,10 @@ class ManagedFakeContext:
         self.close_error = close_error
         self.http_handler: object | None = None
         self.websocket_handler: object | None = None
+        self.handlers: dict[str, object] = {}
+
+    def on(self, event: str, handler: object) -> None:
+        self.handlers[event] = handler
 
     def route(self, pattern: str, handler: object) -> None:
         self.events.append("http_guard")
@@ -794,11 +802,18 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
     def test_http_and_websocket_share_one_atomic_transport_budget(self) -> None:
         class Route:
             def __init__(self) -> None:
-                self.continued = 0
+                self.fulfilled = 0
                 self.aborted = 0
 
-            def continue_(self) -> None:
-                self.continued += 1
+            def fetch(self, **kwargs: object) -> object:
+                return SimpleNamespace(
+                    status=200,
+                    headers={},
+                    dispose=lambda: None,
+                )
+
+            def fulfill(self, **kwargs: object) -> None:
+                self.fulfilled += 1
 
             def abort(self, *, error_code: str) -> None:
                 self.aborted += 1
@@ -836,7 +851,7 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
         guard.handle_websocket(WebSocketRoute())
 
         summary = audit.snapshot(())
-        self.assertEqual(route.continued, 1)
+        self.assertEqual(route.fulfilled, 1)
         self.assertEqual(route.aborted, 0)
         self.assertEqual(guard.decision_count, 3)
         self.assertEqual(stop_calls, ["stop"])
@@ -851,6 +866,136 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
         self.assertEqual(summary.websocket_blocked_count, 2)
         self.assertEqual(summary.websocket_connected_count, 0)
         self.assertEqual(summary.request_decision_overflow_count, 1)
+
+    def test_http_redirect_hops_are_authorized_before_transport(self) -> None:
+        class Response:
+            def __init__(
+                self,
+                status: int,
+                location: str | None = None,
+                *,
+                dispose_error: bool = False,
+            ) -> None:
+                self.status = status
+                self.headers = {} if location is None else {"location": location}
+                self.disposed = False
+                self.dispose_error = dispose_error
+
+            def dispose(self) -> None:
+                if self.dispose_error:
+                    raise RuntimeError("provider cleanup detail")
+                self.disposed = True
+
+        class Route:
+            def __init__(self, responses: list[Response]) -> None:
+                self.responses = responses
+                self.fetch_urls: list[str] = []
+                self.fulfilled = 0
+                self.aborted = 0
+
+            def fetch(self, *, url: str, **kwargs: object) -> Response:
+                self.fetch_urls.append(url)
+                return self.responses.pop(0)
+
+            def fulfill(self, **kwargs: object) -> None:
+                self.fulfilled += 1
+
+            def abort(self, *, error_code: str) -> None:
+                self.aborted += 1
+
+        page = object()
+        root_url = "http://127.0.0.1/redirect"
+        target_url = "http://127.0.0.1/target"
+        request = SimpleNamespace(
+            url=root_url,
+            resource_type="document",
+            method="GET",
+            frame=SimpleNamespace(page=page, parent_frame=None),
+        )
+        audit = dynamic_browser_module._AuditRecorder(event_limit=10)
+        guard = dynamic_browser_module._RouteGuard(
+            DynamicRequestAuthority(
+                root_url,
+                navigation_urls=(target_url,),
+            ),
+            DynamicBrowserPolicy(request_decision_budget=10),
+            audit,
+            lambda: None,
+        )
+        guard.set_primary_page(page)
+        allowed_route = Route(
+            [Response(302, "/target")]
+        )
+
+        guard.handle_http(allowed_route, request)
+
+        self.assertEqual(allowed_route.fetch_urls, [root_url])
+        self.assertEqual(allowed_route.fulfilled, 1)
+        target_route = Route([Response(200)])
+        guard.handle_http(
+            target_route,
+            SimpleNamespace(
+                url=target_url,
+                resource_type="document",
+                method="GET",
+                frame=SimpleNamespace(page=page, parent_frame=None),
+            ),
+        )
+        self.assertEqual(target_route.fetch_urls, [target_url])
+        self.assertEqual(target_route.fulfilled, 1)
+        self.assertEqual(allowed_route.aborted, 0)
+        allowed_summary = audit.snapshot(())
+        self.assertEqual(allowed_summary.redirect_attempt_count, 1)
+        self.assertEqual(allowed_summary.redirect_allowed_count, 1)
+        self.assertEqual(allowed_summary.redirect_block_count, 0)
+        guard.raise_if_failed()
+
+        blocked_audit = dynamic_browser_module._AuditRecorder(event_limit=10)
+        blocked_guard = dynamic_browser_module._RouteGuard(
+            DynamicRequestAuthority(root_url),
+            DynamicBrowserPolicy(request_decision_budget=10),
+            blocked_audit,
+            lambda: None,
+        )
+        blocked_guard.set_primary_page(page)
+        blocked_route = Route(
+            [Response(302, "http://127.0.0.1:8080/external")]
+        )
+
+        blocked_guard.handle_http(blocked_route, request)
+
+        self.assertEqual(blocked_route.fetch_urls, [root_url])
+        self.assertEqual(blocked_route.fulfilled, 0)
+        self.assertEqual(blocked_route.aborted, 1)
+        blocked_summary = blocked_audit.snapshot(())
+        self.assertEqual(blocked_summary.redirect_attempt_count, 1)
+        self.assertEqual(blocked_summary.redirect_allowed_count, 0)
+        self.assertEqual(blocked_summary.redirect_block_count, 1)
+        with self.assertRaises(DynamicBrowserError) as raised:
+            blocked_guard.raise_if_failed()
+        self.assertEqual(
+            raised.exception.code,
+            DynamicBrowserErrorCode.NAVIGATION_FAILED,
+        )
+
+        cleanup_guard = dynamic_browser_module._RouteGuard(
+            DynamicRequestAuthority(root_url),
+            DynamicBrowserPolicy(request_decision_budget=10),
+            dynamic_browser_module._AuditRecorder(event_limit=10),
+            lambda: None,
+        )
+        cleanup_guard.set_primary_page(page)
+        cleanup_route = Route([Response(200, dispose_error=True)])
+
+        cleanup_guard.handle_http(cleanup_route, request)
+
+        self.assertEqual(cleanup_route.fulfilled, 1)
+        with self.assertRaises(DynamicBrowserError) as cleanup_raised:
+            cleanup_guard.raise_if_failed()
+        self.assertEqual(
+            cleanup_raised.exception.code,
+            DynamicBrowserErrorCode.HTTP_RESPONSE_DISPOSE_FAILED,
+        )
 
     def test_preflight_failure_starts_no_provider_resource(self) -> None:
         provider = managed_provider()

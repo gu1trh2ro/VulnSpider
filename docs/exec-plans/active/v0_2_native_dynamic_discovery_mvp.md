@@ -2771,9 +2771,12 @@ dumps.
 
 ### Plan record
 
-- Status: Milestone 2 managed lifecycle/loopback unit implemented and verified;
-  Milestone 2 remains in progress for the strict gate and the remaining
-  mandatory browser cases.
+- Status: Milestone 2 is PARTIAL. The managed lifecycle, explicit current-unit
+  `browser-loopback` manifest, strict non-skippable gate, and the required
+  EventSource/frame/popup/redirect/location cases in the 2026-07-31 coherent
+  unit are implemented and verified. The broader Milestone 2 plan still has
+  mandatory browser cases and evidence listed below, so this gate PASS is not a
+  Milestone 2 COMPLETE claim.
 - Baseline: `origin/main` and branch base
   `7598fdee9fabd1372b1c9e5810792aed26b1c45c`.
 - 2026-07-27: Initial repository-grounded plan drafted. No runtime code, test,
@@ -2835,11 +2838,46 @@ dumps.
   timeout/public seam hardening, adversarial partial harness construction
   cleanup, and generated Chromium log containment. None is included in this
   Critical/High-only correction loop.
+- 2026-07-31: Added the explicit ten-case `browser-loopback` manifest and
+  strict gate. The gate performs capability preflight before loading the exact
+  named tests and fails on a missing/renamed link, zero or mismatched execution,
+  any required skip/failure, or failed real-browser invariant. Its verified
+  result was Playwright 1.61.0, expected/executed 10/10, skipped 0, failed 0,
+  and `FINAL=PASS`.
+- 2026-07-31: Extended the loopback fixture and real Chromium evidence for
+  same/cross-authority EventSource, blocked child frames with lifecycle audit,
+  popup ownership/cleanup, same-authority and two-hop cross-authority HTTP
+  redirects, and same/cross-authority JavaScript location. Document redirect
+  hops are fetched without automatic following, authorized before their next
+  transport, and converted into a bounded trusted `location.replace`
+  navigation so every hop re-enters the context guard and the real browser URL
+  commits. The same-authority case also proves relative-resource resolution
+  from the final URL; the cross-authority chain leaves the sentinel at zero.
+- 2026-07-31: Strict-gate Chromium logging is contained in owned temporary
+  working directories. The repository root has no `debug.log`; no ignore rule,
+  wildcard cleanup, private Playwright API, browser cache, or user artifact was
+  added or removed.
+- 2026-07-31: Independent Gate Review found M2-STRICT-H-01 because the first
+  redirect implementation returned a synthetic effective URL without committing
+  the browser location. Correction Loop 1 replaced that behavior with guarded
+  one-hop relocation navigations and added final-URL, relative-resource, and
+  multi-hop cross-authority evidence. Focused re-review passed with Critical 0
+  and High 0. Medium items remain recorded: gate output does not itself state
+  the broader milestone status, and internal child-frame document subtypes need
+  finer evidence in the remaining Milestone 2 work.
+- 2026-07-31: Milestone 2 decision is PARTIAL, not BLOCKED and not COMPLETE.
+  Before Milestone 3 starts, the active plan still requires at least the
+  same-authority WebSocket denial case, blocked fetch/XHR, unauthorized
+  same-origin unsafe GET, autosubmit, deterministic test-driven page-close,
+  finer about:blank/error/replacement child-frame classification evidence, and
+  resolution/recording of the remaining Milestone 2 policy approvals. These
+  cases must be added to and pass the strict manifest without required skips.
 
 ### Gate Review Correction Record
 
 | Finding ID | Correction Summary | Affected Sections | Status |
 |---|---|---|---|
+| M2-STRICT-H-01 | Replaced synthetic effective redirect URLs with guarded one-hop `location.replace` navigations; added actual final-URL, final-path relative-resource, and same-origin-intermediate-to-cross-authority sentinel evidence | 13, 14, 17; Milestone 2 | Addressed in Correction Loop 1; focused re-review passed |
 | M2-LIFECYCLE-H-01 | Made HTTP and WebSocket share one atomic transport-decision budget, requested one active-page stop on first overflow, bounded post-overflow accounting, and added unit plus sustained real-Chromium evidence | 7, 13, 14; Milestone 2 | Addressed in Correction Loop 1; focused re-review passed |
 | C-01 | Separated discovery eligibility from immutable exact caller navigation/resource authority; unauthorized same-origin GET remains discovery-only and is tested with zero server counters | 1, 3–9, 13–18, 20–22; Milestones 2, 4, 6, 7 | Addressed in Correction Loop 1 |
 | H-01 | Made every context sharing a sensitive-redacted form template PARTIAL/NOT_READY and prohibited execution or sibling upgrade | 9, 10, 12–18, 22; Milestones 1, 3, 5, 6 | Addressed in Correction Loop 1 |
@@ -2946,6 +2984,13 @@ dumps.
   block, classified commit/completion, detach, and bounded safe origin evidence.
   Reason: server counters alone cannot prove whether Chromium committed an
   authorized fixture document or an internal replacement/error document.
+- Decision: Primary document HTTP redirects are fetched one hop at a time with
+  automatic following disabled. An authorized hop becomes a trusted
+  `location.replace` navigation so it re-enters the context guard and commits
+  the real browser URL; a denied hop is aborted before its server transport.
+  Reason: normal route continuation bypasses interception of redirected
+  requests, while proxying the final body into the first URL preserves network
+  safety but breaks browser URL, history, and relative-resource semantics.
 - Decision: Existing aligned document-crawl statistics use the exact Section 10
   rules; browser-specific activity remains in `BrowserAuditSummary`.
   Reason: browser subresources must not be mislabeled as Static-style document
