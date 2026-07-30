@@ -1379,6 +1379,23 @@ Canonical aggregate contract and merge-policy foundation only.
 Introduce the optional synchronous Playwright lifecycle behind a narrow
 protocol and prove deterministic cleanup/request interception on loopback.
 
+**2026-07-30 focused implementation unit**
+
+The first Milestone 2 commit is limited to strict optional-runtime capability
+preflight. It declares the `dynamic` optional dependency, preserves import-safe
+Static/legacy mode, verifies the supported Playwright release, requires a
+callable context-wide `BrowserContext.route_web_socket()`, verifies the
+matching Chromium executable, performs one headless launch, and closes every
+created resource exactly once. Failures expose stable secret-free codes and
+setup hints without provider exception text.
+
+This unit does not create a browser context or page, install routing hooks,
+navigate, extract DOM, add the loopback harness/strict gate, or claim Milestone
+2 complete. Those responsibilities remain in the next coherent lifecycle
+unit. The Playwright Python API and v1.48 release notes were rechecked before
+dependency metadata changed; both identify `route_web_socket()` as introduced
+in v1.48 and direct callers to register it before page creation.
+
 **Allowed files to modify**
 
 - `pyproject.toml`
@@ -2551,7 +2568,7 @@ aggregate every existing `CrawlStatistics` field by Section 10; separate base
 and strict Dynamic test modes; and hard-fail capability and canonical integrity
 errors.
 
-Only these decisions remain:
+These decisions remained at the plan baseline; resolutions are recorded below:
 
 | Question | Available options | Recommended MVP default | Reason | Resolve by | Consequence of deferring |
 |---|---|---|---|---|---|
@@ -2567,8 +2584,16 @@ metadata. The reviewed compatible release within that range and its matching
 Chromium must then be selected from project compatibility evidence. If the
 installed API is absent, incompatible, or not callable, strict capability
 preflight fails; running without WebSocket protection is forbidden. This
-planning task does not edit dependency metadata, install a package, or query a
-package registry.
+was the planning-task baseline before Milestone 2 implementation began.
+
+2026-07-30 resolution for the focused capability-preflight unit: use the
+recommended named optional `dynamic` extra with `playwright>=1.48,<2`; keep
+base dependencies empty; and keep Chromium installation as an explicit
+developer/CI command (`playwright install chromium`) that application code and
+tests never invoke. The Section 7 default-budget decision remains for the
+subsequent lifecycle/policy unit. A missing package or browser remains a
+reported capability failure, never a Static-only success for explicit Dynamic
+mode.
 
 ## 21. Rollback and Failure Containment
 
@@ -2775,6 +2800,13 @@ dumps.
   observation in Static-before-Dynamic aggregate order. No implementation,
   test, dependency, tool, browser, branch, stash, push, or PR action was
   performed.
+- 2026-07-30: Milestone 2 began with the focused optional-runtime capability
+  preflight unit. Official Playwright Python API/release documentation
+  confirmed the v1.48 context-wide WebSocket routing lower bound. The unit
+  declares only the optional `dynamic` extra, adds lazy import/version/hook/
+  Chromium/headless-launch checks with deterministic cleanup and secret-free
+  typed failures, and leaves context/page/routing/navigation/loopback work for
+  the next unit. Milestone 2 remains in progress.
 
 ### Gate Review Correction Record
 

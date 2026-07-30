@@ -19,6 +19,13 @@ from vulnspider.discovery.contracts import (
     discovery_run_id_for,
     scope_id_for_root,
 )
+from vulnspider.discovery.dynamic_browser import (
+    PLAYWRIGHT_REQUIREMENT,
+    DynamicBrowserCapability,
+    DynamicCapabilityCode,
+    DynamicCapabilityError,
+    preflight_dynamic_browser,
+)
 from vulnspider.discovery.html_extractor import (
     NavigableLink,
     SensitiveFormElisionPolicy,
@@ -62,6 +69,9 @@ __all__ = [
     "DiscoverySafetyInvariant",
     "DiscoverySubjectKind",
     "DiscoveryWarning",
+    "DynamicBrowserCapability",
+    "DynamicCapabilityCode",
+    "DynamicCapabilityError",
     "DynamicIntegrityError",
     "LegacyAdapterResult",
     "LegacyCrawlerAdapter",
@@ -70,6 +80,7 @@ __all__ = [
     "NonProbeReadyReason",
     "ProbeReadiness",
     "ProbeReadyStatus",
+    "PLAYWRIGHT_REQUIREMENT",
     "ScopeMetadata",
     "SensitiveFormElisionPolicy",
     "StaticCrawler",
@@ -85,5 +96,6 @@ __all__ = [
     "discovery_run_id_for",
     "extract_static_html",
     "merge_discovery_results",
+    "preflight_dynamic_browser",
     "scope_id_for_root",
 ]

@@ -16,6 +16,9 @@ FORBIDDEN_SRC_IMPORTS = {
     "sentence_transformers",
     "sqlalchemy",
 }
+SRC_IMPORT_ALLOWLIST = {
+    Path("src/vulnspider/discovery/dynamic_browser.py"): {"playwright"},
+}
 
 
 def iter_python_files() -> list[Path]:
@@ -45,11 +48,13 @@ def main() -> int:
         except SyntaxError as exc:
             failures.append(f"{path.relative_to(ROOT)}:{exc.lineno}: {exc.msg}")
             continue
-        if path.relative_to(ROOT).parts[0] == "src":
-            forbidden = imported_roots(tree) & FORBIDDEN_SRC_IMPORTS
+        relative_path = path.relative_to(ROOT)
+        if relative_path.parts[0] == "src":
+            allowed = SRC_IMPORT_ALLOWLIST.get(relative_path, set())
+            forbidden = imported_roots(tree) & FORBIDDEN_SRC_IMPORTS - allowed
             if forbidden:
                 imports = ", ".join(sorted(forbidden))
-                failures.append(f"{path.relative_to(ROOT)}: forbidden import: {imports}")
+                failures.append(f"{relative_path}: forbidden import: {imports}")
     if failures:
         print("\n".join(failures))
         return 1
@@ -59,4 +64,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
