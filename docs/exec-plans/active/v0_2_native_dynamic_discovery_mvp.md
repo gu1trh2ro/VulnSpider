@@ -2771,8 +2771,9 @@ dumps.
 
 ### Plan record
 
-- Status: H-01-R2-RESCOPE-GATE-01 warning-cardinality finding resolved; plan
-  ready for focused commit and Milestone 1 implementation.
+- Status: Milestone 2 managed lifecycle/loopback unit implemented and verified;
+  Milestone 2 remains in progress for the strict gate and the remaining
+  mandatory browser cases.
 - Baseline: `origin/main` and branch base
   `7598fdee9fabd1372b1c9e5810792aed26b1c45c`.
 - 2026-07-27: Initial repository-grounded plan drafted. No runtime code, test,
@@ -2807,11 +2808,39 @@ dumps.
   Chromium/headless-launch checks with deterministic cleanup and secret-free
   typed failures, and leaves context/page/routing/navigation/loopback work for
   the next unit. Milestone 2 remains in progress.
+- 2026-07-31: Implemented the next coherent Milestone 2 unit: one managed
+  synchronous Playwright/Chromium/context/page lifecycle, pre-page HTTP and
+  WebSocket guards, exact loopback-only caller authority, GET-only resource
+  grants, bounded secret-free audit evidence, reverse-order idempotent cleanup,
+  and an ephemeral dual-server loopback harness. Real Chromium executed the
+  authorized JavaScript marker while the external HTTP sentinel and WebSocket
+  handshake counts stayed zero; the timeout case retained its typed primary
+  error and complete cleanup audit. Focused related regression passed 121
+  tests, the full repository passed 324 tests, Native Static E2E passed 1 test,
+  and the unchanged v0.1 smoke suite passed 7 tests. This unit does not
+  implement rendered-DOM extraction, crawler orchestration, strict Dynamic
+  gate/manifest, or the remaining popup/frame/EventSource/redirect cases, so
+  Milestone 2 is not complete.
+- 2026-07-31: The independent lifecycle Gate Review initially blocked on
+  M2-LIFECYCLE-H-01 because WebSocket attempts did not consume the shared
+  browser transport-decision budget. Correction Loop 1 added one atomic
+  HTTP/WebSocket budget, one active-page stop request on first overflow,
+  bounded post-overflow handling, a typed exhaustion error, and a final
+  post-cleanup latch check. Unit mixed-transport evidence and a real Chromium
+  1,000-WebSocket flood fixture passed with processed decisions capped at
+  budget plus one, zero sentinel handshakes, and complete cleanup. Focused
+  re-review passed with zero remaining Critical/High findings.
+- 2026-07-31: Gate Review Medium/Low items are deferred to their owning
+  follow-up units: bounded path/query-name audit representation, `text_content`
+  timeout/public seam hardening, adversarial partial harness construction
+  cleanup, and generated Chromium log containment. None is included in this
+  Critical/High-only correction loop.
 
 ### Gate Review Correction Record
 
 | Finding ID | Correction Summary | Affected Sections | Status |
 |---|---|---|---|
+| M2-LIFECYCLE-H-01 | Made HTTP and WebSocket share one atomic transport-decision budget, requested one active-page stop on first overflow, bounded post-overflow accounting, and added unit plus sustained real-Chromium evidence | 7, 13, 14; Milestone 2 | Addressed in Correction Loop 1; focused re-review passed |
 | C-01 | Separated discovery eligibility from immutable exact caller navigation/resource authority; unauthorized same-origin GET remains discovery-only and is tested with zero server counters | 1, 3–9, 13–18, 20–22; Milestones 2, 4, 6, 7 | Addressed in Correction Loop 1 |
 | H-01 | Made every context sharing a sensitive-redacted form template PARTIAL/NOT_READY and prohibited execution or sibling upgrade | 9, 10, 12–18, 22; Milestones 1, 3, 5, 6 | Addressed in Correction Loop 1 |
 | H-02 | Defined every existing `CrawlStatistics` field, aggregate arithmetic, component validation, partial behavior, and adversarial tests | 10, 14–18, 21–22; Milestones 1, 5, 7 | Addressed in Correction Loop 1 |

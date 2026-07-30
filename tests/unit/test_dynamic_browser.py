@@ -2,14 +2,27 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import metadata
+import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import vulnspider.discovery.dynamic_browser as dynamic_browser_module
 from vulnspider.discovery import (
+    DynamicBrowserCapability,
+    DynamicBrowserError,
+    DynamicBrowserErrorCode,
+    DynamicBrowserPolicy,
     DynamicCapabilityCode,
     DynamicCapabilityError,
+    DynamicNetworkDecisionKind,
+    DynamicNetworkReason,
+    DynamicRequestAuthority,
+    DynamicResourceGrant,
+    DynamicResourceKind,
+    PlaywrightDynamicBrowser,
     preflight_dynamic_browser,
 )
 
@@ -274,7 +287,11 @@ class DynamicBrowserPreflightTests(unittest.TestCase):
         self.assertEqual(result.browser_name, "chromium")
         self.assertTrue(result.websocket_guard_callable)
         self.assertTrue(result.headless_launch_verified)
-        self.assertEqual(chromium.launch_calls, [{"headless": True}])
+        self.assertEqual(chromium.launch_calls[0]["headless"], True)
+        self.assertEqual(
+            chromium.launch_calls[0]["env"]["CHROME_LOG_FILE"],
+            os.devnull,
+        )
         self.assertEqual(browser.close_calls, 1)
         self.assertEqual(playwright.stop_calls, 1)
 
@@ -337,6 +354,688 @@ class DynamicBrowserPreflightTests(unittest.TestCase):
         self.assertNotIn("private detail", str(raised.exception))
         self.assertEqual(browser.close_calls, 1)
         self.assertEqual(playwright.stop_calls, 1)
+
+
+class ManagedProviderTimeoutError(Exception):
+    pass
+
+
+class ManagedFakePage:
+    def __init__(
+        self,
+        events: list[str],
+        *,
+        close_error: Exception | None = None,
+    ) -> None:
+        self.events = events
+        self.close_error = close_error
+        self.url = "about:blank"
+
+    def goto(self, url: str, **kwargs: object) -> None:
+        self.events.append("navigate")
+        self.url = url
+
+    def wait_for_selector(self, selector: str, **kwargs: object) -> None:
+        self.events.append("wait_for_selector")
+
+    def text_content(self, selector: str) -> str:
+        self.events.append("text_content")
+        return "marker"
+
+    def close(self) -> None:
+        self.events.append("page_close")
+        if self.close_error is not None:
+            raise self.close_error
+
+
+class ManagedFakeContext:
+    def __init__(
+        self,
+        events: list[str],
+        page: ManagedFakePage,
+        *,
+        fail_at: str | None = None,
+        close_error: Exception | None = None,
+    ) -> None:
+        self.events = events
+        self.page = page
+        self.fail_at = fail_at
+        self.close_error = close_error
+        self.http_handler: object | None = None
+        self.websocket_handler: object | None = None
+
+    def route(self, pattern: str, handler: object) -> None:
+        self.events.append("http_guard")
+        if self.fail_at == "http_guard":
+            raise RuntimeError("provider http guard detail")
+        self.http_handler = handler
+
+    def route_web_socket(self, pattern: str, handler: object) -> None:
+        self.events.append("websocket_guard")
+        if self.fail_at == "websocket_guard":
+            raise RuntimeError("provider websocket guard detail")
+        self.websocket_handler = handler
+
+    def new_page(self) -> ManagedFakePage:
+        self.events.append("page_create")
+        if self.fail_at == "page":
+            raise RuntimeError("provider page detail")
+        return self.page
+
+    def close(self) -> None:
+        self.events.append("context_close")
+        if self.close_error is not None:
+            raise self.close_error
+
+
+class ManagedFakeBrowser:
+    def __init__(
+        self,
+        events: list[str],
+        context: ManagedFakeContext,
+        *,
+        fail_at: str | None = None,
+        close_error: Exception | None = None,
+    ) -> None:
+        self.events = events
+        self.context = context
+        self.fail_at = fail_at
+        self.close_error = close_error
+        self.context_options: list[dict[str, object]] = []
+
+    def new_context(self, **kwargs: object) -> ManagedFakeContext:
+        self.events.append("context_create")
+        self.context_options.append(kwargs)
+        if self.fail_at == "context":
+            raise RuntimeError("provider context detail")
+        return self.context
+
+    def close(self) -> None:
+        self.events.append("browser_close")
+        if self.close_error is not None:
+            raise self.close_error
+
+
+class ManagedFakeChromium:
+    def __init__(
+        self,
+        events: list[str],
+        browser: ManagedFakeBrowser,
+        *,
+        fail_at: str | None = None,
+    ) -> None:
+        self.events = events
+        self.browser = browser
+        self.fail_at = fail_at
+        self.launch_options: list[dict[str, object]] = []
+
+    def launch(self, **kwargs: object) -> ManagedFakeBrowser:
+        self.events.append("browser_launch")
+        self.launch_options.append(kwargs)
+        if self.fail_at == "browser":
+            raise RuntimeError("provider launch detail")
+        return self.browser
+
+
+class ManagedFakePlaywright:
+    def __init__(
+        self,
+        events: list[str],
+        chromium: ManagedFakeChromium,
+        *,
+        stop_error: Exception | None = None,
+    ) -> None:
+        self.events = events
+        self.chromium = chromium
+        self.stop_error = stop_error
+
+    def stop(self) -> None:
+        self.events.append("playwright_stop")
+        if self.stop_error is not None:
+            raise self.stop_error
+
+
+class ManagedFakeManager:
+    def __init__(
+        self,
+        events: list[str],
+        playwright: ManagedFakePlaywright,
+        *,
+        fail_at: str | None = None,
+    ) -> None:
+        self.events = events
+        self.playwright = playwright
+        self.fail_at = fail_at
+
+    def start(self) -> ManagedFakePlaywright:
+        self.events.append("playwright_start")
+        if self.fail_at == "playwright":
+            raise RuntimeError("provider start detail")
+        return self.playwright
+
+
+@dataclass
+class ManagedProviderFixture:
+    events: list[str]
+    manager: ManagedFakeManager
+    chromium: ManagedFakeChromium
+    browser: ManagedFakeBrowser
+    context: ManagedFakeContext
+    page: ManagedFakePage
+
+
+def managed_provider(
+    *,
+    fail_at: str | None = None,
+    close_failures: frozenset[str] = frozenset(),
+) -> ManagedProviderFixture:
+    events: list[str] = []
+    page = ManagedFakePage(
+        events,
+        close_error=(
+            RuntimeError("page cleanup private")
+            if "page" in close_failures
+            else None
+        ),
+    )
+    context = ManagedFakeContext(
+        events,
+        page,
+        fail_at=fail_at,
+        close_error=(
+            RuntimeError("context cleanup private")
+            if "context" in close_failures
+            else None
+        ),
+    )
+    browser = ManagedFakeBrowser(
+        events,
+        context,
+        fail_at=fail_at,
+        close_error=(
+            RuntimeError("browser cleanup private")
+            if "browser" in close_failures
+            else None
+        ),
+    )
+    chromium = ManagedFakeChromium(
+        events,
+        browser,
+        fail_at=fail_at,
+    )
+    playwright = ManagedFakePlaywright(
+        events,
+        chromium,
+        stop_error=(
+            RuntimeError("playwright cleanup private")
+            if "playwright" in close_failures
+            else None
+        ),
+    )
+    manager = ManagedFakeManager(
+        events,
+        playwright,
+        fail_at=fail_at,
+    )
+    return ManagedProviderFixture(
+        events=events,
+        manager=manager,
+        chromium=chromium,
+        browser=browser,
+        context=context,
+        page=page,
+    )
+
+
+def capability() -> DynamicBrowserCapability:
+    return DynamicBrowserCapability(
+        playwright_version="1.61.0",
+        browser_name="chromium",
+        websocket_guard_callable=True,
+        headless_launch_verified=True,
+    )
+
+
+class DynamicRequestAuthorityTests(unittest.TestCase):
+    def test_canonicalizes_authority_and_allows_only_exact_grants(self) -> None:
+        authority = DynamicRequestAuthority(
+            root_url="HTTP://127.0.0.1:80",
+            navigation_urls=("http://127.0.0.1/path?x=1",),
+            resource_grants=(
+                DynamicResourceGrant(
+                    DynamicResourceKind.SCRIPT,
+                    "http://127.0.0.1/app.js",
+                ),
+                DynamicResourceGrant(
+                    DynamicResourceKind.FETCH_XHR,
+                    "http://127.0.0.1/data",
+                ),
+            ),
+        )
+
+        self.assertEqual(authority.root_url, "http://127.0.0.1/")
+        self.assertEqual(
+            authority.navigation_urls,
+            ("http://127.0.0.1/", "http://127.0.0.1/path?x=1"),
+        )
+        root = authority.decide_http(
+            method="GET",
+            url="http://127.0.0.1/",
+            resource_type="document",
+            is_primary_page=True,
+            is_main_frame=True,
+        )
+        script = authority.decide_http(
+            method="GET",
+            url="http://127.0.0.1/app.js",
+            resource_type="script",
+            is_primary_page=True,
+            is_main_frame=True,
+        )
+        fetch = authority.decide_http(
+            method="GET",
+            url="http://127.0.0.1/data",
+            resource_type="xhr",
+            is_primary_page=True,
+            is_main_frame=True,
+        )
+
+        self.assertEqual(root.decision, DynamicNetworkDecisionKind.ALLOW)
+        self.assertEqual(
+            root.reason,
+            DynamicNetworkReason.AUTHORIZED_NAVIGATION,
+        )
+        self.assertEqual(script.decision, DynamicNetworkDecisionKind.ALLOW)
+        self.assertEqual(fetch.decision, DynamicNetworkDecisionKind.ALLOW)
+
+    def test_blocks_cross_origin_redirect_methods_frames_and_internal_urls(
+        self,
+    ) -> None:
+        authority = DynamicRequestAuthority(root_url="http://127.0.0.1:8080/")
+        cases = (
+            (
+                dict(
+                    method="GET",
+                    url="http://127.0.0.1:8081/",
+                    resource_type="document",
+                    is_primary_page=True,
+                    is_main_frame=True,
+                ),
+                DynamicNetworkReason.REQUEST_NOT_AUTHORIZED,
+            ),
+            (
+                dict(
+                    method="POST",
+                    url="http://127.0.0.1:8080/",
+                    resource_type="document",
+                    is_primary_page=True,
+                    is_main_frame=True,
+                ),
+                DynamicNetworkReason.NON_GET_METHOD,
+            ),
+            (
+                dict(
+                    method="GET",
+                    url="http://127.0.0.1:8080/",
+                    resource_type="document",
+                    is_primary_page=True,
+                    is_main_frame=False,
+                ),
+                DynamicNetworkReason.CHILD_FRAME_DOCUMENT,
+            ),
+            (
+                dict(
+                    method="GET",
+                    url="data:text/plain,blocked",
+                    resource_type="document",
+                    is_primary_page=True,
+                    is_main_frame=True,
+                ),
+                DynamicNetworkReason.UNSUPPORTED_SCHEME,
+            ),
+        )
+        for values, reason in cases:
+            with self.subTest(reason=reason):
+                decision = authority.decide_http(**values)
+                self.assertEqual(
+                    decision.decision,
+                    DynamicNetworkDecisionKind.BLOCK,
+                )
+                self.assertEqual(decision.reason, reason)
+
+    def test_rejects_external_userinfo_fragment_and_cross_origin_grants(
+        self,
+    ) -> None:
+        factories = (
+            lambda: DynamicRequestAuthority("https://example.com/"),
+            lambda: DynamicRequestAuthority("http://user@127.0.0.1/"),
+            lambda: DynamicRequestAuthority("http://127.0.0.1/#fragment"),
+            lambda: DynamicRequestAuthority(
+                "http://127.0.0.1:8080/",
+                resource_grants=(
+                    DynamicResourceGrant(
+                        DynamicResourceKind.SCRIPT,
+                        "http://localhost:8080/app.js",
+                    ),
+                ),
+            ),
+        )
+        for factory in factories:
+            with self.subTest(factory=factory):
+                with self.assertRaises(DynamicBrowserError) as raised:
+                    factory()
+                self.assertEqual(
+                    raised.exception.code,
+                    DynamicBrowserErrorCode.INVALID_AUTHORITY,
+                )
+
+
+class ManagedDynamicBrowserTests(unittest.TestCase):
+    def run_with_provider(
+        self,
+        provider: ManagedProviderFixture,
+        operation,
+    ):
+        with (
+            patch(
+                "vulnspider.discovery.dynamic_browser.preflight_dynamic_browser",
+                side_effect=lambda: (
+                    provider.events.append("preflight") or capability()
+                ),
+            ),
+            patch(
+                "vulnspider.discovery.dynamic_browser."
+                "_load_managed_playwright_sync_api",
+                return_value=(
+                    lambda: provider.manager,
+                    ManagedProviderTimeoutError,
+                ),
+            ),
+        ):
+            return PlaywrightDynamicBrowser().run(
+                DynamicRequestAuthority("http://127.0.0.1/"),
+                operation,
+            )
+
+    def test_normal_lifecycle_installs_guards_before_page_and_cleans_reverse(
+        self,
+    ) -> None:
+        provider = managed_provider()
+
+        result = self.run_with_provider(
+            provider,
+            lambda _: provider.events.append("operation") or "ok",
+        )
+
+        self.assertEqual(result.value, "ok")
+        self.assertEqual(
+            provider.events,
+            [
+                "preflight",
+                "playwright_start",
+                "browser_launch",
+                "context_create",
+                "http_guard",
+                "websocket_guard",
+                "page_create",
+                "operation",
+                "page_close",
+                "context_close",
+                "browser_close",
+                "playwright_stop",
+            ],
+        )
+        self.assertEqual(
+            provider.browser.context_options,
+            [{"accept_downloads": False, "service_workers": "block"}],
+        )
+        self.assertTrue(result.audit.cleanup_complete)
+
+    def test_http_and_websocket_share_one_atomic_transport_budget(self) -> None:
+        class Route:
+            def __init__(self) -> None:
+                self.continued = 0
+                self.aborted = 0
+
+            def continue_(self) -> None:
+                self.continued += 1
+
+            def abort(self, *, error_code: str) -> None:
+                self.aborted += 1
+
+        class WebSocketRoute:
+            url = "ws://127.0.0.1/socket"
+
+            def connect_to_server(self) -> None:
+                raise AssertionError("WebSocket transport must remain denied")
+
+            def close(self) -> None:
+                raise AssertionError("synchronous route close must not be used")
+
+        page = object()
+        request = SimpleNamespace(
+            url="http://127.0.0.1/",
+            resource_type="document",
+            method="GET",
+            frame=SimpleNamespace(page=page, parent_frame=None),
+        )
+        audit = dynamic_browser_module._AuditRecorder(event_limit=2)
+        stop_calls: list[str] = []
+        guard = dynamic_browser_module._RouteGuard(
+            DynamicRequestAuthority("http://127.0.0.1/"),
+            DynamicBrowserPolicy(request_decision_budget=2),
+            audit,
+            lambda: stop_calls.append("stop"),
+        )
+        guard.set_primary_page(page)
+        route = Route()
+
+        guard.handle_http(route, request)
+        guard.handle_websocket(WebSocketRoute())
+        guard.handle_websocket(WebSocketRoute())
+        guard.handle_websocket(WebSocketRoute())
+
+        summary = audit.snapshot(())
+        self.assertEqual(route.continued, 1)
+        self.assertEqual(route.aborted, 0)
+        self.assertEqual(guard.decision_count, 3)
+        self.assertEqual(stop_calls, ["stop"])
+        with self.assertRaises(DynamicBrowserError) as raised:
+            guard.raise_if_budget_exhausted()
+        self.assertEqual(
+            raised.exception.code,
+            DynamicBrowserErrorCode.REQUEST_DECISION_BUDGET_EXHAUSTED,
+        )
+        self.assertEqual(summary.http_allowed_count, 1)
+        self.assertEqual(summary.websocket_attempt_count, 2)
+        self.assertEqual(summary.websocket_blocked_count, 2)
+        self.assertEqual(summary.websocket_connected_count, 0)
+        self.assertEqual(summary.request_decision_overflow_count, 1)
+
+    def test_preflight_failure_starts_no_provider_resource(self) -> None:
+        provider = managed_provider()
+        failure = DynamicCapabilityError(
+            DynamicCapabilityCode.CHROMIUM_LAUNCH_FAILED,
+            "preflight failed",
+            setup_hint="safe hint",
+        )
+        with (
+            patch(
+                "vulnspider.discovery.dynamic_browser.preflight_dynamic_browser",
+                side_effect=failure,
+            ),
+            patch(
+                "vulnspider.discovery.dynamic_browser."
+                "_load_managed_playwright_sync_api"
+            ) as loader,
+        ):
+            with self.assertRaises(DynamicCapabilityError):
+                PlaywrightDynamicBrowser().run(
+                    DynamicRequestAuthority("http://127.0.0.1/"),
+                    lambda _: None,
+                )
+        self.assertEqual(provider.events, [])
+        loader.assert_not_called()
+
+    def test_each_partial_initialization_failure_cleans_created_resources(
+        self,
+    ) -> None:
+        cases = (
+            ("playwright", DynamicBrowserErrorCode.PLAYWRIGHT_START_FAILED, []),
+            (
+                "browser",
+                DynamicBrowserErrorCode.BROWSER_LAUNCH_FAILED,
+                ["playwright_stop"],
+            ),
+            (
+                "context",
+                DynamicBrowserErrorCode.CONTEXT_CREATE_FAILED,
+                ["browser_close", "playwright_stop"],
+            ),
+            (
+                "http_guard",
+                DynamicBrowserErrorCode.HTTP_GUARD_INSTALL_FAILED,
+                ["context_close", "browser_close", "playwright_stop"],
+            ),
+            (
+                "websocket_guard",
+                DynamicBrowserErrorCode.WEBSOCKET_GUARD_INSTALL_FAILED,
+                ["context_close", "browser_close", "playwright_stop"],
+            ),
+            (
+                "page",
+                DynamicBrowserErrorCode.PAGE_CREATE_FAILED,
+                ["context_close", "browser_close", "playwright_stop"],
+            ),
+        )
+        for fail_at, code, cleanup_tail in cases:
+            with self.subTest(fail_at=fail_at):
+                provider = managed_provider(fail_at=fail_at)
+                with self.assertRaises(DynamicBrowserError) as raised:
+                    self.run_with_provider(provider, lambda _: None)
+                self.assertEqual(raised.exception.code, code)
+                self.assertEqual(
+                    provider.events[-len(cleanup_tail) :] if cleanup_tail else [],
+                    cleanup_tail,
+                )
+                if fail_at in {"http_guard", "websocket_guard"}:
+                    self.assertNotIn("page_create", provider.events)
+
+    def test_operation_exception_and_timeout_preserve_typed_primary_error(
+        self,
+    ) -> None:
+        cases = (
+            (
+                RuntimeError("provider operation private"),
+                DynamicBrowserErrorCode.OPERATION_FAILED,
+            ),
+            (
+                ManagedProviderTimeoutError("provider timeout private"),
+                DynamicBrowserErrorCode.OPERATION_TIMEOUT,
+            ),
+        )
+        for error, code in cases:
+            with self.subTest(code=code):
+                provider = managed_provider()
+
+                def operation(_):
+                    raise error
+
+                with self.assertRaises(DynamicBrowserError) as raised:
+                    self.run_with_provider(provider, operation)
+                self.assertEqual(raised.exception.code, code)
+                self.assertNotIn("private", str(raised.exception))
+                self.assertTrue(raised.exception.audit.cleanup_complete)
+
+    def test_cleanup_failures_do_not_stop_later_cleanup_or_replace_primary(
+        self,
+    ) -> None:
+        provider = managed_provider(
+            close_failures=frozenset({"page", "browser"}),
+        )
+
+        def operation(_):
+            raise RuntimeError("operation private")
+
+        with self.assertRaises(DynamicBrowserError) as raised:
+            self.run_with_provider(provider, operation)
+
+        error = raised.exception
+        self.assertEqual(error.code, DynamicBrowserErrorCode.OPERATION_FAILED)
+        self.assertEqual(
+            error.cleanup_error_codes,
+            ("PAGE_CLOSE_FAILED", "BROWSER_CLOSE_FAILED"),
+        )
+        self.assertIn("context_close", provider.events)
+        self.assertIn("playwright_stop", provider.events)
+        self.assertNotIn("private", str(error))
+        self.assertFalse(error.audit.cleanup_complete)
+
+    def test_cleanup_failure_without_primary_is_not_reported_as_success(
+        self,
+    ) -> None:
+        provider = managed_provider(
+            close_failures=frozenset({"context"}),
+        )
+        with self.assertRaises(DynamicBrowserError) as raised:
+            self.run_with_provider(provider, lambda _: "ok")
+        self.assertEqual(
+            raised.exception.code,
+            DynamicBrowserErrorCode.CLEANUP_FAILED,
+        )
+        self.assertEqual(
+            raised.exception.cleanup_error_codes,
+            ("CONTEXT_CLOSE_FAILED",),
+        )
+
+    def test_managed_resource_close_is_idempotent(self) -> None:
+        provider = managed_provider()
+        audit = dynamic_browser_module._AuditRecorder(event_limit=5)
+        resources = dynamic_browser_module._ManagedResources(
+            audit,
+            playwright=provider.manager.playwright,
+            browser=provider.browser,
+            context=provider.context,
+            page=provider.page,
+        )
+
+        first = resources.close()
+        second = resources.close()
+
+        self.assertEqual(first, ())
+        self.assertEqual(second, ())
+        self.assertEqual(provider.events.count("page_close"), 1)
+        self.assertEqual(provider.events.count("context_close"), 1)
+        self.assertEqual(provider.events.count("browser_close"), 1)
+        self.assertEqual(provider.events.count("playwright_stop"), 1)
+
+    def test_limited_session_navigation_and_dom_read_methods(self) -> None:
+        provider = managed_provider()
+
+        def operation(session):
+            url = session.navigate()
+            session.wait_for_selector("#marker")
+            return url, session.text_content("#marker")
+
+        result = self.run_with_provider(provider, operation)
+
+        self.assertEqual(result.value, ("http://127.0.0.1/", "marker"))
+        self.assertIn("navigate", provider.events)
+        self.assertIn("wait_for_selector", provider.events)
+        self.assertIn("text_content", provider.events)
+
+    def test_unauthorized_navigation_is_blocked_before_page_goto(self) -> None:
+        provider = managed_provider()
+        with self.assertRaises(DynamicBrowserError) as raised:
+            self.run_with_provider(
+                provider,
+                lambda session: session.navigate("http://127.0.0.1:8080/"),
+            )
+        self.assertEqual(
+            raised.exception.code,
+            DynamicBrowserErrorCode.NAVIGATION_NOT_AUTHORIZED,
+        )
+        self.assertNotIn("navigate", provider.events)
 
 
 if __name__ == "__main__":
