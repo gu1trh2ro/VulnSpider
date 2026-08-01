@@ -97,6 +97,15 @@ class DynamicLoopbackSite:
         self.location_cross_url = ""
         self.slow_url = ""
         self.websocket_budget_url = ""
+        self.rendered_basic_url = ""
+        self.rendered_sensitive_url = ""
+        self.rendered_poisoned_url = ""
+        self.rendered_associated_password_url = ""
+        self.rendered_deterministic_url = ""
+        self.rendered_large_url = ""
+        self.rendered_attribute_large_url = ""
+        self.rendered_text_large_url = ""
+        self.rendered_noisy_url = ""
         self.sentinel_origin = ""
         self.cleanup_complete = False
 
@@ -487,6 +496,204 @@ class DynamicLoopbackSite:
                         "text/html; charset=utf-8",
                     )
                     return
+                if route in {"/rendered-basic", "/rendered-deterministic"}:
+                    html = """<!doctype html>
+                    <html>
+                      <body>
+                        <a href="/rendered-static?s=1">static anchor</a>
+                        <form action="/rendered-static-search" method="get">
+                          <input name="static" value="source">
+                        </form>
+                        <div id="render-root"></div>
+                        <iframe srcdoc="<a href='/iframe-only?leak=1'>child</a>"></iframe>
+                        <script>
+                          const root = document.querySelector("#render-root");
+                          const marker = document.createElement("div");
+                          marker.id = "rendered-js-marker";
+                          marker.textContent = "javascript-rendered";
+                          root.appendChild(marker);
+                          const anchor = document.createElement("a");
+                          anchor.href = "/rendered-target?alpha=1&alpha=2&blank=";
+                          anchor.textContent = "dynamic anchor";
+                          root.appendChild(anchor);
+                          const form = document.createElement("form");
+                          form.action = "/rendered-search";
+                          form.method = "get";
+                          form.innerHTML = `
+                            <input type="hidden" name="csrf" value="token">
+                            <input type="text" name="query" value="initial">
+                            <input type="checkbox" name="choice" value="yes">
+                            <input type="checkbox" name="ignored" value="no" checked>
+                            <select name="role">
+                              <option value="user" selected>User</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                            <textarea name="note">initial note</textarea>
+                            <input type="text" name="disabled" value="ignored" disabled>
+                            <input type="text" value="unnamed">
+                          `;
+                          root.appendChild(form);
+                          form.elements.query.value = "rendered-value";
+                          form.elements.choice.checked = true;
+                          form.elements.ignored.checked = false;
+                          form.elements.role.value = "admin";
+                          form.elements.note.value = "rendered note";
+                        </script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/rendered-sensitive":
+                    html = """<!doctype html>
+                    <html>
+                      <body>
+                        <form action="/rendered-safe-form" method="post">
+                          <input name="safe" value="1">
+                        </form>
+                        <script>
+                          const safe = document.createElement("a");
+                          safe.href = "/rendered-safe?ok=1";
+                          document.body.appendChild(safe);
+                          const form = document.createElement("form");
+                          form.action = "/rendered-safe";
+                          form.method = "post";
+                          form.innerHTML = `
+                            <input name="ok" value="SENSITIVE_SENTINEL_92bd">
+                            <input type="PaSsWoRd" name="password"
+                              value="SENSITIVE_SENTINEL_92bd">
+                            <a href="/inside-sensitive?secret=SENSITIVE_SENTINEL_92bd">
+                              hidden anchor
+                            </a>
+                          `;
+                          document.body.appendChild(form);
+                        </script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/rendered-poisoned":
+                    html = """<!doctype html>
+                    <html><body>
+                      <a href="/rendered-poison-safe?ok=1"></a>
+                      <form action="/poisoned-sensitive" method="post">
+                        <input name="user" value="POISON_SENTINEL_31ac">
+                        <input type="password" name="password"
+                          value="POISON_SENTINEL_31ac">
+                      </form>
+                      <script>
+                        const nativeGetAttribute = Element.prototype.getAttribute;
+                        Element.prototype.getAttribute = function(name) {
+                          const actual = nativeGetAttribute.call(this, name);
+                          if (
+                            this instanceof HTMLInputElement &&
+                            String(name).toLowerCase() === "type" &&
+                            String(actual).toLowerCase() === "password"
+                          ) {
+                            return "text";
+                          }
+                          return actual;
+                        };
+                        Array.from = () => [];
+                        JSON.stringify = () => "poisoned";
+                        window.TextEncoder = function() {
+                          this.encode = () => ({length: 0});
+                        };
+                        window.setTimeout = () => 0;
+                      </script>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/rendered-associated-password":
+                    html = """<!doctype html>
+                    <html><body>
+                      <form id="physical" action="/physical-sensitive" method="post">
+                        <input name="user" value="ASSOCIATED_SENTINEL_8b5e">
+                        <input type="password" form="associated" name="password"
+                          value="ASSOCIATED_SENTINEL_8b5e">
+                      </form>
+                      <form id="associated" action="/associated-safe" method="post">
+                        <input name="safe" value="1">
+                      </form>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/rendered-attribute-large":
+                    html = """<!doctype html>
+                    <html><body><script>
+                      const anchor = document.createElement("a");
+                      anchor.href = "/attribute-limit?value=1";
+                      for (let index = 0; index < 20; index += 1) {
+                        anchor.setAttribute("data-extra-" + index, "bounded");
+                      }
+                      document.body.appendChild(anchor);
+                    </script></body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/rendered-text-large":
+                    html = """<!doctype html>
+                    <html><body><form action="/text-limit" method="post">
+                      <textarea name="note"></textarea>
+                    </form><script>
+                      document.querySelector("textarea").value = "x".repeat(5000);
+                    </script></body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/rendered-large":
+                    html = """<!doctype html>
+                    <html><body><script>
+                      for (let index = 0; index < 20; index += 1) {
+                        const anchor = document.createElement("a");
+                        anchor.href = "/large?index=" + index;
+                        document.body.appendChild(anchor);
+                      }
+                    </script></body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/rendered-noisy":
+                    html = """<!doctype html>
+                    <html><body><a id="moving" href="/tick?value=0"></a>
+                    <script>
+                      let tick = 0;
+                      setInterval(() => {
+                        tick += 1;
+                        document.querySelector("#moving").href =
+                          "/tick?value=" + tick;
+                      }, 10);
+                    </script></body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
                 if route == "/slow":
                     site.slow_started.set()
                     site.release_slow.wait(timeout=5.0)
@@ -582,6 +789,33 @@ class DynamicLoopbackSite:
         self.slow_url = f"http://127.0.0.1:{self.primary_port}/slow"
         self.websocket_budget_url = (
             f"http://127.0.0.1:{self.primary_port}/websocket-budget"
+        )
+        self.rendered_basic_url = (
+            f"http://127.0.0.1:{self.primary_port}/rendered-basic"
+        )
+        self.rendered_sensitive_url = (
+            f"http://127.0.0.1:{self.primary_port}/rendered-sensitive"
+        )
+        self.rendered_poisoned_url = (
+            f"http://127.0.0.1:{self.primary_port}/rendered-poisoned"
+        )
+        self.rendered_associated_password_url = (
+            f"http://127.0.0.1:{self.primary_port}/rendered-associated-password"
+        )
+        self.rendered_deterministic_url = (
+            f"http://127.0.0.1:{self.primary_port}/rendered-deterministic"
+        )
+        self.rendered_large_url = (
+            f"http://127.0.0.1:{self.primary_port}/rendered-large"
+        )
+        self.rendered_attribute_large_url = (
+            f"http://127.0.0.1:{self.primary_port}/rendered-attribute-large"
+        )
+        self.rendered_text_large_url = (
+            f"http://127.0.0.1:{self.primary_port}/rendered-text-large"
+        )
+        self.rendered_noisy_url = (
+            f"http://127.0.0.1:{self.primary_port}/rendered-noisy"
         )
         return self
 

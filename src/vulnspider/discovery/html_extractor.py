@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from vulnspider.discovery.contracts import (
@@ -609,12 +609,24 @@ class _CanonicalBuilder:
         scope: ScopeMetadata,
         parent_url: str | None,
         depth: int,
+        request_authorizer: Callable[[str], bool] | None,
     ) -> None:
         self.source_url = source_url
         self.metadata = metadata
         self.scope = scope
         self.parent_url = parent_url
         self.depth = depth
+        self.request_authorizer = request_authorizer
+        self.native_metadata_key = (
+            "native_dynamic"
+            if metadata.collector_kind == CollectorKind.NATIVE_DYNAMIC
+            else "native_static"
+        )
+        self.discovered_by = (
+            "native_dynamic_rendered_dom"
+            if metadata.collector_kind == CollectorKind.NATIVE_DYNAMIC
+            else "native_static_html"
+        )
         self.run_id = discovery_run_id_for(metadata, scope)
         self.endpoints: dict[str, Endpoint] = {}
         self.point_states: dict[str, _PointState] = {}
@@ -899,7 +911,7 @@ class _CanonicalBuilder:
             scheme=parts.scheme,
             host=parts.netloc,
             path=parts.path or "/",
-            discovered_by="native_static_html",
+            discovered_by=self.discovered_by,
         )
         stored = self.endpoints.setdefault(endpoint.id or "", endpoint)
         self._observe(
@@ -925,6 +937,28 @@ class _CanonicalBuilder:
         not_ready_reasons: Sequence[NonProbeReadyReason],
         control_types: tuple[tuple[str, bool, int], ...] = (),
     ) -> None:
+        context_complete = ready
+        effective_reasons = tuple(not_ready_reasons)
+        if self.request_authorizer is not None:
+            try:
+                authorized = self.request_authorizer(url) is True
+            except Exception:  # noqa: BLE001 - authority ambiguity fails closed.
+                authorized = False
+            if not authorized:
+                ready = False
+                effective_reasons = tuple(
+                    sorted(
+                        set(effective_reasons)
+                        | {NonProbeReadyReason.REQUEST_NOT_AUTHORIZED},
+                        key=lambda item: item.value,
+                    )
+                )
+                metadata = {
+                    **metadata,
+                    "non_probe_ready_reasons": tuple(
+                        item.value for item in effective_reasons
+                    ),
+                }
         query_pairs = tuple(
             (name, value) for name, value, _ in query_occurrences
         )
@@ -940,7 +974,7 @@ class _CanonicalBuilder:
             form=form_pairs,
             completeness=(
                 RequestContextCompleteness.COMPLETE
-                if ready
+                if context_complete
                 else RequestContextCompleteness.PARTIAL
             ),
             context_key=context_key,
@@ -992,7 +1026,7 @@ class _CanonicalBuilder:
                 type_hint=type_hint,
                 source_page=self.source_url,
                 metadata={
-                    "native_static": True,
+                    self.native_metadata_key: True,
                     "hidden": hidden,
                     "visibility": "hidden" if hidden else "visible",
                 },
@@ -1014,7 +1048,7 @@ class _CanonicalBuilder:
                 stored_template,
                 observation_key=f"{observation_key}:query:{pair_index}",
                 ready=ready,
-                not_ready_reasons=not_ready_reasons,
+                not_ready_reasons=effective_reasons,
             )
 
         form_counts = Counter(
@@ -1040,7 +1074,7 @@ class _CanonicalBuilder:
                 type_hint=control.type_hint,
                 source_page=self.source_url,
                 metadata={
-                    "native_static": True,
+                    self.native_metadata_key: True,
                     "hidden": control.hidden,
                     "visibility": "hidden" if control.hidden else "visible",
                 },
@@ -1058,7 +1092,7 @@ class _CanonicalBuilder:
                 stored_template,
                 observation_key=f"{observation_key}:form:{pair_index}",
                 ready=ready,
-                not_ready_reasons=not_ready_reasons,
+                not_ready_reasons=effective_reasons,
             )
 
     def _remember_point(
@@ -1139,7 +1173,7 @@ class _CanonicalBuilder:
             baseline_value = values[0] if len(values) == 1 else None
             type_hints = tuple(sorted(state.type_hints))
             metadata: dict[str, Any] = {
-                "native_static": True,
+                self.native_metadata_key: True,
                 "hidden": state.hidden,
                 "visibility": "hidden" if state.hidden else "visible",
                 "origin_kinds": tuple(sorted(state.origin_kinds)),
@@ -1172,6 +1206,8 @@ def extract_static_html(
     parent_url: str | None = None,
     depth: int = 0,
     sensitive_form_policy: SensitiveFormElisionPolicy | None = None,
+    request_authorizer: Callable[[str], bool] | None = None,
+    safety_invariants: Sequence[DiscoverySafetyInvariant] = (),
 ) -> StaticExtractionResult:
     """Extract one HTML string without fetching, submitting, or executing it."""
 
@@ -1187,6 +1223,8 @@ def extract_static_html(
         raise TypeError(
             "sensitive_form_policy must be a SensitiveFormElisionPolicy or None"
         )
+    if request_authorizer is not None and not callable(request_authorizer):
+        raise TypeError("request_authorizer must be callable or None")
     _, canonical_source = _resolve_http_url(source_url, base_url=None)
     canonical_parent = None
     if parent_url is not None:
@@ -1203,9 +1241,19 @@ def extract_static_html(
         ),
     )
     metadata.validate()
-    if metadata.collector_kind != CollectorKind.NATIVE_STATIC:
+    if metadata.collector_kind not in {
+        CollectorKind.NATIVE_STATIC,
+        CollectorKind.NATIVE_DYNAMIC,
+    }:
         raise DiscoveryContractError(
-            "static HTML extractor requires NATIVE_STATIC collector metadata"
+            "HTML extractor requires Native Static or Native Dynamic metadata"
+        )
+    if (
+        metadata.collector_kind == CollectorKind.NATIVE_DYNAMIC
+        and sensitive_form_policy is None
+    ):
+        raise DiscoveryContractError(
+            "Native Dynamic HTML extraction requires sensitive-form elision"
         )
     scope = scope_metadata or ScopeMetadata(
         target_scope_id=scope_id_for_root(
@@ -1247,6 +1295,7 @@ def extract_static_html(
         scope=scope,
         parent_url=canonical_parent,
         depth=depth,
+        request_authorizer=request_authorizer,
     )
     builder.add_url_surface(
         canonical_source,
@@ -1334,7 +1383,7 @@ def extract_static_html(
                 {
                     "depth": depth,
                     "form_occurrence_index": raw_form.occurrence_index,
-                    "producer_kind": CollectorKind.NATIVE_STATIC.value,
+                    "producer_kind": metadata.collector_kind.value,
                 },
             )
             continue
@@ -1346,17 +1395,24 @@ def extract_static_html(
         )
         builder.add_form(raw_form, boundary_key=boundary_key)
 
+    try:
+        active_invariants = {
+            DiscoverySafetyInvariant(item) for item in safety_invariants
+        }
+    except (TypeError, ValueError):
+        raise DiscoveryContractError(
+            "safety_invariants must contain canonical values"
+        ) from None
+    if sensitive_form_policy is not None:
+        active_invariants.add(
+            DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION
+        )
     discovery = builder.build(
         link_count=len(links),
         form_count=len(parser.forms),
-        safety_invariants=(
-            (
-                DiscoverySafetyInvariant
-                .SENSITIVE_FORM_PRE_CANONICAL_ELISION
-            ),
-        )
-        if sensitive_form_policy is not None
-        else (),
+        safety_invariants=tuple(
+            sorted(active_invariants, key=lambda item: item.value)
+        ),
     )
     ordered_links = tuple(
         sorted(

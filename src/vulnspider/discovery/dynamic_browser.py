@@ -14,6 +14,15 @@ from threading import Lock
 from typing import Any, Callable, Generic, Protocol, TypeVar
 from urllib.parse import parse_qsl, urljoin, urlsplit, urlunsplit
 
+from vulnspider.discovery.rendered_dom import (
+    RENDERED_DOM_CAPTURE_SCRIPT,
+    RenderedDomError,
+    RenderedDomErrorCode,
+    RenderedDomPolicy,
+    RenderedDomSnapshot,
+    snapshot_from_browser_payload,
+)
+
 
 PLAYWRIGHT_REQUIREMENT = "playwright>=1.48,<2"
 _PLAYWRIGHT_DISTRIBUTION = "playwright"
@@ -133,6 +142,9 @@ class DynamicBrowserErrorCode(StrEnum):
     NAVIGATION_TIMEOUT = "NAVIGATION_TIMEOUT"
     OPERATION_FAILED = "OPERATION_FAILED"
     OPERATION_TIMEOUT = "OPERATION_TIMEOUT"
+    DOM_STABILIZATION_TIMEOUT = "DOM_STABILIZATION_TIMEOUT"
+    DOM_LIMIT_EXCEEDED = "DOM_LIMIT_EXCEEDED"
+    DOM_SNAPSHOT_FAILED = "DOM_SNAPSHOT_FAILED"
     CLEANUP_FAILED = "CLEANUP_FAILED"
 
 
@@ -444,6 +456,12 @@ class DynamicBrowserSession(Protocol):
 
     def text_content(self, selector: str) -> str | None:
         """Read one selected DOM text value."""
+
+    def capture_rendered_dom(
+        self,
+        policy: RenderedDomPolicy | None = None,
+    ) -> RenderedDomSnapshot:
+        """Capture one bounded, sensitive-form-free main-frame snapshot."""
 
     def close_page(self) -> None:
         """Close the owned primary page once through managed lifecycle cleanup."""
@@ -1585,6 +1603,7 @@ class _PlaywrightDynamicSession:
         self,
         *,
         page: Any,
+        context: Any,
         authority: DynamicRequestAuthority,
         policy: DynamicBrowserPolicy,
         provider_timeout_error: type[Exception],
@@ -1592,6 +1611,7 @@ class _PlaywrightDynamicSession:
         close_page: Callable[[], tuple[str, ...]],
     ) -> None:
         self._page = page
+        self._context = context
         self._authority = authority
         self._policy = policy
         self._provider_timeout_error = provider_timeout_error
@@ -1673,6 +1693,95 @@ class _PlaywrightDynamicSession:
                 "Bounded browser operation failed.",
             ) from None
         return value if value is None or type(value) is str else str(value)
+
+    def capture_rendered_dom(
+        self,
+        policy: RenderedDomPolicy | None = None,
+    ) -> RenderedDomSnapshot:
+        self._guard.raise_if_failed()
+        active_policy = policy or RenderedDomPolicy()
+        if type(active_policy) is not RenderedDomPolicy:
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.DOM_SNAPSHOT_FAILED,
+                "Rendered DOM capture requires a canonical policy.",
+            )
+        cdp_session: Any | None = None
+        try:
+            cdp_session = self._context.new_cdp_session(self._page)
+            frame_tree = cdp_session.send("Page.getFrameTree")
+            frame_id = frame_tree["frameTree"]["frame"]["id"]
+            isolated_world = cdp_session.send(
+                "Page.createIsolatedWorld",
+                {
+                    "frameId": frame_id,
+                    "worldName": "vulnspider-rendered-dom",
+                    "grantUniveralAccess": False,
+                },
+            )
+            execution_context_id = isolated_world["executionContextId"]
+        except Exception:  # noqa: BLE001 - provider diagnostics stay private.
+            if cdp_session is not None:
+                try:
+                    cdp_session.detach()
+                except Exception:  # noqa: BLE001 - no diagnostics are retained.
+                    pass
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.DOM_SNAPSHOT_FAILED,
+                "Rendered DOM isolated world could not be created.",
+            ) from None
+        try:
+            expression = "(" + RENDERED_DOM_CAPTURE_SCRIPT + ")(" + json.dumps(
+                active_policy.to_browser_payload(),
+                sort_keys=True,
+                separators=(",", ":"),
+            ) + ")"
+            evaluated = cdp_session.send(
+                "Runtime.evaluate",
+                {
+                    "expression": expression,
+                    "contextId": execution_context_id,
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                    "timeout": active_policy.stabilization_timeout_ms,
+                    "disableBreaks": True,
+                },
+            )
+            if "exceptionDetails" in evaluated:
+                raise DynamicBrowserError(
+                    DynamicBrowserErrorCode.DOM_SNAPSHOT_FAILED,
+                    "Rendered DOM isolated capture failed safely.",
+                )
+            payload = evaluated["result"]["value"]
+            self._guard.raise_if_failed()
+        except DynamicBrowserError:
+            raise
+        except Exception:  # noqa: BLE001 - provider diagnostics stay private.
+            self._guard.raise_if_failed()
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.DOM_STABILIZATION_TIMEOUT,
+                "Rendered DOM did not stabilize within the hard timeout.",
+            ) from None
+        finally:
+            if cdp_session is not None:
+                try:
+                    cdp_session.detach()
+                except Exception:  # noqa: BLE001 - no provider text is retained.
+                    pass
+        try:
+            return snapshot_from_browser_payload(payload, active_policy)
+        except RenderedDomError as exc:
+            error_codes = {
+                RenderedDomErrorCode.DOM_STABILIZATION_TIMEOUT: (
+                    DynamicBrowserErrorCode.DOM_STABILIZATION_TIMEOUT
+                ),
+                RenderedDomErrorCode.DOM_LIMIT_EXCEEDED: (
+                    DynamicBrowserErrorCode.DOM_LIMIT_EXCEEDED
+                ),
+                RenderedDomErrorCode.DOM_SNAPSHOT_FAILED: (
+                    DynamicBrowserErrorCode.DOM_SNAPSHOT_FAILED
+                ),
+            }
+            raise DynamicBrowserError(error_codes[exc.code], str(exc)) from None
 
     def close_page(self) -> None:
         self._guard.raise_if_failed()
@@ -1814,6 +1923,7 @@ class PlaywrightDynamicBrowser:
             if primary_error is None:
                 session = _PlaywrightDynamicSession(
                     page=resources.page,
+                    context=resources.context,
                     authority=authority,
                     policy=active_policy,
                     provider_timeout_error=provider_timeout_error,

@@ -58,6 +58,15 @@ from vulnspider.discovery.merge import (
     DynamicIntegrityError,
     merge_discovery_results,
 )
+from vulnspider.discovery.rendered_dom import (
+    RENDERED_DOM_VERSION,
+    RenderedDomError,
+    RenderedDomErrorCode,
+    RenderedDomExtractionResult,
+    RenderedDomPolicy,
+    RenderedDomSnapshot,
+    extract_rendered_dom,
+)
 from vulnspider.discovery.static_crawler import (
     CrawlPolicy,
     StaticCrawler,
@@ -113,6 +122,12 @@ __all__ = [
     "ProbeReadyStatus",
     "PlaywrightDynamicBrowser",
     "PLAYWRIGHT_REQUIREMENT",
+    "RENDERED_DOM_VERSION",
+    "RenderedDomError",
+    "RenderedDomErrorCode",
+    "RenderedDomExtractionResult",
+    "RenderedDomPolicy",
+    "RenderedDomSnapshot",
     "ScopeMetadata",
     "SensitiveFormElisionPolicy",
     "StaticCrawler",
@@ -127,6 +142,7 @@ __all__ = [
     "canonicalize_crawl_url",
     "discovery_run_id_for",
     "extract_static_html",
+    "extract_rendered_dom",
     "merge_discovery_results",
     "preflight_dynamic_browser",
     "scope_id_for_root",

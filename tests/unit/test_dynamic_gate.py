@@ -40,6 +40,28 @@ class DynamicGateManifestTests(unittest.TestCase):
         )
         self.assertTrue(all(case.required for case in cases))
 
+    def test_rendered_dom_manifest_is_explicit_unique_and_linked(self) -> None:
+        cases = gate.RENDERED_DOM_CASES
+
+        gate.validate_manifest(cases)
+        suite, missing = gate.load_manifest_suite(cases)
+
+        self.assertEqual(
+            [case.case_id for case in cases],
+            [
+                "rendered-basic",
+                "rendered-sensitive-elision",
+                "rendered-deterministic",
+                "rendered-bounded-limit",
+                "rendered-timeout-cleanup",
+                "rendered-merge-compatible",
+            ],
+        )
+        self.assertEqual(missing, ())
+        self.assertEqual(suite.countTestCases(), 6)
+        self.assertEqual(len({case.test_id for case in cases}), 6)
+        self.assertTrue(all(case.required for case in cases))
+
     def test_missing_or_renamed_test_link_is_rejected(self) -> None:
         missing_case = gate.BrowserManifestCase(
             case_id="missing-test",
@@ -179,6 +201,7 @@ class DynamicGateDecisionTests(unittest.TestCase):
         self.assertTrue(evaluation.passed)
         self.assertIn("PLAYWRIGHT_VERSION=1.61.0", output.getvalue())
         self.assertIn("PREFLIGHT=PASS", output.getvalue())
+        self.assertIn("SUITE=browser-loopback", output.getvalue())
         self.assertIn("REQUIRED_EXPECTED=15", output.getvalue())
         self.assertIn("REQUIRED_EXECUTED=15", output.getvalue())
         self.assertIn("REQUIRED_SKIPPED=0", output.getvalue())

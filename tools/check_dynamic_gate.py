@@ -26,6 +26,7 @@ from vulnspider.discovery import (  # noqa: E402
 
 
 SUITE_BROWSER_LOOPBACK = "browser-loopback"
+SUITE_RENDERED_DOM = "rendered-dom"
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,7 +175,67 @@ BROWSER_LOOPBACK_CASES = (
     ),
 )
 
-MANIFESTS = {SUITE_BROWSER_LOOPBACK: BROWSER_LOOPBACK_CASES}
+RENDERED_DOM_CASES = (
+    BrowserManifestCase(
+        "rendered-basic",
+        (
+            "tests.integration.test_rendered_dom_loopback."
+            "RenderedDomLoopbackTests."
+            "test_rendered_basic_extracts_live_main_frame_surfaces"
+        ),
+        "Rendered main-frame links, forms, and live controls become canonical.",
+    ),
+    BrowserManifestCase(
+        "rendered-sensitive-elision",
+        (
+            "tests.integration.test_rendered_dom_loopback."
+            "RenderedDomLoopbackTests."
+            "test_rendered_sensitive_elision_is_precanonical_and_secret_free"
+        ),
+        "A password form is omitted before serialization and canonicalization.",
+    ),
+    BrowserManifestCase(
+        "rendered-deterministic",
+        (
+            "tests.integration.test_rendered_dom_loopback."
+            "RenderedDomLoopbackTests."
+            "test_rendered_deterministic_across_two_fresh_browser_runs"
+        ),
+        "Two fresh Chromium runs produce identical bounded extraction output.",
+    ),
+    BrowserManifestCase(
+        "rendered-bounded-limit",
+        (
+            "tests.integration.test_rendered_dom_loopback."
+            "RenderedDomLoopbackTests."
+            "test_rendered_bounded_node_and_utf8_size_limits_fail_closed"
+        ),
+        "Node and UTF-8 byte limits fail closed with complete cleanup.",
+    ),
+    BrowserManifestCase(
+        "rendered-timeout-cleanup",
+        (
+            "tests.integration.test_rendered_dom_loopback."
+            "RenderedDomLoopbackTests."
+            "test_rendered_timeout_has_stable_error_and_complete_cleanup"
+        ),
+        "Structural instability times out with stable error and full cleanup.",
+    ),
+    BrowserManifestCase(
+        "rendered-merge-compatible",
+        (
+            "tests.integration.test_rendered_dom_loopback."
+            "RenderedDomLoopbackTests."
+            "test_rendered_merge_is_compatible_with_static_component"
+        ),
+        "The Native Dynamic component validates and merges with Native Static.",
+    ),
+)
+
+MANIFESTS = {
+    SUITE_BROWSER_LOOPBACK: BROWSER_LOOPBACK_CASES,
+    SUITE_RENDERED_DOM: RENDERED_DOM_CASES,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,7 +256,7 @@ def validate_manifest(cases: Sequence[BrowserManifestCase]) -> None:
     test_ids: set[str] = set()
     for case in cases:
         if not case.required:
-            raise ValueError("browser-loopback manifest cases must be required")
+            raise ValueError("dynamic gate manifest cases must be required")
         if not case.case_id or not case.test_id or not case.invariant:
             raise ValueError("dynamic gate manifest fields must not be empty")
         if case.case_id in case_ids:
@@ -275,12 +336,14 @@ def _write_summary(
     capability: DynamicBrowserCapability | None,
     preflight_code: str,
     evaluation: GateEvaluation,
+    suite_name: str,
 ) -> None:
     version = (
         capability.playwright_version if capability is not None else "unavailable"
     )
     print(f"PLAYWRIGHT_VERSION={version}", file=stream)
     print(f"PREFLIGHT={preflight_code}", file=stream)
+    print(f"SUITE={suite_name}", file=stream)
     print(
         f"REQUIRED_EXPECTED={evaluation.required_expected}",
         file=stream,
@@ -309,6 +372,7 @@ def run_gate(
     ),
     test_runner: Callable[[unittest.TestSuite], unittest.TestResult] | None = None,
     stream: TextIO | None = None,
+    suite_name: str = SUITE_BROWSER_LOOPBACK,
 ) -> GateEvaluation:
     output = stream or sys.stdout
     validate_manifest(cases)
@@ -358,6 +422,7 @@ def run_gate(
         capability=capability,
         preflight_code=preflight_code,
         evaluation=evaluation,
+        suite_name=suite_name,
     )
     return evaluation
 
@@ -376,7 +441,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    evaluation = run_gate(MANIFESTS[args.suite])
+    evaluation = run_gate(MANIFESTS[args.suite], suite_name=args.suite)
     return 0 if evaluation.passed else 1
 
 

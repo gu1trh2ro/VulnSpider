@@ -1660,7 +1660,7 @@ Sanitized rendered DOM preprocessing and canonical extraction only.
 
 **Proposed focused commit message**
 
-`feat(discovery): extract canonical rendered DOM surfaces`
+`feat(discovery): extract bounded rendered DOM`
 
 **Maximum correction loops:** 2
 
@@ -2723,7 +2723,7 @@ dumps.
 - [x] Dynamic default budgets approved.
 - [ ] Milestone 1 implemented and focused narrow tests passed.
 - [x] Milestone 2 implemented and focused narrow tests passed.
-- [ ] Milestone 3 implemented and focused narrow tests passed.
+- [x] Milestone 3 implemented and focused narrow tests passed.
 - [ ] Milestone 4 implemented and focused narrow tests passed.
 - [ ] Milestone 5 implemented and focused narrow tests passed.
 - [ ] Milestone 6 implemented and focused narrow tests passed.
@@ -2782,11 +2782,13 @@ dumps.
 
 ### Plan record
 
-- Status: Milestone 2 is COMPLETE. The managed lifecycle, immutable exact
-  request authority, shared bounded HTTP/WebSocket guards, secret-free audit,
-  deterministic cleanup, loopback harness, and explicit non-skippable 15-case
-  `browser-loopback` manifest cover every Milestone 2 completion requirement.
-  Milestone 3 rendered-DOM extraction remains intentionally unimplemented.
+- Status: Milestones 2 and 3 are COMPLETE. The managed lifecycle, immutable
+  exact request authority, shared bounded HTTP/WebSocket guards, secret-free
+  audit, deterministic cleanup, loopback harness, and explicit non-skippable
+  15-case `browser-loopback` manifest cover Milestone 2. The isolated-world,
+  bounded rendered snapshot, pre-canonical sensitive-form elision, canonical
+  Native Dynamic extraction, and explicit non-skippable six-case `rendered-dom`
+  manifest cover Milestone 3. Milestone 4 navigation remains unimplemented.
 - Baseline: `origin/main` and branch base
   `7598fdee9fabd1372b1c9e5810792aed26b1c45c`.
 - 2026-07-27: Initial repository-grounded plan drafted. No runtime code, test,
@@ -2910,6 +2912,32 @@ dumps.
   reproduced strict Chromium 15/15 and focused unit 33/33, found Critical 0,
   High 0, Medium 0, Low 0, and returned `PASS`. Milestone 2 is therefore
   COMPLETE; this plan stays active because Milestones 3 onward remain pending.
+- 2026-08-01: Implemented Milestone 3 as a single-page, main-frame rendered DOM
+  unit. Chromium captures a deterministic bounded projection in a fresh CDP
+  isolated world, omits physical password-form descendants before any value
+  projection, and host-validates the minimal allowlisted structure and active
+  policy limits before canonical extraction. Dynamic artifacts carry truthful
+  `NATIVE_DYNAMIC` provenance; exact-authority mismatches remain discoverable
+  but `NOT_READY`; iframe DOM, clicks, submissions, navigation frontier, and
+  orchestration remain outside this milestone.
+- 2026-08-01: Final Milestone 3 verification passed focused unit 69/69, strict
+  rendered-DOM Chromium 6/6, retained browser safety Chromium 15/15, full
+  repository 369, Native Static E2E 1, v0.1 smoke 7, format, lint, type-hint,
+  and `git diff --check`. Both strict gates reported skipped 0, failed 0, and
+  missing 0. Password sentinels had zero serialized or server-request
+  occurrences, cleanup completed, and generated `debug.log`/bytecode artifacts
+  were removed before commit.
+- 2026-08-01: Independent Gate Review initially found two Critical, one High,
+  and two Medium issues: main-world prototype poisoning, an unfiltered direct
+  Native Dynamic fallback, associated-control rather than physical-descendant
+  classification, synthetic occurrence indices, and query values in the
+  stabilization key. Correction Loop 1 moved capture to an isolated world,
+  required elision policy for Native Dynamic metadata, used physical DOM
+  descendants, preserved exact occurrences, removed query values, and added
+  host revalidation of caller-lowered limits. Focused re-review reproduced the
+  adversarial Chromium cases and returned `PASS` with Critical 0, High 0,
+  Medium 0, and Low 0. Milestone 3 is therefore COMPLETE; this plan stays active
+  for Milestones 4 onward.
 
 ### Gate Review Correction Record
 
@@ -2917,6 +2945,11 @@ dumps.
 |---|---|---|---|
 | M2-STRICT-H-01 | Replaced synthetic effective redirect URLs with guarded one-hop `location.replace` navigations; added actual final-URL, final-path relative-resource, and same-origin-intermediate-to-cross-authority sentinel evidence | 13, 14, 17; Milestone 2 | Addressed in Correction Loop 1; focused re-review passed |
 | M2-LIFECYCLE-H-01 | Made HTTP and WebSocket share one atomic transport-decision budget, requested one active-page stop on first overflow, bounded post-overflow accounting, and added unit plus sustained real-Chromium evidence | 7, 13, 14; Milestone 2 | Addressed in Correction Loop 1; focused re-review passed |
+| M3-RENDERED-C-01 | Moved snapshot evaluation from the target page main world to a fresh main-frame CDP isolated world with a fixed one-second evaluation timeout; added prototype-poisoning and cleanup evidence | 6, 14, 17; Milestone 3 | Addressed in Correction Loop 1; focused re-review passed |
+| M3-RENDERED-C-02 | Required a sensitive-form elision policy for every explicit `NATIVE_DYNAMIC` Static-extractor compatibility call, closing the direct unfiltered fallback | 9, 14, 17; Milestone 3 | Addressed in Correction Loop 1; focused re-review passed |
+| M3-RENDERED-H-01 | Classified sensitive forms from physical descendant inputs rather than form-associated controls and proved associated password controls cannot leave a surviving form artifact | 9, 14, 17; Milestone 3 | Addressed in Correction Loop 1; focused re-review passed |
+| M3-RENDERED-M-01 | Preserved exact sensitive-form occurrence indices and excluded action query values from structural stabilization keys | 9, 14, 17; Milestone 3 | Addressed in Correction Loop 1; focused re-review passed |
+| M3-RENDERED-M-02 | Re-applied caller-lowered attribute-count, attribute-length, and text-length policy limits in the host validator before accepting browser payloads | 7, 14, 17; Milestone 3 | Addressed in Correction Loop 1; focused re-review passed |
 | C-01 | Separated discovery eligibility from immutable exact caller navigation/resource authority; unauthorized same-origin GET remains discovery-only and is tested with zero server counters | 1, 3–9, 13–18, 20–22; Milestones 2, 4, 6, 7 | Addressed in Correction Loop 1 |
 | H-01 | Made every context sharing a sensitive-redacted form template PARTIAL/NOT_READY and prohibited execution or sibling upgrade | 9, 10, 12–18, 22; Milestones 1, 3, 5, 6 | Addressed in Correction Loop 1 |
 | H-02 | Defined every existing `CrawlStatistics` field, aggregate arithmetic, component validation, partial behavior, and adversarial tests | 10, 14–18, 21–22; Milestones 1, 5, 7 | Addressed in Correction Loop 1 |
