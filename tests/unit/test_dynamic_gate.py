@@ -27,7 +27,7 @@ class DynamicGateManifestTests(unittest.TestCase):
         gate.validate_manifest(cases)
         suite, missing = gate.load_manifest_suite(cases)
 
-        self.assertEqual(len(cases), 10)
+        self.assertEqual(len(cases), 15)
         self.assertEqual(missing, ())
         self.assertEqual(suite.countTestCases(), len(cases))
         self.assertEqual(
@@ -71,28 +71,28 @@ class DynamicGateDecisionTests(unittest.TestCase):
     def test_only_complete_required_execution_passes(self) -> None:
         passing = gate.evaluate_gate(
             preflight_passed=True,
-            required_expected=10,
-            tests_run=10,
+            required_expected=15,
+            tests_run=15,
             required_skipped=0,
             required_failed=0,
             manifest_missing=0,
         )
         self.assertTrue(passing.passed)
-        self.assertEqual(passing.required_executed, 10)
+        self.assertEqual(passing.required_executed, 15)
 
         failing_inputs = (
             {"preflight_passed": False},
             {"required_expected": 0, "tests_run": 0},
             {"tests_run": 0},
-            {"tests_run": 9},
+            {"tests_run": 14},
             {"required_skipped": 1},
             {"required_failed": 1},
             {"manifest_missing": 1},
         )
         defaults = {
             "preflight_passed": True,
-            "required_expected": 10,
-            "tests_run": 10,
+            "required_expected": 15,
+            "tests_run": 15,
             "required_skipped": 0,
             "required_failed": 0,
             "manifest_missing": 0,
@@ -179,8 +179,8 @@ class DynamicGateDecisionTests(unittest.TestCase):
         self.assertTrue(evaluation.passed)
         self.assertIn("PLAYWRIGHT_VERSION=1.61.0", output.getvalue())
         self.assertIn("PREFLIGHT=PASS", output.getvalue())
-        self.assertIn("REQUIRED_EXPECTED=10", output.getvalue())
-        self.assertIn("REQUIRED_EXECUTED=10", output.getvalue())
+        self.assertIn("REQUIRED_EXPECTED=15", output.getvalue())
+        self.assertIn("REQUIRED_EXECUTED=15", output.getvalue())
         self.assertIn("REQUIRED_SKIPPED=0", output.getvalue())
         self.assertIn("REQUIRED_FAILED=0", output.getvalue())
         self.assertIn("MANIFEST_MISSING=0", output.getvalue())

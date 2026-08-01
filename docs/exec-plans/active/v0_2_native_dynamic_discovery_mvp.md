@@ -443,6 +443,9 @@ The proposed immutable `BrowserAuditSummary` contains:
   `child_frame_unauthorized_commit_count`,
   `child_frame_authorized_completion_count`, and bounded counts classifying
   `about:blank`, browser-error, and replacement-document commits/completions;
+- bounded enum-only `child_frame_commit_kinds` and
+  `child_frame_completion_kinds`, plus independent overflow counts, so scalar
+  totals continue after evidence sampling reaches its policy limit;
 - bounded `child_frame_committed_origin_summaries`;
 - navigation attempts and approved navigation completions;
 - main-frame committed origin tuples;
@@ -2595,6 +2598,14 @@ subsequent lifecycle/policy unit. A missing package or browser remains a
 reported capability failure, never a Static-only success for explicit Dynamic
 mode.
 
+2026-08-01 Milestone 2 policy resolution: approve every Section 7 default as
+the reviewed Dynamic MVP policy. Milestone 2 directly implements the lifecycle
+subset (`3` second navigation timeout and `50` shared HTTP/WebSocket transport
+decisions); later crawler-owned milestones must use the remaining approved
+defaults rather than reopening or silently changing them. Boundary tests may
+continue to pass smaller explicit values. Any default change requires a plan
+decision update, configuration-fingerprint review, and the owning strict gate.
+
 ## 21. Rollback and Failure Containment
 
 ### Independent rollback boundaries
@@ -2707,11 +2718,11 @@ dumps.
 
 - [ ] Plan approved.
 - [ ] Aggregate contract and merge policy approved by producer and consumer.
-- [ ] Dependency declaration strategy approved.
-- [ ] Browser binary installation strategy approved.
-- [ ] Dynamic default budgets approved.
+- [x] Dependency declaration strategy approved.
+- [x] Browser binary installation strategy approved.
+- [x] Dynamic default budgets approved.
 - [ ] Milestone 1 implemented and focused narrow tests passed.
-- [ ] Milestone 2 implemented and focused narrow tests passed.
+- [x] Milestone 2 implemented and focused narrow tests passed.
 - [ ] Milestone 3 implemented and focused narrow tests passed.
 - [ ] Milestone 4 implemented and focused narrow tests passed.
 - [ ] Milestone 5 implemented and focused narrow tests passed.
@@ -2751,18 +2762,18 @@ dumps.
   one Static then one Dynamic, both secret-free and neither converted into a
   finding.
 - [ ] Aggregate statistics satisfy every Section 10 rule.
-- [ ] Strict Dynamic gate executed real Chromium with zero required skips.
+- [x] Strict Dynamic gate executed real Chromium with zero required skips.
 - [ ] Milestone 4 strict `browser-loopback` manifest retained every mandatory
   Milestone 2/4 WebSocket, EventSource, iframe, redirect, popup, location,
   unsafe-GET, fetch/XHR, and autosubmit case; expected/executed counts matched
   above zero and skipped count was zero.
 - [ ] Capability, integrity, and degraded operational exit paths match Section
   21.
-- [ ] Password/secret scan by diff review found no leaked value/artifact.
-- [ ] Existing Static Discovery and v0.1 smoke suites remain green.
-- [ ] Documentation is aligned with actual Static/Dynamic implementation
+- [x] Password/secret scan by diff review found no leaked value/artifact.
+- [x] Existing Static Discovery and v0.1 smoke suites remain green.
+- [x] Documentation is aligned with actual Static/Dynamic implementation
   status.
-- [ ] Active plan progress and decisions are current.
+- [x] Active plan progress and decisions are current.
 - [ ] Completed plan is moved from `active/` to `completed/` only after final
   acceptance.
 - [ ] Feature branch pushed only after all local gates pass.
@@ -2771,12 +2782,11 @@ dumps.
 
 ### Plan record
 
-- Status: Milestone 2 is PARTIAL. The managed lifecycle, explicit current-unit
-  `browser-loopback` manifest, strict non-skippable gate, and the required
-  EventSource/frame/popup/redirect/location cases in the 2026-07-31 coherent
-  unit are implemented and verified. The broader Milestone 2 plan still has
-  mandatory browser cases and evidence listed below, so this gate PASS is not a
-  Milestone 2 COMPLETE claim.
+- Status: Milestone 2 is COMPLETE. The managed lifecycle, immutable exact
+  request authority, shared bounded HTTP/WebSocket guards, secret-free audit,
+  deterministic cleanup, loopback harness, and explicit non-skippable 15-case
+  `browser-loopback` manifest cover every Milestone 2 completion requirement.
+  Milestone 3 rendered-DOM extraction remains intentionally unimplemented.
 - Baseline: `origin/main` and branch base
   `7598fdee9fabd1372b1c9e5810792aed26b1c45c`.
 - 2026-07-27: Initial repository-grounded plan drafted. No runtime code, test,
@@ -2872,6 +2882,34 @@ dumps.
   finer about:blank/error/replacement child-frame classification evidence, and
   resolution/recording of the remaining Milestone 2 policy approvals. These
   cases must be added to and pass the strict manifest without required skips.
+- 2026-08-01: Closure triage classified same/cross-authority WebSocket denial,
+  blocked fetch and XHR, unauthorized same-origin unsafe GET, autosubmit POST,
+  deterministic DOM-driven page close, and fine-grained child-frame document
+  classification as category A completion requirements. Section 7 default
+  budget approval is category B documentation/policy work. Previously recorded
+  bounded-path audit representation, DOM-read timeout seam hardening, partial
+  fixture-construction cleanup, and other Medium/Low refinements are category C
+  follow-up items and do not block Milestone 2 COMPLETE.
+- 2026-08-01: Implemented all category A evidence without Milestone 3 DOM
+  extraction. The managed session exposes one idempotent owner-mediated page
+  close. Child-frame commits and completions now retain bounded enum-only
+  `authorized`, `unauthorized`, `about_blank`, `browser_error`, and
+  `replacement` classifications with subtype and overflow counters. The
+  loopback fixture executes same/cross-authority WebSocket constructors, fetch,
+  XHR, a same-origin unsafe navigation GET, autosubmit POST, DOM-driven page
+  close, and internal iframe variants without credentials or sensitive values.
+- 2026-08-01: Expanded the explicit required manifest from 10 to 15 linked
+  cases while retaining all original entries. Playwright 1.62.0 plus matching
+  Chromium executed 15/15 required cases with skipped 0, failed 0, missing 0,
+  and `FINAL=PASS`.
+- 2026-08-01: Milestone 2 closure verification passed: focused Dynamic/Gate/
+  harness tests 36, related Discovery regression 135, full repository 347,
+  Native Static E2E 1, v0.1 smoke 7, format, lint, type-hint, and
+  `git diff --check`. The repository root retained no `debug.log`, generated
+  browser artifact, or untracked file. Independent Gate Review separately
+  reproduced strict Chromium 15/15 and focused unit 33/33, found Critical 0,
+  High 0, Medium 0, Low 0, and returned `PASS`. Milestone 2 is therefore
+  COMPLETE; this plan stays active because Milestones 3 onward remain pending.
 
 ### Gate Review Correction Record
 
@@ -2995,6 +3033,11 @@ dumps.
   rules; browser-specific activity remains in `BrowserAuditSummary`.
   Reason: browser subresources must not be mislabeled as Static-style document
   requests.
+- Decision: Approve the Section 7 Dynamic MVP default budgets; lifecycle owns
+  the implemented 3-second navigation timeout and 50-decision shared transport
+  budget, while later crawler milestones own the remaining approved limits.
+  Reason: stable reviewed defaults are required before the Dynamic policy and
+  configuration fingerprint can be treated as fixed.
 - Decision: Base Mode A may explicitly skip unavailable real-browser evidence;
   proposed strict Mode B fails on unavailable capability or any required skip.
   Reason: optional runtime must not break base regression or create a false

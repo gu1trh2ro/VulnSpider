@@ -80,6 +80,11 @@ class DynamicLoopbackSite:
         self.root_url = ""
         self.allowed_script_url = ""
         self.eventsource_url = ""
+        self.websocket_url = ""
+        self.fetch_xhr_url = ""
+        self.unsafe_get_url = ""
+        self.autosubmit_url = ""
+        self.page_close_url = ""
         self.iframe_url = ""
         self.popup_url = ""
         self.redirect_same_url = ""
@@ -234,6 +239,95 @@ class DynamicLoopbackSite:
                         "text/event-stream; charset=utf-8",
                     )
                     return
+                if route == "/websocket":
+                    html = f"""<!doctype html>
+                    <html>
+                      <body>
+                        <script>
+                          const same = new WebSocket(
+                            "ws://127.0.0.1:{site.primary_port}/same-socket"
+                          );
+                          const cross = new WebSocket(
+                            "ws://127.0.0.1:{site.sentinel_port}/cross-socket"
+                          );
+                          const marker = document.createElement("div");
+                          marker.id = "websocket-marker";
+                          marker.textContent = "constructors-attempted";
+                          document.body.appendChild(marker);
+                        </script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/fetch-xhr":
+                    html = """<!doctype html>
+                    <html>
+                      <body>
+                        <script>
+                          let failures = 0;
+                          function recordFailure() {
+                            failures += 1;
+                            if (failures === 2) {
+                              const marker = document.createElement("div");
+                              marker.id = "fetch-xhr-marker";
+                              marker.textContent = "both-blocked";
+                              document.body.appendChild(marker);
+                            }
+                          }
+                          fetch("/fetch-target").catch(recordFailure);
+                          const xhr = new XMLHttpRequest();
+                          xhr.onerror = recordFailure;
+                          xhr.open("GET", "/xhr-target");
+                          xhr.send();
+                        </script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/unsafe-get":
+                    self._send(
+                        200,
+                        (
+                            b"<html><body><script>"
+                            b"window.location.replace('/state-change');"
+                            b"</script></body></html>"
+                        ),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/autosubmit":
+                    self._send(
+                        200,
+                        (
+                            b"<html><body>"
+                            b"<form id='unsafe-form' method='post' "
+                            b"action='/submit-target'>"
+                            b"<input name='safe' value='fixture'>"
+                            b"</form><script>"
+                            b"document.getElementById('unsafe-form').requestSubmit();"
+                            b"</script></body></html>"
+                        ),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/page-close":
+                    self._send(
+                        200,
+                        (
+                            b"<html><body><div id='page-close-marker'>"
+                            b"ready-to-close</div></body></html>"
+                        ),
+                        "text/html; charset=utf-8",
+                    )
+                    return
                 if route == "/iframe":
                     html = f"""<!doctype html>
                     <html>
@@ -242,6 +336,11 @@ class DynamicLoopbackSite:
                         <iframe
                           id="cross-frame"
                           src="{site.sentinel_origin}/frame-child"
+                        ></iframe>
+                        <iframe id="about-frame" src="about:blank"></iframe>
+                        <iframe
+                          id="replacement-frame"
+                          srcdoc="<p>replacement-document</p>"
                         ></iframe>
                         <script>
                           window.addEventListener("load", () => {{
@@ -438,6 +537,21 @@ class DynamicLoopbackSite:
         )
         self.eventsource_url = (
             f"http://127.0.0.1:{self.primary_port}/eventsource"
+        )
+        self.websocket_url = (
+            f"http://127.0.0.1:{self.primary_port}/websocket"
+        )
+        self.fetch_xhr_url = (
+            f"http://127.0.0.1:{self.primary_port}/fetch-xhr"
+        )
+        self.unsafe_get_url = (
+            f"http://127.0.0.1:{self.primary_port}/unsafe-get"
+        )
+        self.autosubmit_url = (
+            f"http://127.0.0.1:{self.primary_port}/autosubmit"
+        )
+        self.page_close_url = (
+            f"http://127.0.0.1:{self.primary_port}/page-close"
         )
         self.iframe_url = f"http://127.0.0.1:{self.primary_port}/iframe"
         self.popup_url = f"http://127.0.0.1:{self.primary_port}/popup"

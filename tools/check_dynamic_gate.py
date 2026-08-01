@@ -56,6 +56,51 @@ BROWSER_LOOPBACK_CASES = (
         "Same- and cross-authority EventSource attempts are blocked pre-transport.",
     ),
     BrowserManifestCase(
+        "websocket-same-cross-block",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_same_and_cross_authority_websockets_are_denied"
+        ),
+        "Same- and cross-authority WebSockets are denied before handshake.",
+    ),
+    BrowserManifestCase(
+        "fetch-xhr-block",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_fetch_and_xhr_are_blocked_before_transport"
+        ),
+        "Unauthorized same-authority fetch and XHR are blocked pre-transport.",
+    ),
+    BrowserManifestCase(
+        "unsafe-same-origin-get-block",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_unauthorized_same_origin_get_is_blocked"
+        ),
+        "An unauthorized same-origin GET is denied before target transport.",
+    ),
+    BrowserManifestCase(
+        "autosubmit-post-block",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_autosubmit_post_is_blocked_before_transport"
+        ),
+        "A JavaScript autosubmit POST is denied before target transport.",
+    ),
+    BrowserManifestCase(
+        "dom-page-close-cleanup",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_dom_driven_page_close_is_idempotently_cleaned"
+        ),
+        "A DOM-driven page close is idempotent and cleanup remains complete.",
+    ),
+    BrowserManifestCase(
         "child-frame-block",
         (
             "tests.integration.test_dynamic_browser_loopback."

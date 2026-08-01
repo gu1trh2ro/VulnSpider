@@ -104,6 +104,16 @@ class DynamicNetworkReason(StrEnum):
     WEBSOCKET_DENIED = "WEBSOCKET_DENIED"
 
 
+class ChildFrameDocumentKind(StrEnum):
+    """Secret-free classification for one child-frame document lifecycle."""
+
+    AUTHORIZED = "authorized"
+    UNAUTHORIZED = "unauthorized"
+    ABOUT_BLANK = "about_blank"
+    BROWSER_ERROR = "browser_error"
+    REPLACEMENT = "replacement"
+
+
 class DynamicBrowserErrorCode(StrEnum):
     """Stable lifecycle error codes without provider diagnostics."""
 
@@ -196,7 +206,20 @@ class BrowserAuditSummary:
     child_frame_authorized_commit_count: int
     child_frame_unauthorized_commit_count: int
     child_frame_internal_commit_count: int
+    child_frame_about_blank_commit_count: int
+    child_frame_browser_error_commit_count: int
+    child_frame_replacement_commit_count: int
     child_frame_completion_count: int
+    child_frame_authorized_completion_count: int
+    child_frame_unauthorized_completion_count: int
+    child_frame_internal_completion_count: int
+    child_frame_about_blank_completion_count: int
+    child_frame_browser_error_completion_count: int
+    child_frame_replacement_completion_count: int
+    child_frame_commit_kinds: tuple[ChildFrameDocumentKind, ...]
+    child_frame_completion_kinds: tuple[ChildFrameDocumentKind, ...]
+    child_frame_commit_overflow_count: int
+    child_frame_completion_overflow_count: int
     child_frame_detach_count: int
     redirect_attempt_count: int
     redirect_allowed_count: int
@@ -421,6 +444,9 @@ class DynamicBrowserSession(Protocol):
 
     def text_content(self, selector: str) -> str | None:
         """Read one selected DOM text value."""
+
+    def close_page(self) -> None:
+        """Close the owned primary page once through managed lifecycle cleanup."""
 
 
 class DynamicBrowser(Protocol):
@@ -781,13 +807,26 @@ class _AuditRecorder:
         self.child_frame_authorized_commit_count = 0
         self.child_frame_unauthorized_commit_count = 0
         self.child_frame_internal_commit_count = 0
+        self.child_frame_about_blank_commit_count = 0
+        self.child_frame_browser_error_commit_count = 0
+        self.child_frame_replacement_commit_count = 0
         self.child_frame_completion_count = 0
+        self.child_frame_authorized_completion_count = 0
+        self.child_frame_unauthorized_completion_count = 0
+        self.child_frame_internal_completion_count = 0
+        self.child_frame_about_blank_completion_count = 0
+        self.child_frame_browser_error_completion_count = 0
+        self.child_frame_replacement_completion_count = 0
+        self.child_frame_commit_overflow_count = 0
+        self.child_frame_completion_overflow_count = 0
         self.child_frame_detach_count = 0
         self.redirect_attempt_count = 0
         self.redirect_allowed_count = 0
         self.redirect_block_count = 0
         self.request_decision_overflow_count = 0
         self._events: list[BrowserAuditEvent] = []
+        self._child_frame_commit_kinds: list[ChildFrameDocumentKind] = []
+        self._child_frame_completion_kinds: list[ChildFrameDocumentKind] = []
 
     def record_http(
         self,
@@ -835,23 +874,57 @@ class _AuditRecorder:
         with self._lock:
             self.child_frame_attach_attempt_count += 1
 
-    def record_child_frame_commit(self, classification: str) -> None:
+    def record_child_frame_commit(
+        self,
+        classification: ChildFrameDocumentKind,
+    ) -> None:
         with self._lock:
+            classification = ChildFrameDocumentKind(classification)
             self.child_frame_commit_count += 1
-            if classification == "authorized":
+            if classification == ChildFrameDocumentKind.AUTHORIZED:
                 self.child_frame_authorized_commit_count += 1
-            elif classification == "unauthorized":
+            elif classification == ChildFrameDocumentKind.UNAUTHORIZED:
                 self.child_frame_unauthorized_commit_count += 1
             else:
                 self.child_frame_internal_commit_count += 1
+                if classification == ChildFrameDocumentKind.ABOUT_BLANK:
+                    self.child_frame_about_blank_commit_count += 1
+                elif classification == ChildFrameDocumentKind.BROWSER_ERROR:
+                    self.child_frame_browser_error_commit_count += 1
+                else:
+                    self.child_frame_replacement_commit_count += 1
+            if len(self._child_frame_commit_kinds) < self._event_limit:
+                self._child_frame_commit_kinds.append(classification)
+            else:
+                self.child_frame_commit_overflow_count += 1
 
     def record_child_frame_detach(self) -> None:
         with self._lock:
             self.child_frame_detach_count += 1
 
-    def record_child_frame_completion(self) -> None:
+    def record_child_frame_completion(
+        self,
+        classification: ChildFrameDocumentKind,
+    ) -> None:
         with self._lock:
+            classification = ChildFrameDocumentKind(classification)
             self.child_frame_completion_count += 1
+            if classification == ChildFrameDocumentKind.AUTHORIZED:
+                self.child_frame_authorized_completion_count += 1
+            elif classification == ChildFrameDocumentKind.UNAUTHORIZED:
+                self.child_frame_unauthorized_completion_count += 1
+            else:
+                self.child_frame_internal_completion_count += 1
+                if classification == ChildFrameDocumentKind.ABOUT_BLANK:
+                    self.child_frame_about_blank_completion_count += 1
+                elif classification == ChildFrameDocumentKind.BROWSER_ERROR:
+                    self.child_frame_browser_error_completion_count += 1
+                else:
+                    self.child_frame_replacement_completion_count += 1
+            if len(self._child_frame_completion_kinds) < self._event_limit:
+                self._child_frame_completion_kinds.append(classification)
+            else:
+                self.child_frame_completion_overflow_count += 1
 
     def record_websocket(
         self,
@@ -923,7 +996,44 @@ class _AuditRecorder:
                 child_frame_internal_commit_count=(
                     self.child_frame_internal_commit_count
                 ),
+                child_frame_about_blank_commit_count=(
+                    self.child_frame_about_blank_commit_count
+                ),
+                child_frame_browser_error_commit_count=(
+                    self.child_frame_browser_error_commit_count
+                ),
+                child_frame_replacement_commit_count=(
+                    self.child_frame_replacement_commit_count
+                ),
                 child_frame_completion_count=self.child_frame_completion_count,
+                child_frame_authorized_completion_count=(
+                    self.child_frame_authorized_completion_count
+                ),
+                child_frame_unauthorized_completion_count=(
+                    self.child_frame_unauthorized_completion_count
+                ),
+                child_frame_internal_completion_count=(
+                    self.child_frame_internal_completion_count
+                ),
+                child_frame_about_blank_completion_count=(
+                    self.child_frame_about_blank_completion_count
+                ),
+                child_frame_browser_error_completion_count=(
+                    self.child_frame_browser_error_completion_count
+                ),
+                child_frame_replacement_completion_count=(
+                    self.child_frame_replacement_completion_count
+                ),
+                child_frame_commit_kinds=tuple(self._child_frame_commit_kinds),
+                child_frame_completion_kinds=tuple(
+                    self._child_frame_completion_kinds
+                ),
+                child_frame_commit_overflow_count=(
+                    self.child_frame_commit_overflow_count
+                ),
+                child_frame_completion_overflow_count=(
+                    self.child_frame_completion_overflow_count
+                ),
                 child_frame_detach_count=self.child_frame_detach_count,
                 redirect_attempt_count=self.redirect_attempt_count,
                 redirect_allowed_count=self.redirect_allowed_count,
@@ -1320,7 +1430,12 @@ class _PageLifecycleObserver:
         except Exception:  # noqa: BLE001 - ambiguous requests are not classified.
             return
         if _is_child_frame(frame):
-            self.audit.record_child_frame_completion()
+            self.audit.record_child_frame_completion(
+                _classify_child_frame_commit(
+                    _safe_provider_text(frame, "url"),
+                    self.authority,
+                )
+            )
 
 
 def _is_child_frame(frame: Any) -> bool:
@@ -1336,12 +1451,17 @@ def _is_child_frame(frame: Any) -> bool:
 def _classify_child_frame_commit(
     url: str,
     authority: DynamicRequestAuthority,
-) -> str:
-    if _safe_scheme(url) not in _HTTP_SCHEMES:
-        return "internal"
+) -> ChildFrameDocumentKind:
+    if url == "about:blank":
+        return ChildFrameDocumentKind.ABOUT_BLANK
+    scheme = _safe_scheme(url)
+    if scheme in {"chrome-error", "edge-error"}:
+        return ChildFrameDocumentKind.BROWSER_ERROR
+    if scheme not in _HTTP_SCHEMES:
+        return ChildFrameDocumentKind.REPLACEMENT
     if authority.allows_navigation(url):
-        return "authorized"
-    return "unauthorized"
+        return ChildFrameDocumentKind.AUTHORIZED
+    return ChildFrameDocumentKind.UNAUTHORIZED
 
 
 @dataclass(slots=True)
@@ -1469,12 +1589,14 @@ class _PlaywrightDynamicSession:
         policy: DynamicBrowserPolicy,
         provider_timeout_error: type[Exception],
         guard: _RouteGuard,
+        close_page: Callable[[], tuple[str, ...]],
     ) -> None:
         self._page = page
         self._authority = authority
         self._policy = policy
         self._provider_timeout_error = provider_timeout_error
         self._guard = guard
+        self._close_page = close_page
 
     def navigate(self, url: str | None = None) -> str:
         self._guard.raise_if_failed()
@@ -1551,6 +1673,16 @@ class _PlaywrightDynamicSession:
                 "Bounded browser operation failed.",
             ) from None
         return value if value is None or type(value) is str else str(value)
+
+    def close_page(self) -> None:
+        self._guard.raise_if_failed()
+        cleanup_error_codes = self._close_page()
+        if cleanup_error_codes:
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.CLEANUP_FAILED,
+                "Managed primary page cleanup did not complete.",
+                cleanup_error_codes=cleanup_error_codes,
+            )
 
 
 class PlaywrightDynamicBrowser:
@@ -1686,6 +1818,7 @@ class PlaywrightDynamicBrowser:
                     policy=active_policy,
                     provider_timeout_error=provider_timeout_error,
                     guard=guard,
+                    close_page=resources.close_page,
                 )
                 try:
                     value = operation(session)

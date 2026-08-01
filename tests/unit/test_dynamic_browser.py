@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import vulnspider.discovery.dynamic_browser as dynamic_browser_module
 from vulnspider.discovery import (
+    ChildFrameDocumentKind,
     DynamicBrowserCapability,
     DynamicBrowserError,
     DynamicBrowserErrorCode,
@@ -867,6 +868,56 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
         self.assertEqual(summary.websocket_connected_count, 0)
         self.assertEqual(summary.request_decision_overflow_count, 1)
 
+    def test_child_frame_lifecycle_classification_is_bounded_and_subtyped(
+        self,
+    ) -> None:
+        authority = DynamicRequestAuthority("http://127.0.0.1/")
+        cases = (
+            ("http://127.0.0.1/", ChildFrameDocumentKind.AUTHORIZED),
+            ("http://127.0.0.1/blocked", ChildFrameDocumentKind.UNAUTHORIZED),
+            ("about:blank", ChildFrameDocumentKind.ABOUT_BLANK),
+            (
+                "chrome-error://chromewebdata/",
+                ChildFrameDocumentKind.BROWSER_ERROR,
+            ),
+            ("about:srcdoc", ChildFrameDocumentKind.REPLACEMENT),
+        )
+        audit = dynamic_browser_module._AuditRecorder(event_limit=2)
+
+        for url, expected in cases:
+            classification = dynamic_browser_module._classify_child_frame_commit(
+                url,
+                authority,
+            )
+            self.assertEqual(classification, expected)
+            audit.record_child_frame_commit(classification)
+            audit.record_child_frame_completion(classification)
+
+        summary = audit.snapshot(())
+        self.assertEqual(summary.child_frame_commit_count, 5)
+        self.assertEqual(summary.child_frame_completion_count, 5)
+        self.assertEqual(summary.child_frame_authorized_commit_count, 1)
+        self.assertEqual(summary.child_frame_unauthorized_commit_count, 1)
+        self.assertEqual(summary.child_frame_internal_commit_count, 3)
+        self.assertEqual(summary.child_frame_about_blank_commit_count, 1)
+        self.assertEqual(summary.child_frame_browser_error_commit_count, 1)
+        self.assertEqual(summary.child_frame_replacement_commit_count, 1)
+        self.assertEqual(summary.child_frame_authorized_completion_count, 1)
+        self.assertEqual(summary.child_frame_unauthorized_completion_count, 1)
+        self.assertEqual(summary.child_frame_internal_completion_count, 3)
+        self.assertEqual(summary.child_frame_about_blank_completion_count, 1)
+        self.assertEqual(summary.child_frame_browser_error_completion_count, 1)
+        self.assertEqual(summary.child_frame_replacement_completion_count, 1)
+        self.assertEqual(
+            summary.child_frame_commit_kinds,
+            (
+                ChildFrameDocumentKind.AUTHORIZED,
+                ChildFrameDocumentKind.UNAUTHORIZED,
+            ),
+        )
+        self.assertEqual(summary.child_frame_commit_overflow_count, 3)
+        self.assertEqual(summary.child_frame_completion_overflow_count, 3)
+
     def test_http_redirect_hops_are_authorized_before_transport(self) -> None:
         class Response:
             def __init__(
@@ -1153,6 +1204,25 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
         self.assertEqual(provider.events.count("context_close"), 1)
         self.assertEqual(provider.events.count("browser_close"), 1)
         self.assertEqual(provider.events.count("playwright_stop"), 1)
+
+    def test_session_page_close_uses_managed_idempotent_cleanup(self) -> None:
+        provider = managed_provider()
+
+        def operation(session):
+            session.close_page()
+            session.close_page()
+            return "closed"
+
+        result = self.run_with_provider(provider, operation)
+
+        self.assertEqual(result.value, "closed")
+        self.assertEqual(provider.events.count("page_close"), 1)
+        self.assertEqual(provider.events.count("context_close"), 1)
+        self.assertEqual(provider.events.count("browser_close"), 1)
+        self.assertEqual(provider.events.count("playwright_stop"), 1)
+        self.assertEqual(result.audit.pages_created, 1)
+        self.assertEqual(result.audit.pages_closed, 1)
+        self.assertTrue(result.audit.cleanup_complete)
 
     def test_limited_session_navigation_and_dom_read_methods(self) -> None:
         provider = managed_provider()
