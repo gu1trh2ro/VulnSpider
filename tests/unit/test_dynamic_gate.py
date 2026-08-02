@@ -62,6 +62,29 @@ class DynamicGateManifestTests(unittest.TestCase):
         self.assertEqual(len({case.test_id for case in cases}), 6)
         self.assertTrue(all(case.required for case in cases))
 
+    def test_bounded_navigation_manifest_is_explicit_unique_and_linked(self) -> None:
+        cases = gate.BOUNDED_NAVIGATION_CASES
+
+        gate.validate_manifest(cases)
+        suite, missing = gate.load_manifest_suite(cases)
+
+        self.assertEqual(
+            [case.case_id for case in cases],
+            [
+                "navigation-basic",
+                "navigation-dedup-cycle",
+                "navigation-authority-block",
+                "navigation-budget",
+                "navigation-failure-isolation",
+                "navigation-sensitive-elision",
+                "navigation-deterministic",
+            ],
+        )
+        self.assertEqual(missing, ())
+        self.assertEqual(suite.countTestCases(), 7)
+        self.assertEqual(len({case.test_id for case in cases}), 7)
+        self.assertTrue(all(case.required for case in cases))
+
     def test_missing_or_renamed_test_link_is_rejected(self) -> None:
         missing_case = gate.BrowserManifestCase(
             case_id="missing-test",

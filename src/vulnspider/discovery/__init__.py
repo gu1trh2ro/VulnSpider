@@ -42,6 +42,16 @@ from vulnspider.discovery.dynamic_browser import (
     PlaywrightDynamicBrowser,
     preflight_dynamic_browser,
 )
+from vulnspider.discovery.dynamic_crawler import (
+    DYNAMIC_CRAWLER_VERSION,
+    DynamicCrawler,
+    DynamicCrawlerError,
+    DynamicCrawlCompletion,
+    DynamicCrawlPolicy,
+    DynamicCrawlResult,
+    DynamicCrawlTerminationReason,
+    DynamicPageResult,
+)
 from vulnspider.discovery.html_extractor import (
     NavigableLink,
     SensitiveFormElisionPolicy,
@@ -78,6 +88,7 @@ from vulnspider.discovery.static_crawler import (
     StaticCrawlResult,
     UrlLibStaticCrawlerTransport,
     canonicalize_crawl_url,
+    same_origin_crawl_url,
 )
 
 __all__ = [
@@ -104,6 +115,14 @@ __all__ = [
     "DynamicBrowserPolicy",
     "DynamicBrowserRunResult",
     "DynamicBrowserSession",
+    "DYNAMIC_CRAWLER_VERSION",
+    "DynamicCrawler",
+    "DynamicCrawlerError",
+    "DynamicCrawlCompletion",
+    "DynamicCrawlPolicy",
+    "DynamicCrawlResult",
+    "DynamicCrawlTerminationReason",
+    "DynamicPageResult",
     "DynamicCapabilityCode",
     "DynamicCapabilityError",
     "DynamicIntegrityError",
@@ -146,4 +165,5 @@ __all__ = [
     "merge_discovery_results",
     "preflight_dynamic_browser",
     "scope_id_for_root",
+    "same_origin_crawl_url",
 ]

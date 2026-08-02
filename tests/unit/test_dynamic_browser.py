@@ -999,7 +999,36 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
         self.assertEqual(allowed_summary.redirect_attempt_count, 1)
         self.assertEqual(allowed_summary.redirect_allowed_count, 1)
         self.assertEqual(allowed_summary.redirect_block_count, 0)
+        self.assertEqual(allowed_summary.redirect_followed_count, 1)
         guard.raise_if_failed()
+
+        budget_audit = dynamic_browser_module._AuditRecorder(event_limit=10)
+        budget_guard = dynamic_browser_module._RouteGuard(
+            DynamicRequestAuthority(root_url, navigation_urls=(target_url,)),
+            DynamicBrowserPolicy(
+                request_decision_budget=10,
+                navigation_request_budget=1,
+            ),
+            budget_audit,
+            lambda: None,
+        )
+        budget_guard.set_primary_page(page)
+        budget_root_route = Route([Response(302, "/target")])
+        budget_guard.handle_http(budget_root_route, request)
+        budget_target_route = Route([Response(200)])
+        budget_guard.handle_http(
+            budget_target_route,
+            SimpleNamespace(
+                url=target_url,
+                resource_type="document",
+                method="GET",
+                frame=SimpleNamespace(page=page, parent_frame=None),
+            ),
+        )
+        budget_summary = budget_audit.snapshot(())
+        self.assertEqual(budget_target_route.fetch_urls, [])
+        self.assertEqual(budget_summary.redirect_allowed_count, 1)
+        self.assertEqual(budget_summary.redirect_followed_count, 0)
 
         blocked_audit = dynamic_browser_module._AuditRecorder(event_limit=10)
         blocked_guard = dynamic_browser_module._RouteGuard(
@@ -1022,6 +1051,7 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
         self.assertEqual(blocked_summary.redirect_attempt_count, 1)
         self.assertEqual(blocked_summary.redirect_allowed_count, 0)
         self.assertEqual(blocked_summary.redirect_block_count, 1)
+        self.assertEqual(blocked_summary.redirect_followed_count, 0)
         with self.assertRaises(DynamicBrowserError) as raised:
             blocked_guard.raise_if_failed()
         self.assertEqual(
@@ -1047,6 +1077,43 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
             cleanup_raised.exception.code,
             DynamicBrowserErrorCode.HTTP_RESPONSE_DISPOSE_FAILED,
         )
+
+        script_url = "http://127.0.0.1/app.js"
+        script_target_url = "http://127.0.0.1/app-v2.js"
+        script_audit = dynamic_browser_module._AuditRecorder(event_limit=10)
+        script_guard = dynamic_browser_module._RouteGuard(
+            DynamicRequestAuthority(
+                root_url,
+                resource_grants=(
+                    DynamicResourceGrant(DynamicResourceKind.SCRIPT, script_url),
+                    DynamicResourceGrant(
+                        DynamicResourceKind.SCRIPT,
+                        script_target_url,
+                    ),
+                ),
+            ),
+            DynamicBrowserPolicy(request_decision_budget=10),
+            script_audit,
+            lambda: None,
+        )
+        script_guard.set_primary_page(page)
+        script_route = Route(
+            [Response(302, "/app-v2.js"), Response(200)]
+        )
+        script_guard.handle_http(
+            script_route,
+            SimpleNamespace(
+                url=script_url,
+                resource_type="script",
+                method="GET",
+                frame=SimpleNamespace(page=page, parent_frame=None),
+            ),
+        )
+        script_summary = script_audit.snapshot(())
+        self.assertEqual(script_route.fetch_urls, [script_url, script_target_url])
+        self.assertEqual(script_summary.redirect_allowed_count, 1)
+        self.assertEqual(script_summary.redirect_followed_count, 0)
+        self.assertEqual(script_summary.main_frame_navigation_allowed_count, 0)
 
     def test_preflight_failure_starts_no_provider_resource(self) -> None:
         provider = managed_provider()

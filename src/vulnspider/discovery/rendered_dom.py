@@ -540,6 +540,11 @@ def snapshot_from_browser_payload(
 def extract_rendered_dom(
     snapshot: RenderedDomSnapshot,
     authority: RenderedRequestAuthority,
+    *,
+    discovery_metadata: DiscoveryMetadata | None = None,
+    scope_metadata: ScopeMetadata | None = None,
+    parent_url: str | None = None,
+    depth: int = 0,
 ) -> RenderedDomExtractionResult:
     """Convert one sanitized snapshot into a Native Dynamic component."""
 
@@ -559,23 +564,37 @@ def extract_rendered_dom(
             "Rendered DOM source page is not caller-authorized.",
         )
 
-    metadata = DiscoveryMetadata(
-        collector_kind=CollectorKind.NATIVE_DYNAMIC,
-        collector_version=RENDERED_DOM_VERSION,
-        configuration_fingerprint=stable_fingerprint(
-            "native-rendered-dom-policy",
-            RENDERED_DOM_VERSION,
-            snapshot.capture_policy_fingerprint,
-        ),
-    )
-    scope = ScopeMetadata(
-        target_scope_id=scope_id_for_root(
-            root_url,
-            policy_version=SCOPE_POLICY_VERSION,
-        ),
-        root_url=root_url,
-        scope_policy_version=SCOPE_POLICY_VERSION,
-    )
+    if discovery_metadata is None:
+        metadata = DiscoveryMetadata(
+            collector_kind=CollectorKind.NATIVE_DYNAMIC,
+            collector_version=RENDERED_DOM_VERSION,
+            configuration_fingerprint=stable_fingerprint(
+                "native-rendered-dom-policy",
+                RENDERED_DOM_VERSION,
+                snapshot.capture_policy_fingerprint,
+            ),
+        )
+    else:
+        if type(discovery_metadata) is not DiscoveryMetadata:
+            raise TypeError("discovery_metadata must be DiscoveryMetadata")
+        if discovery_metadata.collector_kind != CollectorKind.NATIVE_DYNAMIC:
+            raise ValueError("rendered DOM metadata must be Native Dynamic")
+        metadata = discovery_metadata
+    if scope_metadata is None:
+        scope = ScopeMetadata(
+            target_scope_id=scope_id_for_root(
+                root_url,
+                policy_version=SCOPE_POLICY_VERSION,
+            ),
+            root_url=root_url,
+            scope_policy_version=SCOPE_POLICY_VERSION,
+        )
+    else:
+        if type(scope_metadata) is not ScopeMetadata:
+            raise TypeError("scope_metadata must be ScopeMetadata")
+        if scope_metadata.root_url != root_url:
+            raise ValueError("rendered DOM scope root must match request authority")
+        scope = scope_metadata
     extracted = extract_static_html(
         snapshot.sanitized_html,
         snapshot.page_url,
@@ -583,6 +602,8 @@ def extract_rendered_dom(
         scope_metadata=scope,
         sensitive_form_policy=SensitiveFormElisionPolicy(),
         request_authorizer=allows_navigation,
+        parent_url=parent_url,
+        depth=depth,
         safety_invariants=(
             DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION,
         ),
@@ -602,6 +623,10 @@ def extract_rendered_dom(
             details={
                 "form_occurrence_index": occurrence,
                 "producer_kind": CollectorKind.NATIVE_DYNAMIC.value,
+                "source_page_fingerprint": stable_fingerprint(
+                    "rendered-source-page",
+                    snapshot.page_url,
+                )[:16],
             },
         )
         for occurrence in snapshot.sensitive_form_occurrences

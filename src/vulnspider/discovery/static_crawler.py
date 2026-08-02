@@ -596,7 +596,7 @@ class StaticCrawler:
                     },
                 )
                 return None
-            if not _same_origin(state.root_url, destination):
+            if not same_origin_crawl_url(state.root_url, destination):
                 state.warn(
                     "OFF_SCOPE_REDIRECT",
                     "cross-origin redirect was blocked before transport",
@@ -742,7 +742,7 @@ class StaticCrawler:
                     {"link_id": link.id},
                 )
                 continue
-            if not _same_origin(state.root_url, candidate):
+            if not same_origin_crawl_url(state.root_url, candidate):
                 state.warn(
                     "OFF_SCOPE_LINK",
                     "cross-origin link was blocked before queueing",
@@ -869,8 +869,12 @@ def _origin(url: str) -> tuple[str, str, int]:
     return scheme, hostname, port
 
 
-def _same_origin(root_url: str, candidate_url: str) -> bool:
-    return _origin(root_url) == _origin(candidate_url)
+def same_origin_crawl_url(root_url: str, candidate_url: str) -> bool:
+    """Return exact scheme/host/effective-port origin equality for crawl URLs."""
+
+    canonical_root = canonicalize_crawl_url(root_url)
+    canonical_candidate = canonicalize_crawl_url(candidate_url)
+    return _origin(canonical_root) == _origin(canonical_candidate)
 
 
 def _url_fingerprint(url: str) -> str:

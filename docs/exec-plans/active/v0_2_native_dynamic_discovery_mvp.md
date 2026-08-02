@@ -2724,7 +2724,7 @@ dumps.
 - [ ] Milestone 1 implemented and focused narrow tests passed.
 - [x] Milestone 2 implemented and focused narrow tests passed.
 - [x] Milestone 3 implemented and focused narrow tests passed.
-- [ ] Milestone 4 implemented and focused narrow tests passed.
+- [x] Milestone 4 implemented and focused narrow tests passed.
 - [ ] Milestone 5 implemented and focused narrow tests passed.
 - [ ] Milestone 6 implemented and focused narrow tests passed.
 - [ ] Milestone 7 implemented and focused narrow tests passed.
@@ -2763,10 +2763,10 @@ dumps.
   finding.
 - [ ] Aggregate statistics satisfy every Section 10 rule.
 - [x] Strict Dynamic gate executed real Chromium with zero required skips.
-- [ ] Milestone 4 strict `browser-loopback` manifest retained every mandatory
-  Milestone 2/4 WebSocket, EventSource, iframe, redirect, popup, location,
-  unsafe-GET, fetch/XHR, and autosubmit case; expected/executed counts matched
-  above zero and skipped count was zero.
+- [x] Milestone 4 strict `bounded-navigation` manifest executed all seven owned
+  real-Chromium cases while the retained `browser-loopback` 15-case and
+  `rendered-dom` six-case manifests remained green; every suite matched
+  expected/executed counts with zero skipped, failed, or missing cases.
 - [ ] Capability, integrity, and degraded operational exit paths match Section
   21.
 - [x] Password/secret scan by diff review found no leaked value/artifact.
@@ -2782,13 +2782,17 @@ dumps.
 
 ### Plan record
 
-- Status: Milestones 2 and 3 are COMPLETE. The managed lifecycle, immutable
+- Status: Milestones 2, 3, and 4 are COMPLETE. The managed lifecycle, immutable
   exact request authority, shared bounded HTTP/WebSocket guards, secret-free
   audit, deterministic cleanup, loopback harness, and explicit non-skippable
   15-case `browser-loopback` manifest cover Milestone 2. The isolated-world,
   bounded rendered snapshot, pre-canonical sensitive-form elision, canonical
   Native Dynamic extraction, and explicit non-skippable six-case `rendered-dom`
-  manifest cover Milestone 3. Milestone 4 navigation remains unimplemented.
+  manifest cover Milestone 3. Deterministic rendered-anchor BFS, exact caller
+  authority, canonical deduplication, page/depth/navigation/time bounds,
+  page-owned Native Dynamic components, and the non-skippable seven-case
+  `bounded-navigation` manifest cover Milestone 4. Milestones 5 onward remain
+  pending.
 - Baseline: `origin/main` and branch base
   `7598fdee9fabd1372b1c9e5810792aed26b1c45c`.
 - 2026-07-27: Initial repository-grounded plan drafted. No runtime code, test,
@@ -2938,6 +2942,29 @@ dumps.
   adversarial Chromium cases and returned `PASS` with Critical 0, High 0,
   Medium 0, and Low 0. Milestone 3 is therefore COMPLETE; this plan stays active
   for Milestones 4 onward.
+- 2026-08-02: Implemented Milestone 4 bounded same-origin navigation. One
+  managed Chromium crawl performs deterministic canonical BFS over rendered
+  anchors, intersects every candidate and redirect with immutable exact caller
+  authority, never clicks/submits/traverses frames or popups, and emits one
+  validated Native Dynamic component per successful page plus a Dynamic-only
+  aggregate for Milestone 5. Static orchestration and Static/Dynamic merge remain
+  unimplemented.
+- 2026-08-02: Final Milestone 4 verification passed strict real-Chromium gates
+  `browser-loopback` 15/15, `rendered-dom` 6/6, and `bounded-navigation` 7/7,
+  each with skipped 0, failed 0, and missing 0. Full repository regression
+  passed 389 tests, Native Static E2E passed 1, v0.1 smoke passed 7, and format,
+  lint, type-hint, and `git diff --check` passed. The designated Python runtime
+  was restored to Playwright 1.62.0 plus matching Chromium after its optional
+  package disappeared; no alternate Python was used.
+- 2026-08-02: Independent Gate Review initially found five High issues covering
+  total lifecycle deadline enforcement, redirect-follow accounting, canonical
+  exception relabeling, public handoff topology validation, and post-transport
+  redirect deduplication. The single permitted correction loop added a
+  supervised single-worker hard deadline with exact process-tree termination,
+  actual main-frame-follow accounting, cleanup-preserved integrity exceptions,
+  topology/provenance/completion validation, and pre-target duplicate redirect
+  blocking. Re-review passed with Critical 0, High 0, Medium 0, and Low 0 and
+  independently confirmed zero worker, temporary directory, or Chromium leak.
 
 ### Gate Review Correction Record
 
@@ -2950,6 +2977,11 @@ dumps.
 | M3-RENDERED-H-01 | Classified sensitive forms from physical descendant inputs rather than form-associated controls and proved associated password controls cannot leave a surviving form artifact | 9, 14, 17; Milestone 3 | Addressed in Correction Loop 1; focused re-review passed |
 | M3-RENDERED-M-01 | Preserved exact sensitive-form occurrence indices and excluded action query values from structural stabilization keys | 9, 14, 17; Milestone 3 | Addressed in Correction Loop 1; focused re-review passed |
 | M3-RENDERED-M-02 | Re-applied caller-lowered attribute-count, attribute-length, and text-length policy limits in the host validator before accepting browser payloads | 7, 14, 17; Milestone 3 | Addressed in Correction Loop 1; focused re-review passed |
+| M4-NAV-H-01 | Propagated the crawl deadline through browser lifecycle, redirect transport, and DOM capture, then supervised the complete concrete-browser crawl in one synchronous child process with exact process-tree termination on timeout | 7, 14, 17; Milestone 4 | Addressed in Correction Loop 1; focused re-review passed |
+| M4-NAV-H-02 | Counted redirects followed only after a successful main-frame target dispatch and excluded blocked targets plus subresource redirects from canonical document statistics | 10, 14, 17; Milestone 4 | Addressed in Correction Loop 1; focused re-review passed |
+| M4-NAV-H-03 | Preserved crawler canonical and authority exceptions across the managed operation boundary and re-raised them after browser cleanup | 15, 17, 21; Milestone 4 | Addressed in Correction Loop 1; focused re-review passed |
+| M4-NAV-H-04 | Enforced visited/root/origin/order, parent-depth, page provenance, depth-budget, and completion/termination invariants in the public Dynamic handoff | 3, 10, 17; Milestone 4 | Addressed in Correction Loop 1; focused re-review passed |
+| M4-NAV-H-05 | Blocked previously dispatched redirect targets at the Location decision before target transport and added reverse-order real-Chromium evidence | 5, 14, 17; Milestone 4 | Addressed in Correction Loop 1; focused re-review passed |
 | C-01 | Separated discovery eligibility from immutable exact caller navigation/resource authority; unauthorized same-origin GET remains discovery-only and is tested with zero server counters | 1, 3–9, 13–18, 20–22; Milestones 2, 4, 6, 7 | Addressed in Correction Loop 1 |
 | H-01 | Made every context sharing a sensitive-redacted form template PARTIAL/NOT_READY and prohibited execution or sibling upgrade | 9, 10, 12–18, 22; Milestones 1, 3, 5, 6 | Addressed in Correction Loop 1 |
 | H-02 | Defined every existing `CrawlStatistics` field, aggregate arithmetic, component validation, partial behavior, and adversarial tests | 10, 14–18, 21–22; Milestones 1, 5, 7 | Addressed in Correction Loop 1 |
@@ -3075,8 +3107,9 @@ dumps.
   proposed strict Mode B fails on unavailable capability or any required skip.
   Reason: optional runtime must not break base regression or create a false
   Dynamic pass.
-- Decision: Milestone 4 must update its owned explicit `browser-loopback`
-  manifest entries and pass the actual strict gate before commit; Milestone 7
+- Decision: Milestone 4 owns a separate explicit seven-case
+  `bounded-navigation` manifest and must pass it together with the retained
+  `browser-loopback` and `rendered-dom` strict gates before commit; Milestone 7
   cannot defer that evidence.
   Reason: browser navigation and request-safety changes require non-skippable
   real-Chromium proof at their owning milestone.

@@ -7,10 +7,12 @@ from enum import StrEnum
 from ipaddress import ip_address
 from importlib import metadata
 import json
+from math import isfinite
 import os
 from pathlib import Path
 import re
 from threading import Lock
+from time import monotonic
 from typing import Any, Callable, Generic, Protocol, TypeVar
 from urllib.parse import parse_qsl, urljoin, urlsplit, urlunsplit
 
@@ -102,6 +104,9 @@ class DynamicNetworkReason(StrEnum):
     AUTHORIZED_NAVIGATION = "AUTHORIZED_NAVIGATION"
     AUTHORIZED_RESOURCE = "AUTHORIZED_RESOURCE"
     REQUEST_DECISION_BUDGET_EXHAUSTED = "REQUEST_DECISION_BUDGET_EXHAUSTED"
+    NAVIGATION_BUDGET_EXHAUSTED = "NAVIGATION_BUDGET_EXHAUSTED"
+    REDIRECT_BUDGET_EXHAUSTED = "REDIRECT_BUDGET_EXHAUSTED"
+    REDIRECT_DUPLICATE = "REDIRECT_DUPLICATE"
     INVALID_URL = "INVALID_URL"
     UNSUPPORTED_SCHEME = "UNSUPPORTED_SCHEME"
     NON_GET_METHOD = "NON_GET_METHOD"
@@ -137,6 +142,9 @@ class DynamicBrowserErrorCode(StrEnum):
     PAGE_OBSERVER_INSTALL_FAILED = "PAGE_OBSERVER_INSTALL_FAILED"
     POPUP_OBSERVER_INSTALL_FAILED = "POPUP_OBSERVER_INSTALL_FAILED"
     REQUEST_DECISION_BUDGET_EXHAUSTED = "REQUEST_DECISION_BUDGET_EXHAUSTED"
+    NAVIGATION_BUDGET_EXHAUSTED = "NAVIGATION_BUDGET_EXHAUSTED"
+    REDIRECT_BUDGET_EXHAUSTED = "REDIRECT_BUDGET_EXHAUSTED"
+    REDIRECT_DUPLICATE = "REDIRECT_DUPLICATE"
     NAVIGATION_NOT_AUTHORIZED = "NAVIGATION_NOT_AUTHORIZED"
     NAVIGATION_FAILED = "NAVIGATION_FAILED"
     NAVIGATION_TIMEOUT = "NAVIGATION_TIMEOUT"
@@ -205,6 +213,8 @@ class BrowserAuditSummary:
     popup_attempt_count: int
     http_allowed_count: int
     http_blocked_count: int
+    main_frame_navigation_allowed_count: int
+    main_frame_navigation_blocked_count: int
     eventsource_attempt_count: int
     eventsource_blocked_count: int
     eventsource_allowed_count: int
@@ -236,6 +246,7 @@ class BrowserAuditSummary:
     redirect_attempt_count: int
     redirect_allowed_count: int
     redirect_block_count: int
+    redirect_followed_count: int
     request_decision_overflow_count: int
     cleanup_error_codes: tuple[str, ...]
     cleanup_complete: bool
@@ -265,6 +276,9 @@ class DynamicBrowserPolicy:
 
     navigation_timeout_seconds: float = _DEFAULT_NAVIGATION_TIMEOUT_SECONDS
     request_decision_budget: int = _DEFAULT_REQUEST_DECISION_BUDGET
+    navigation_request_budget: int = 8
+    max_redirects_per_navigation: int = 3
+    deadline_monotonic: float | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -276,19 +290,38 @@ class DynamicBrowserPolicy:
                 DynamicBrowserErrorCode.INVALID_AUTHORITY,
                 "Navigation timeout must be a positive number.",
             )
-        if (
-            type(self.request_decision_budget) is not int
-            or self.request_decision_budget <= 0
+        for name in (
+            "request_decision_budget",
+            "navigation_request_budget",
+            "max_redirects_per_navigation",
         ):
-            raise DynamicBrowserError(
-                DynamicBrowserErrorCode.INVALID_AUTHORITY,
-                "Request decision budget must be a positive integer.",
-            )
+            value = getattr(self, name)
+            if type(value) is not int or value <= 0:
+                raise DynamicBrowserError(
+                    DynamicBrowserErrorCode.INVALID_AUTHORITY,
+                    f"{name} must be a positive integer.",
+                )
         object.__setattr__(
             self,
             "navigation_timeout_seconds",
             float(self.navigation_timeout_seconds),
         )
+        if self.deadline_monotonic is not None:
+            if (
+                type(self.deadline_monotonic) not in {int, float}
+                or isinstance(self.deadline_monotonic, bool)
+                or not isfinite(self.deadline_monotonic)
+                or self.deadline_monotonic <= 0
+            ):
+                raise DynamicBrowserError(
+                    DynamicBrowserErrorCode.INVALID_AUTHORITY,
+                    "Browser deadline must be finite and positive.",
+                )
+            object.__setattr__(
+                self,
+                "deadline_monotonic",
+                float(self.deadline_monotonic),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -448,8 +481,16 @@ class DynamicRequestAuthority:
 class DynamicBrowserSession(Protocol):
     """Limited caller seam over one guarded primary page."""
 
-    def navigate(self, url: str | None = None) -> str:
+    def navigate(
+        self,
+        url: str | None = None,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> str:
         """Navigate only to an exact caller-authorized URL."""
+
+    def navigation_status_code(self) -> int | None:
+        """Return the last direct navigation HTTP status when available."""
 
     def wait_for_selector(self, selector: str) -> None:
         """Wait within the configured operation timeout."""
@@ -460,6 +501,8 @@ class DynamicBrowserSession(Protocol):
     def capture_rendered_dom(
         self,
         policy: RenderedDomPolicy | None = None,
+        *,
+        timeout_seconds: float | None = None,
     ) -> RenderedDomSnapshot:
         """Capture one bounded, sensitive-form-free main-frame snapshot."""
 
@@ -521,9 +564,15 @@ def _error(
     )
 
 
-def preflight_dynamic_browser() -> DynamicBrowserCapability:
+def preflight_dynamic_browser(
+    *,
+    timeout_seconds: float | None = None,
+) -> DynamicBrowserCapability:
     """Verify the optional Playwright package, WebSocket guard, and Chromium."""
 
+    deadline = (
+        None if timeout_seconds is None else monotonic() + float(timeout_seconds)
+    )
     package_hint = "Install the optional runtime with: pip install -e .[dynamic]"
     browser_hint = "Install the matching browser with: playwright install chromium"
     try:
@@ -599,7 +648,12 @@ def preflight_dynamic_browser() -> DynamicBrowserCapability:
                 )
         if failure is None:
             try:
-                browser = chromium.launch(**_browser_launch_options())
+                remaining = None if deadline is None else deadline - monotonic()
+                if remaining is not None and remaining <= 0:
+                    raise TimeoutError
+                browser = chromium.launch(
+                    **_browser_launch_options(timeout_seconds=remaining)
+                )
             except Exception:  # noqa: BLE001 - provider diagnostics stay private.
                 failure = _error(
                     DynamicCapabilityCode.CHROMIUM_LAUNCH_FAILED,
@@ -659,10 +713,30 @@ def _load_managed_playwright_sync_api() -> tuple[Callable[[], Any], type[Excepti
     return sync_playwright, PlaywrightTimeoutError
 
 
-def _browser_launch_options() -> dict[str, Any]:
+def _browser_launch_options(
+    *,
+    timeout_seconds: float | None = None,
+) -> dict[str, Any]:
     browser_environment = dict(os.environ)
     browser_environment["CHROME_LOG_FILE"] = os.devnull
-    return {"headless": True, "env": browser_environment}
+    options: dict[str, Any] = {"headless": True, "env": browser_environment}
+    if timeout_seconds is not None:
+        options["timeout"] = max(1.0, timeout_seconds * 1000.0)
+    return options
+
+
+def _remaining_deadline_seconds(
+    policy: DynamicBrowserPolicy,
+) -> float | None:
+    deadline = policy.deadline_monotonic
+    if deadline is None:
+        return None
+    return max(0.0, deadline - monotonic())
+
+
+def _deadline_expired(policy: DynamicBrowserPolicy) -> bool:
+    remaining = _remaining_deadline_seconds(policy)
+    return remaining is not None and remaining <= 0
 
 
 def _canonical_authority_url(url: str) -> str:
@@ -812,6 +886,8 @@ class _AuditRecorder:
         self.popup_attempt_count = 0
         self.http_allowed_count = 0
         self.http_blocked_count = 0
+        self.main_frame_navigation_allowed_count = 0
+        self.main_frame_navigation_blocked_count = 0
         self.eventsource_attempt_count = 0
         self.eventsource_blocked_count = 0
         self.eventsource_allowed_count = 0
@@ -841,6 +917,7 @@ class _AuditRecorder:
         self.redirect_attempt_count = 0
         self.redirect_allowed_count = 0
         self.redirect_block_count = 0
+        self.redirect_followed_count = 0
         self.request_decision_overflow_count = 0
         self._events: list[BrowserAuditEvent] = []
         self._child_frame_commit_kinds: list[ChildFrameDocumentKind] = []
@@ -887,6 +964,20 @@ class _AuditRecorder:
     def record_popup(self) -> None:
         with self._lock:
             self.popup_attempt_count += 1
+
+    def record_main_frame_navigation(
+        self,
+        decision: DynamicNetworkDecision,
+    ) -> None:
+        with self._lock:
+            if decision.decision == DynamicNetworkDecisionKind.ALLOW:
+                self.main_frame_navigation_allowed_count += 1
+            else:
+                self.main_frame_navigation_blocked_count += 1
+
+    def record_redirect_followed(self) -> None:
+        with self._lock:
+            self.redirect_followed_count += 1
 
     def record_child_frame_attach(self) -> None:
         with self._lock:
@@ -989,6 +1080,12 @@ class _AuditRecorder:
                 popup_attempt_count=self.popup_attempt_count,
                 http_allowed_count=self.http_allowed_count,
                 http_blocked_count=self.http_blocked_count,
+                main_frame_navigation_allowed_count=(
+                    self.main_frame_navigation_allowed_count
+                ),
+                main_frame_navigation_blocked_count=(
+                    self.main_frame_navigation_blocked_count
+                ),
                 eventsource_attempt_count=self.eventsource_attempt_count,
                 eventsource_blocked_count=self.eventsource_blocked_count,
                 eventsource_allowed_count=self.eventsource_allowed_count,
@@ -1056,6 +1153,7 @@ class _AuditRecorder:
                 redirect_attempt_count=self.redirect_attempt_count,
                 redirect_allowed_count=self.redirect_allowed_count,
                 redirect_block_count=self.redirect_block_count,
+                redirect_followed_count=self.redirect_followed_count,
                 request_decision_overflow_count=(
                     self.request_decision_overflow_count
                 ),
@@ -1083,10 +1181,22 @@ class _RouteGuard:
         self.decision_count = 0
         self._decision_lock = Lock()
         self._budget_exhausted = False
+        self._navigation_budget_exhausted = False
+        self._navigation_request_count = 0
+        self._redirect_count = 0
+        self._dispatched_main_frame_urls: set[str] = set()
+        self._pending_redirect_target: str | None = None
+        self._redirect_duplicate = False
         self._request_failure: DynamicBrowserError | None = None
 
     def set_primary_page(self, page: Any) -> None:
         self.primary_page = page
+
+    def begin_navigation(self) -> None:
+        with self._decision_lock:
+            self._redirect_count = 0
+            self._pending_redirect_target = None
+            self._redirect_duplicate = False
 
     def handle_http(self, route: Any, request: Any) -> None:
         url = _safe_provider_text(request, "url")
@@ -1114,6 +1224,28 @@ class _RouteGuard:
                 is_primary_page=is_primary_page,
                 is_main_frame=is_main_frame,
             )
+        navigation_budget_first_exhaustion = False
+        is_main_frame_document = (
+            is_primary_page
+            and is_main_frame
+            and resource_type.strip().lower() == "document"
+        )
+        if (
+            within_budget
+            and is_main_frame_document
+            and decision.decision == DynamicNetworkDecisionKind.ALLOW
+        ):
+            (
+                navigation_within_budget,
+                navigation_budget_first_exhaustion,
+            ) = self._reserve_navigation_request()
+            if not navigation_within_budget:
+                decision = DynamicNetworkDecision(
+                    DynamicNetworkDecisionKind.BLOCK,
+                    DynamicNetworkReason.NAVIGATION_BUDGET_EXHAUSTED,
+                    decision.canonical_url,
+                    resource_type,
+                )
         if should_record:
             self.audit.record_http(
                 decision,
@@ -1121,6 +1253,12 @@ class _RouteGuard:
                 is_child_frame_document=is_child_frame_document,
                 is_redirect=False,
             )
+        follows_redirect = False
+        if is_main_frame_document:
+            follows_redirect = self._take_pending_redirect_target(url, decision)
+            self.audit.record_main_frame_navigation(decision)
+            if decision.decision == DynamicNetworkDecisionKind.ALLOW:
+                self._record_dispatched_main_frame_url(decision.canonical_url)
         if decision.decision == DynamicNetworkDecisionKind.ALLOW:
             self._fulfill_allowed_http(
                 route,
@@ -1128,6 +1266,7 @@ class _RouteGuard:
                 resource_type=resource_type,
                 is_primary_page=is_primary_page,
                 is_main_frame=is_main_frame,
+                follows_redirect=follows_redirect,
             )
         else:
             if within_budget:
@@ -1135,9 +1274,12 @@ class _RouteGuard:
                     is_primary_page=is_primary_page,
                     is_main_frame=is_main_frame,
                     is_document=resource_type.strip().lower() == "document",
+                    reason=decision.reason,
                 )
             self._abort_route(route)
         if first_exhaustion:
+            self.stop_active_page()
+        if navigation_budget_first_exhaustion:
             self.stop_active_page()
 
     def _fulfill_allowed_http(
@@ -1148,6 +1290,7 @@ class _RouteGuard:
         resource_type: str,
         is_primary_page: bool,
         is_main_frame: bool,
+        follows_redirect: bool = False,
     ) -> None:
         current_url = decision.canonical_url
         response: Any | None = None
@@ -1158,11 +1301,24 @@ class _RouteGuard:
         )
         try:
             while current_url is not None:
+                timeout_ms = self._remaining_transport_timeout_ms()
+                if timeout_ms <= 0:
+                    self._set_navigation_failure(
+                        is_primary_page=is_primary_page,
+                        is_main_frame=is_main_frame,
+                        is_document=is_document_navigation,
+                        timeout=True,
+                    )
+                    self._abort_route(route)
+                    return
                 response = route.fetch(
                     url=current_url,
                     max_redirects=0,
-                    timeout=self.policy.navigation_timeout_seconds * 1000,
+                    timeout=timeout_ms,
                 )
+                if follows_redirect:
+                    self.audit.record_redirect_followed()
+                    follows_redirect = False
                 redirect_url = _response_redirect_target(
                     response,
                     current_url=current_url,
@@ -1188,6 +1344,31 @@ class _RouteGuard:
                         is_primary_page=is_primary_page,
                         is_main_frame=is_main_frame,
                     )
+                    if (
+                        redirect_decision.decision
+                        == DynamicNetworkDecisionKind.ALLOW
+                        and is_document_navigation
+                        and self._was_main_frame_url_dispatched(
+                            redirect_decision.canonical_url
+                        )
+                    ):
+                        redirect_decision = DynamicNetworkDecision(
+                            DynamicNetworkDecisionKind.BLOCK,
+                            DynamicNetworkReason.REDIRECT_DUPLICATE,
+                            redirect_decision.canonical_url,
+                            resource_type,
+                        )
+                    elif (
+                        redirect_decision.decision
+                        == DynamicNetworkDecisionKind.ALLOW
+                        and not self._reserve_redirect_hop()
+                    ):
+                        redirect_decision = DynamicNetworkDecision(
+                            DynamicNetworkDecisionKind.BLOCK,
+                            DynamicNetworkReason.REDIRECT_BUDGET_EXHAUSTED,
+                            redirect_decision.canonical_url,
+                            resource_type,
+                        )
                 else:
                     redirect_decision = DynamicNetworkDecision(
                         DynamicNetworkDecisionKind.BLOCK,
@@ -1206,6 +1387,18 @@ class _RouteGuard:
                     redirect_decision.decision
                     == DynamicNetworkDecisionKind.BLOCK
                 ):
+                    if (
+                        is_document_navigation
+                        and redirect_decision.reason
+                        == DynamicNetworkReason.REDIRECT_DUPLICATE
+                    ):
+                        self._set_redirect_duplicate()
+                        route.fulfill(
+                            status=200,
+                            content_type="text/html; charset=utf-8",
+                            body="<!doctype html><title>duplicate redirect</title>",
+                        )
+                        return
                     if within_budget:
                         self._set_navigation_failure(
                             is_primary_page=is_primary_page,
@@ -1213,6 +1406,7 @@ class _RouteGuard:
                             is_document=(
                                 resource_type.strip().lower() == "document"
                             ),
+                            reason=redirect_decision.reason,
                         )
                     self._abort_route(route)
                     if first_exhaustion:
@@ -1220,6 +1414,7 @@ class _RouteGuard:
                     return
                 current_url = redirect_decision.canonical_url
                 if is_document_navigation and current_url is not None:
+                    self._set_pending_redirect_target(current_url)
                     route.fulfill(
                         status=200,
                         content_type="text/html; charset=utf-8",
@@ -1252,19 +1447,22 @@ class _RouteGuard:
         is_main_frame: bool,
         is_document: bool,
         timeout: bool = False,
+        reason: DynamicNetworkReason | None = None,
     ) -> None:
         if not (is_primary_page and is_main_frame and is_document):
             return
-        code = (
-            DynamicBrowserErrorCode.NAVIGATION_TIMEOUT
-            if timeout
-            else DynamicBrowserErrorCode.NAVIGATION_FAILED
-        )
-        message = (
-            "Authorized browser navigation timed out."
-            if timeout
-            else "Authorized browser navigation failed."
-        )
+        if timeout:
+            code = DynamicBrowserErrorCode.NAVIGATION_TIMEOUT
+            message = "Authorized browser navigation timed out."
+        elif reason == DynamicNetworkReason.NAVIGATION_BUDGET_EXHAUSTED:
+            code = DynamicBrowserErrorCode.NAVIGATION_BUDGET_EXHAUSTED
+            message = "Main-frame navigation budget was exhausted."
+        elif reason == DynamicNetworkReason.REDIRECT_BUDGET_EXHAUSTED:
+            code = DynamicBrowserErrorCode.REDIRECT_BUDGET_EXHAUSTED
+            message = "Per-navigation redirect budget was exhausted."
+        else:
+            code = DynamicBrowserErrorCode.NAVIGATION_FAILED
+            message = "Authorized browser navigation failed."
         with self._decision_lock:
             if self._request_failure is None:
                 self._request_failure = DynamicBrowserError(code, message)
@@ -1313,6 +1511,78 @@ class _RouteGuard:
             if not within_budget:
                 self._budget_exhausted = True
             return within_budget, not within_budget, True
+
+    def _reserve_navigation_request(self) -> tuple[bool, bool]:
+        with self._decision_lock:
+            if (
+                self._navigation_request_count
+                < self.policy.navigation_request_budget
+            ):
+                self._navigation_request_count += 1
+                return True, False
+            first_exhaustion = not self._navigation_budget_exhausted
+            self._navigation_budget_exhausted = True
+            return False, first_exhaustion
+
+    def _reserve_redirect_hop(self) -> bool:
+        with self._decision_lock:
+            if self._redirect_count >= self.policy.max_redirects_per_navigation:
+                return False
+            self._redirect_count += 1
+            return True
+
+    def _remaining_transport_timeout_ms(self) -> float:
+        timeout_seconds = self.policy.navigation_timeout_seconds
+        deadline = self.policy.deadline_monotonic
+        if deadline is not None:
+            timeout_seconds = min(timeout_seconds, deadline - monotonic())
+        return max(0.0, timeout_seconds * 1000.0)
+
+    def _record_dispatched_main_frame_url(self, url: str | None) -> None:
+        if url is None:
+            return
+        with self._decision_lock:
+            self._dispatched_main_frame_urls.add(url)
+
+    def _was_main_frame_url_dispatched(self, url: str | None) -> bool:
+        if url is None:
+            return False
+        with self._decision_lock:
+            return url in self._dispatched_main_frame_urls
+
+    def _set_pending_redirect_target(self, url: str) -> None:
+        with self._decision_lock:
+            self._pending_redirect_target = url
+
+    def _take_pending_redirect_target(
+        self,
+        raw_url: str,
+        decision: DynamicNetworkDecision,
+    ) -> bool:
+        try:
+            canonical_url = _canonical_request_url(raw_url)
+        except DynamicBrowserError:
+            canonical_url = None
+        with self._decision_lock:
+            if (
+                self._pending_redirect_target is not None
+                and canonical_url == self._pending_redirect_target
+            ):
+                followed = decision.decision == DynamicNetworkDecisionKind.ALLOW
+                self._pending_redirect_target = None
+                return followed
+        return False
+
+    def _set_redirect_duplicate(self) -> None:
+        with self._decision_lock:
+            self._redirect_duplicate = True
+            self._pending_redirect_target = None
+
+    def take_redirect_duplicate(self) -> bool:
+        with self._decision_lock:
+            duplicate = self._redirect_duplicate
+            self._redirect_duplicate = False
+            return duplicate
 
     def raise_if_budget_exhausted(self) -> None:
         with self._decision_lock:
@@ -1617,8 +1887,14 @@ class _PlaywrightDynamicSession:
         self._provider_timeout_error = provider_timeout_error
         self._guard = guard
         self._close_page = close_page
+        self._last_navigation_status: int | None = None
 
-    def navigate(self, url: str | None = None) -> str:
+    def navigate(
+        self,
+        url: str | None = None,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> str:
         self._guard.raise_if_failed()
         target = self._authority.root_url if url is None else url
         if not self._authority.allows_navigation(target):
@@ -1627,13 +1903,38 @@ class _PlaywrightDynamicSession:
                 "Navigation URL is not present in caller-owned authority.",
             )
         canonical = _canonical_request_url(target)
+        active_timeout = self._policy.navigation_timeout_seconds
+        if timeout_seconds is not None:
+            if (
+                type(timeout_seconds) not in {int, float}
+                or isinstance(timeout_seconds, bool)
+                or timeout_seconds <= 0
+            ):
+                raise DynamicBrowserError(
+                    DynamicBrowserErrorCode.OPERATION_FAILED,
+                    "Navigation timeout override must be a positive number.",
+                )
+            active_timeout = min(active_timeout, float(timeout_seconds))
+        self._last_navigation_status = None
+        self._guard.begin_navigation()
         try:
-            self._page.goto(
+            response = self._page.goto(
                 canonical,
                 wait_until="domcontentloaded",
-                timeout=self._policy.navigation_timeout_seconds * 1000,
+                timeout=active_timeout * 1000,
             )
             self._guard.raise_if_failed()
+            if self._guard.take_redirect_duplicate():
+                raise DynamicBrowserError(
+                    DynamicBrowserErrorCode.REDIRECT_DUPLICATE,
+                    "Redirect target was already dispatched in this crawl.",
+                )
+            try:
+                raw_status = None if response is None else response.status
+            except Exception:  # noqa: BLE001 - status ambiguity remains private.
+                raw_status = None
+            if type(raw_status) is int and 100 <= raw_status <= 599:
+                self._last_navigation_status = raw_status
             return _safe_provider_text(self._page, "url")
         except self._provider_timeout_error:
             self._guard.raise_if_failed()
@@ -1649,6 +1950,9 @@ class _PlaywrightDynamicSession:
                 DynamicBrowserErrorCode.NAVIGATION_FAILED,
                 "Authorized browser navigation failed.",
             ) from None
+
+    def navigation_status_code(self) -> int | None:
+        return self._last_navigation_status
 
     def wait_for_selector(self, selector: str) -> None:
         self._guard.raise_if_failed()
@@ -1697,6 +2001,8 @@ class _PlaywrightDynamicSession:
     def capture_rendered_dom(
         self,
         policy: RenderedDomPolicy | None = None,
+        *,
+        timeout_seconds: float | None = None,
     ) -> RenderedDomSnapshot:
         self._guard.raise_if_failed()
         active_policy = policy or RenderedDomPolicy()
@@ -1704,6 +2010,21 @@ class _PlaywrightDynamicSession:
             raise DynamicBrowserError(
                 DynamicBrowserErrorCode.DOM_SNAPSHOT_FAILED,
                 "Rendered DOM capture requires a canonical policy.",
+            )
+        active_timeout_ms = float(active_policy.stabilization_timeout_ms)
+        if timeout_seconds is not None:
+            if (
+                type(timeout_seconds) not in {int, float}
+                or isinstance(timeout_seconds, bool)
+                or timeout_seconds <= 0
+            ):
+                raise DynamicBrowserError(
+                    DynamicBrowserErrorCode.DOM_SNAPSHOT_FAILED,
+                    "Rendered DOM timeout override must be positive.",
+                )
+            active_timeout_ms = min(
+                active_timeout_ms,
+                float(timeout_seconds) * 1000.0,
             )
         cdp_session: Any | None = None
         try:
@@ -1742,7 +2063,7 @@ class _PlaywrightDynamicSession:
                     "contextId": execution_context_id,
                     "awaitPromise": True,
                     "returnByValue": True,
-                    "timeout": active_policy.stabilization_timeout_ms,
+                    "timeout": active_timeout_ms,
                     "disableBreaks": True,
                 },
             )
@@ -1821,14 +2142,28 @@ class PlaywrightDynamicBrowser:
                 "Managed browser requires canonical DynamicBrowserPolicy.",
             )
 
-        preflight_dynamic_browser()
         audit = _AuditRecorder(
             event_limit=active_policy.request_decision_budget,
         )
+        preflight_timeout = _remaining_deadline_seconds(active_policy)
+        if preflight_timeout is None:
+            preflight_dynamic_browser()
+        else:
+            preflight_dynamic_browser(timeout_seconds=preflight_timeout)
         resources = _ManagedResources(audit)
         primary_error: DynamicBrowserError | None = None
         value: T | None = None
         value_set = False
+
+        def expire_if_needed() -> None:
+            nonlocal primary_error
+            if primary_error is None and _deadline_expired(active_policy):
+                primary_error = DynamicBrowserError(
+                    DynamicBrowserErrorCode.OPERATION_TIMEOUT,
+                    "Managed browser lifecycle exceeded its crawl deadline.",
+                )
+
+        expire_if_needed()
         try:
             try:
                 sync_playwright, provider_timeout_error = (
@@ -1841,10 +2176,15 @@ class PlaywrightDynamicBrowser:
                     DynamicBrowserErrorCode.PLAYWRIGHT_START_FAILED,
                     "Managed Playwright runtime could not start.",
                 )
+            expire_if_needed()
             if primary_error is None:
                 try:
                     resources.browser = resources.playwright.chromium.launch(
-                        **_browser_launch_options()
+                        **_browser_launch_options(
+                            timeout_seconds=_remaining_deadline_seconds(
+                                active_policy
+                            )
+                        )
                     )
                     audit.browsers_launched += 1
                 except Exception:  # noqa: BLE001
@@ -1852,6 +2192,7 @@ class PlaywrightDynamicBrowser:
                         DynamicBrowserErrorCode.BROWSER_LAUNCH_FAILED,
                         "Managed headless Chromium could not launch.",
                     )
+            expire_if_needed()
             if primary_error is None:
                 try:
                     resources.context = resources.browser.new_context(
@@ -1864,6 +2205,7 @@ class PlaywrightDynamicBrowser:
                         DynamicBrowserErrorCode.CONTEXT_CREATE_FAILED,
                         "Isolated browser context could not be created.",
                     )
+            expire_if_needed()
             guard = _RouteGuard(
                 authority,
                 active_policy,
@@ -1880,6 +2222,7 @@ class PlaywrightDynamicBrowser:
                         DynamicBrowserErrorCode.HTTP_GUARD_INSTALL_FAILED,
                         "HTTP(S) request guard could not be installed.",
                     )
+            expire_if_needed()
             if primary_error is None:
                 try:
                     resources.context.route_web_socket(
@@ -1891,6 +2234,7 @@ class PlaywrightDynamicBrowser:
                         DynamicBrowserErrorCode.WEBSOCKET_GUARD_INSTALL_FAILED,
                         "WebSocket request guard could not be installed.",
                     )
+            expire_if_needed()
             if primary_error is None:
                 try:
                     resources.page = resources.context.new_page()
@@ -1901,6 +2245,7 @@ class PlaywrightDynamicBrowser:
                         DynamicBrowserErrorCode.PAGE_CREATE_FAILED,
                         "Guarded primary page could not be created.",
                     )
+            expire_if_needed()
             if primary_error is None:
                 try:
                     page_observer.install(resources.page)
@@ -1909,6 +2254,7 @@ class PlaywrightDynamicBrowser:
                         DynamicBrowserErrorCode.PAGE_OBSERVER_INSTALL_FAILED,
                         "Browser lifecycle observers could not be installed.",
                     )
+            expire_if_needed()
             if primary_error is None:
                 try:
                     resources.context.on(
@@ -1920,6 +2266,7 @@ class PlaywrightDynamicBrowser:
                         DynamicBrowserErrorCode.POPUP_OBSERVER_INSTALL_FAILED,
                         "Popup lifecycle observer could not be installed.",
                     )
+            expire_if_needed()
             if primary_error is None:
                 session = _PlaywrightDynamicSession(
                     page=resources.page,
@@ -1946,6 +2293,7 @@ class PlaywrightDynamicBrowser:
                         DynamicBrowserErrorCode.OPERATION_FAILED,
                         "Managed browser operation failed.",
                     )
+                expire_if_needed()
         finally:
             resources.close_requested_page()
             cleanup_error_codes = resources.close()
@@ -1954,6 +2302,7 @@ class PlaywrightDynamicBrowser:
                     guard.raise_if_failed()
                 except DynamicBrowserError as exc:
                     primary_error = exc
+            expire_if_needed()
 
         summary = audit.snapshot(cleanup_error_codes)
         if primary_error is not None:

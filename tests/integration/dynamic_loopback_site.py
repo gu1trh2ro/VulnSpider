@@ -106,6 +106,20 @@ class DynamicLoopbackSite:
         self.rendered_attribute_large_url = ""
         self.rendered_text_large_url = ""
         self.rendered_noisy_url = ""
+        self.navigation_start_url = ""
+        self.navigation_page_a_url = ""
+        self.navigation_page_b_url = ""
+        self.navigation_page_c_url = ""
+        self.navigation_redirect_url = ""
+        self.navigation_redirect_target_url = ""
+        self.navigation_duplicate_redirect_url = ""
+        self.navigation_cross_redirect_url = ""
+        self.navigation_failure_start_url = ""
+        self.navigation_not_found_url = ""
+        self.navigation_server_error_url = ""
+        self.navigation_good_url = ""
+        self.navigation_timeout_url = ""
+        self.navigation_sensitive_url = ""
         self.sentinel_origin = ""
         self.cleanup_complete = False
 
@@ -496,6 +510,178 @@ class DynamicLoopbackSite:
                         "text/html; charset=utf-8",
                     )
                     return
+                if route == "/navigation/start":
+                    html = f"""<!doctype html>
+                    <html><body>
+                      <a href="/navigation/page-b">page b</a>
+                      <a href="/navigation/a-redirect">redirect</a>
+                      <a href="/navigation/z-redirect-duplicate">duplicate redirect</a>
+                      <a href="/navigation/cross-redirect">cross redirect</a>
+                      <a href="/delete">unauthorized state change</a>
+                      <a href="{site.sentinel_origin}/outside">outside</a>
+                      <script>
+                        const first = document.createElement("a");
+                        first.href = "/navigation/page-a#first";
+                        first.id = "navigation-js-anchor";
+                        document.body.appendChild(first);
+                        const duplicate = document.createElement("a");
+                        duplicate.href = "/navigation/page-a#duplicate";
+                        document.body.appendChild(duplicate);
+                      </script>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/navigation/page-a":
+                    html = """<!doctype html>
+                    <html><body>
+                      <a href="/navigation/page-c">page c</a>
+                      <a href="/navigation/start">cycle</a>
+                      <script>
+                        const form = document.createElement("form");
+                        form.action = "/navigation/search";
+                        form.method = "get";
+                        form.innerHTML =
+                          '<input name="from_a" value="dynamic-a">';
+                        document.body.appendChild(form);
+                      </script>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/navigation/page-b":
+                    self._send(
+                        200,
+                        (
+                            b"<html><body>"
+                            b"<a href='/navigation/page-c?variant=1'></a>"
+                            b"<a href='/navigation/start#cycle'></a>"
+                            b"</body></html>"
+                        ),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/navigation/page-c":
+                    html = """<!doctype html>
+                    <html><body>
+                      <form action="/navigation/final-search" method="get">
+                        <input name="from_c" value="dynamic-c">
+                      </form>
+                      <script>
+                        const sensitive = document.createElement("form");
+                        sensitive.action = "/state-change";
+                        sensitive.method = "post";
+                        sensitive.innerHTML = `
+                          <input name="user" value="NAV_SECRET_SENTINEL_4c2a">
+                          <input type="password" name="password"
+                            value="NAV_SECRET_SENTINEL_4c2a">
+                        `;
+                        document.body.appendChild(sensitive);
+                      </script>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/navigation/a-redirect":
+                    self._send_redirect("/navigation/z-redirect-target")
+                    return
+                if route == "/navigation/z-redirect-target":
+                    self._send(
+                        200,
+                        b"<html><body><a href='/navigation/start'></a></body></html>",
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/navigation/z-redirect-duplicate":
+                    self._send_redirect("/navigation/page-a")
+                    return
+                if route == "/navigation/cross-redirect":
+                    self._send_redirect(
+                        f"{site.sentinel_origin}/navigation-redirect-target"
+                    )
+                    return
+                if route == "/navigation/failure-start":
+                    self._send(
+                        200,
+                        (
+                            b"<html><body>"
+                            b"<a href='/navigation/404'></a>"
+                            b"<a href='/navigation/500'></a>"
+                            b"<a href='/navigation/good'></a>"
+                            b"<a href='/navigation/z-timeout'></a>"
+                            b"</body></html>"
+                        ),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/navigation/404":
+                    self._send(
+                        404,
+                        b"<html><body>not found</body></html>",
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/navigation/500":
+                    self._send(
+                        500,
+                        b"<html><body>server error</body></html>",
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/navigation/good":
+                    self._send(
+                        200,
+                        (
+                            b"<html><body><form action='/navigation/good-search' "
+                            b"method='get'><input name='after_failure' value='ok'>"
+                            b"</form></body></html>"
+                        ),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/navigation/z-timeout":
+                    site.slow_started.set()
+                    site.release_slow.wait(timeout=5.0)
+                    self._send(
+                        200,
+                        b"<html><body>late</body></html>",
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/navigation/sensitive":
+                    html = """<!doctype html>
+                    <html><body>
+                      <a href="/navigation/page-a"></a>
+                      <form action="/navigation/safe" method="get">
+                        <input name="safe" value="1">
+                      </form>
+                      <script>
+                        const form = document.createElement("form");
+                        form.action = "/state-change";
+                        form.method = "post";
+                        form.innerHTML = `
+                          <input name="user" value="NAV_SECRET_SENTINEL_4c2a">
+                          <input type="password" name="password"
+                            value="NAV_SECRET_SENTINEL_4c2a">
+                        `;
+                        document.body.appendChild(form);
+                      </script>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
                 if route in {"/rendered-basic", "/rendered-deterministic"}:
                     html = """<!doctype html>
                     <html>
@@ -816,6 +1002,31 @@ class DynamicLoopbackSite:
         )
         self.rendered_noisy_url = (
             f"http://127.0.0.1:{self.primary_port}/rendered-noisy"
+        )
+        navigation_origin = f"http://127.0.0.1:{self.primary_port}"
+        self.navigation_start_url = navigation_origin + "/navigation/start"
+        self.navigation_page_a_url = navigation_origin + "/navigation/page-a"
+        self.navigation_page_b_url = navigation_origin + "/navigation/page-b"
+        self.navigation_page_c_url = navigation_origin + "/navigation/page-c"
+        self.navigation_redirect_url = navigation_origin + "/navigation/a-redirect"
+        self.navigation_redirect_target_url = (
+            navigation_origin + "/navigation/z-redirect-target"
+        )
+        self.navigation_duplicate_redirect_url = (
+            navigation_origin + "/navigation/z-redirect-duplicate"
+        )
+        self.navigation_cross_redirect_url = (
+            navigation_origin + "/navigation/cross-redirect"
+        )
+        self.navigation_failure_start_url = (
+            navigation_origin + "/navigation/failure-start"
+        )
+        self.navigation_not_found_url = navigation_origin + "/navigation/404"
+        self.navigation_server_error_url = navigation_origin + "/navigation/500"
+        self.navigation_good_url = navigation_origin + "/navigation/good"
+        self.navigation_timeout_url = navigation_origin + "/navigation/z-timeout"
+        self.navigation_sensitive_url = (
+            navigation_origin + "/navigation/sensitive"
         )
         return self
 

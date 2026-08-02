@@ -27,6 +27,7 @@ from vulnspider.discovery import (  # noqa: E402
 
 SUITE_BROWSER_LOOPBACK = "browser-loopback"
 SUITE_RENDERED_DOM = "rendered-dom"
+SUITE_BOUNDED_NAVIGATION = "bounded-navigation"
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,9 +233,52 @@ RENDERED_DOM_CASES = (
     ),
 )
 
+BOUNDED_NAVIGATION_CASES = tuple(
+    BrowserManifestCase(
+        case_id,
+        (
+            "tests.integration.test_dynamic_navigation_loopback."
+            "DynamicNavigationLoopbackTests."
+            f"test_{case_id.replace('-', '_')}"
+        ),
+        invariant,
+    )
+    for case_id, invariant in (
+        (
+            "navigation-basic",
+            "Authorized rendered anchors produce bounded page-level Dynamic results.",
+        ),
+        (
+            "navigation-dedup-cycle",
+            "Fragments, duplicates, and cycles cannot repeat a browser navigation.",
+        ),
+        (
+            "navigation-authority-block",
+            "Cross-authority anchors and redirects never reach the sentinel server.",
+        ),
+        (
+            "navigation-budget",
+            "Page, depth, and main-frame attempt limits terminate exactly.",
+        ),
+        (
+            "navigation-failure-isolation",
+            "HTTP failures and timeout retain only prior validated page components.",
+        ),
+        (
+            "navigation-sensitive-elision",
+            "A rendered password form remains pre-canonical and secret-free.",
+        ),
+        (
+            "navigation-deterministic",
+            "Repeated fresh Chromium crawls produce equal stable output.",
+        ),
+    )
+)
+
 MANIFESTS = {
     SUITE_BROWSER_LOOPBACK: BROWSER_LOOPBACK_CASES,
     SUITE_RENDERED_DOM: RENDERED_DOM_CASES,
+    SUITE_BOUNDED_NAVIGATION: BOUNDED_NAVIGATION_CASES,
 }
 
 
