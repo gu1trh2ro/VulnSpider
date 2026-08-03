@@ -2,16 +2,17 @@
 
 ## Repository status
 
-This repository is the **Completed and Frozen v0.1 checkpoint** for
-VulnSpider. It is no longer an empty starter repository.
+This repository retains the **Completed and Frozen v0.1 checkpoint** and now
+also contains the in-progress v0.2 Native Discovery implementation.
 
 - **Implemented:** the `prototype/v0.1` legacy-record analysis path, JSON
-  report, and optional HTML report.
-- **Planned for v0.2:** native discovery, BAC prioritization, and
-  LLM-assisted focused verification.
+  report, optional HTML report, Native Static Discovery, and opt-in combined
+  Native Static plus bounded Native Dynamic Discovery through Milestone 6.
+- **Still planned for v0.2:** the final Dynamic loopback E2E acceptance
+  milestone, BAC prioritization, and LLM-assisted focused verification.
 - **Historical:** the Prompt 01-07 sequence that produced and reviewed v0.1.
 
-Planning documents do not imply that v0.2 production code exists.
+Planning documents do not imply that later v0.2 milestones are implemented.
 
 ## Read first
 
@@ -32,10 +33,10 @@ New contributors should read these documents in order:
 Use `docs/DOMAIN_MODEL.md`, `docs/FEATURE_SCHEMA.md`, and
 `docs/EVALUATION_PROTOCOL.md` when changing their respective boundaries.
 
-## Implemented v0.1 path
+## Implemented analysis entry points
 
-The current CLI does not crawl a target URL. It consumes an array of legacy
-crawl records, then performs authorized localhost/loopback Light Probes:
+The frozen compatibility path consumes legacy crawl records, then performs
+authorized localhost/loopback Light Probes:
 
 ```text
 Legacy record JSON
@@ -63,11 +64,37 @@ the JSON path. It does not recompute scores or confirm vulnerabilities.
 Equivalent JSON and HTML output paths are rejected before either report is
 written.
 
+An authorized loopback URL uses Native Static Discovery by default. Bounded
+Native Dynamic Discovery is explicit opt-in and merges its validated result
+with the policy-bound Static result before the unchanged canonical analysis
+consumer runs:
+
+```powershell
+vulnspider analyze `
+  --url http://127.0.0.1:8080/ `
+  --dynamic `
+  --dynamic-allow-navigation http://127.0.0.1:8080/search `
+  --dynamic-allow-resource script=http://127.0.0.1:8080/app.js `
+  --top-k 10 `
+  --output result.json
+```
+
+Without `--dynamic`, `--url` remains Static-only and never requires
+Playwright. Dynamic authority and policy options are invalid without the
+opt-in flag and with `--input`. Explicit Dynamic capability/configuration,
+integrity, and validated degradation paths use exit codes 2, 3, and 4
+respectively.
+
 ## Implemented and not implemented
 
 ### Implemented
 
 - Legacy crawl-record JSON input.
+- Direct authorized URL input through bounded Native Static Discovery.
+- Explicit `--dynamic` combined Native Discovery with exact, immutable
+  navigation/resource authority and lazy Playwright capability checking.
+- Combined canonical handoff to the existing READY-context analysis consumer;
+  NOT_READY contexts remain non-executable.
 - `LegacyCrawlerAdapter` normalization into canonical v0.1 domain models.
 - Deterministic probe planning and loopback-only baseline/probe execution.
 - Minimal differential, reflection, and SQL signal extraction.
@@ -78,9 +105,7 @@ written.
 
 ### Planned for v0.2, not implemented
 
-- Direct target URL input.
-- Native static crawler.
-- Native dynamic/browser crawler prototype.
+- Milestone 7 final Dynamic loopback E2E acceptance.
 - BAC preprocessing, features, scoring, and role/session orchestration.
 - Feature cache and automated quantitative ranking evaluation.
 - GPT/Gemini comparison harness.

@@ -72,6 +72,28 @@ class DynamicCapabilityError(RuntimeError):
         self.setup_hint = setup_hint
         self.cleanup_failed = cleanup_failed
 
+    def __reduce__(self) -> tuple[Any, tuple[Any, ...]]:
+        """Preserve the typed safe diagnostic across the crawl worker seam."""
+
+        return (
+            _restore_dynamic_capability_error,
+            (self.code, str(self), self.setup_hint, self.cleanup_failed),
+        )
+
+
+def _restore_dynamic_capability_error(
+    code: DynamicCapabilityCode,
+    message: str,
+    setup_hint: str,
+    cleanup_failed: bool,
+) -> DynamicCapabilityError:
+    return DynamicCapabilityError(
+        code,
+        message,
+        setup_hint=setup_hint,
+        cleanup_failed=cleanup_failed,
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class DynamicBrowserCapability:

@@ -2730,7 +2730,7 @@ dumps.
 - [x] Milestone 3 implemented and focused narrow tests passed.
 - [x] Milestone 4 implemented and focused narrow tests passed.
 - [x] Milestone 5 implemented and focused narrow tests passed.
-- [ ] Milestone 6 implemented and focused narrow tests passed.
+- [x] Milestone 6 implemented and focused narrow tests passed.
 - [ ] Milestone 7 implemented and focused narrow tests passed.
 - [ ] Full regression passed after every milestone.
 - [ ] Format, lint, type-hint, and `git diff --check` passed after every
@@ -3002,6 +3002,25 @@ dumps.
   preservation, and the actual Gate remain green. Per the requested single
   independent review limit, no second independent review was run; Milestone 5
   is `COMPLETE` with this recorded Medium follow-up.
+- 2026-08-03: Implemented Milestone 6 opt-in CLI/pipeline integration. Plain
+  `--url` remains Static-only and `--input` remains legacy-only; explicit
+  `--dynamic` constructs exact immutable navigation/resource authority and a
+  bounded Dynamic policy, retains the validated `CombinedDiscoveryResult`,
+  and hands only its canonical `discovery` member to the unchanged
+  `analyze_discovery_result()` READY-context consumer. Complete, capability/
+  configuration, integrity, and validated degraded outcomes map to exits 0,
+  2, 3, and 4 without raw DOM or secret-bearing diagnostics.
+- 2026-08-03: Milestone 6 final verification passed focused pipeline/CLI/v0.1
+  tests 22/22, actual-Chromium `combined-discovery` 5/5, retained
+  `browser-loopback` 15/15 after the narrow capability-error worker-boundary
+  correction, full repository regression 410/410 twice, Native Static E2E 1/1,
+  v0.1 smoke 7/7, and format, lint, type-hint, and `git diff --check`. Two
+  Independent Gate Reviews initially found the same High issue: duplicated
+  preflight before Static-first orchestration. Correction Loop 1 removed that
+  preflight and made `DynamicCapabilityError` pickle-safe across the existing
+  supervised worker seam; both re-reviews returned `PASS` with Critical 0,
+  High 0, and no Medium/Low deferrals. Milestone 6 is `COMPLETE`; Milestone 7
+  remains unimplemented.
 
 ### Gate Review Correction Record
 

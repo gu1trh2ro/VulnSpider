@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from functools import partial
 from ipaddress import ip_address
 from time import monotonic
 from typing import Any
@@ -11,13 +12,24 @@ from urllib.parse import urlsplit
 
 from vulnspider.discovery import (
     CanonicalDiscoveryResult,
+    CombinedDiscoveryResult,
     CrawlPolicy,
+    DynamicCrawler,
+    DynamicCrawlCompletion,
+    DynamicCrawlPolicy,
+    DynamicCrawlResult,
+    DynamicIntegrityError,
+    DynamicRequestAuthority,
     LegacyAdapterResult,
     LegacyCrawlerAdapter,
     LegacyCrawlRecord,
+    ProbeReadyStatus,
+    SensitiveFormElisionPolicy,
     StaticCrawler,
     StaticCrawlerTransport,
     StaticCrawlResult,
+    discover_native_combined,
+    extract_static_html,
 )
 from vulnspider.domain import (
     Endpoint,
@@ -72,6 +84,15 @@ class AnalysisResult:
     elapsed_seconds: float
     discovery_result: CanonicalDiscoveryResult | None = None
     crawl_result: StaticCrawlResult | None = None
+    combined_result: CombinedDiscoveryResult | None = None
+
+    @property
+    def dynamic_crawl_result(self) -> DynamicCrawlResult | None:
+        """Return Dynamic crawl evidence when combined discovery was requested."""
+
+        if self.combined_result is None:
+            return None
+        return self.combined_result.dynamic_crawl
 
     @property
     def endpoints(self) -> tuple[Endpoint, ...]:
@@ -170,16 +191,69 @@ def analyze_url(
     crawl_policy: CrawlPolicy | None = None,
     crawler: StaticCrawler | None = None,
     crawler_transport: StaticCrawlerTransport | None = None,
+    dynamic_authority: DynamicRequestAuthority | None = None,
+    dynamic_policy: DynamicCrawlPolicy | None = None,
+    dynamic_crawler: DynamicCrawler | None = None,
     transport: RequestTransport | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
 ) -> AnalysisResult:
-    """Crawl a root URL and analyze its canonical static discovery result."""
+    """Analyze Static discovery, or explicit Static-plus-Dynamic discovery."""
 
     if crawler is not None and crawler_transport is not None:
         raise PipelineError(
             "crawler and crawler_transport cannot be supplied together"
         )
+    if dynamic_authority is None and (
+        dynamic_policy is not None or dynamic_crawler is not None
+    ):
+        raise PipelineError(
+            "dynamic policy and crawler require explicit dynamic authority"
+        )
+    if dynamic_authority is not None:
+        try:
+            combined = discover_native_combined(
+                root_url,
+                authority=dynamic_authority,
+                static_policy=crawl_policy,
+                dynamic_policy=dynamic_policy,
+                static_crawler=_combined_static_crawler(
+                    crawler=crawler,
+                    crawler_transport=crawler_transport,
+                ),
+                dynamic_crawler=dynamic_crawler,
+            )
+        except TypeError as exc:
+            raise DynamicIntegrityError(
+                "combined discovery boundary returned an invalid type"
+            ) from exc
+        if type(combined) is not CombinedDiscoveryResult:
+            raise DynamicIntegrityError(
+                "combined discovery must return CombinedDiscoveryResult"
+            )
+        try:
+            combined = replace(combined)
+        except (TypeError, ValueError) as exc:
+            raise DynamicIntegrityError(
+                "combined discovery wrapper failed revalidation"
+            ) from exc
+        analysis = analyze_discovery_result(
+            combined.discovery,
+            top_k=top_k,
+            transport=transport,
+            timeout_seconds=timeout_seconds,
+            max_body_bytes=max_body_bytes,
+        )
+        return replace(
+            analysis,
+            warnings=(
+                *analysis.warnings,
+                *_combined_handoff_warnings(combined),
+            ),
+            crawl_result=combined.static_crawl,
+            combined_result=combined,
+        )
+
     active_crawler = crawler
     if active_crawler is None:
         active_crawler = (
@@ -196,6 +270,54 @@ def analyze_url(
         max_body_bytes=max_body_bytes,
     )
     return replace(analysis, crawl_result=crawl_result)
+
+
+_COMBINED_STATIC_EXTRACTOR = partial(
+    extract_static_html,
+    sensitive_form_policy=SensitiveFormElisionPolicy(),
+)
+
+
+def _combined_static_crawler(
+    *,
+    crawler: StaticCrawler | None,
+    crawler_transport: StaticCrawlerTransport | None,
+) -> StaticCrawler:
+    """Bind pre-canonical sensitive-form elision only for combined mode."""
+
+    if crawler is not None:
+        if type(crawler) is not StaticCrawler:
+            raise TypeError("crawler must be a StaticCrawler")
+        return replace(crawler, extractor=_COMBINED_STATIC_EXTRACTOR)
+    if crawler_transport is None:
+        return StaticCrawler(extractor=_COMBINED_STATIC_EXTRACTOR)
+    return StaticCrawler(
+        transport=crawler_transport,
+        extractor=_COMBINED_STATIC_EXTRACTOR,
+    )
+
+
+def _combined_handoff_warnings(
+    combined: CombinedDiscoveryResult,
+) -> tuple[str, ...]:
+    ready = sum(
+        item.status == ProbeReadyStatus.READY
+        for item in combined.discovery.probe_readiness
+    )
+    not_ready = sum(
+        item.status == ProbeReadyStatus.NOT_READY
+        for item in combined.discovery.probe_readiness
+    )
+    warnings = [
+        "discovery NATIVE_COMBINED: "
+        f"READY contexts={ready}; NOT_READY contexts={not_ready}"
+    ]
+    if combined.completion == DynamicCrawlCompletion.DEGRADED:
+        warnings.append(
+            "discovery DYNAMIC_INCOMPLETE: validated partial Dynamic "
+            "discovery was retained"
+        )
+    return tuple(warnings)
 
 
 def _analyze_contexts(
