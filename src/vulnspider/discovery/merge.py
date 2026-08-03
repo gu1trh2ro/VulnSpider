@@ -18,6 +18,7 @@ from vulnspider.discovery.contracts import (
     DiscoveryWarning,
     ProbeReadiness,
     ProbeReadyStatus,
+    ScopeMetadata,
     discovery_run_id_for,
 )
 from vulnspider.domain import (
@@ -86,9 +87,14 @@ def merge_discovery_results(
         label="Dynamic",
     )
     if static_result.scope_metadata != dynamic_result.scope_metadata:
-        raise DynamicIntegrityError(
-            "Static and Dynamic components must use identical scope metadata"
+        _validate_compatible_scopes(
+            static_result.scope_metadata,
+            dynamic_result.scope_metadata,
         )
+    aggregate_scope = _merge_scope_metadata(
+        static_result.scope_metadata,
+        dynamic_result.scope_metadata,
+    )
 
     aggregate_metadata = DiscoveryMetadata(
         collector_kind=CollectorKind.NATIVE_COMBINED,
@@ -102,7 +108,7 @@ def merge_discovery_results(
     )
     aggregate_run_id = discovery_run_id_for(
         aggregate_metadata,
-        static_result.scope_metadata,
+        aggregate_scope,
     )
 
     endpoints = _merge_endpoints(
@@ -158,7 +164,7 @@ def merge_discovery_results(
 
     aggregate = CanonicalDiscoveryResult.create(
         discovery_metadata=aggregate_metadata,
-        scope_metadata=static_result.scope_metadata,
+        scope_metadata=aggregate_scope,
         crawl_statistics=statistics,
         endpoints=endpoints,
         input_points=input_points,
@@ -172,6 +178,41 @@ def merge_discovery_results(
     )
     aggregate.validate()
     return aggregate
+
+
+def _validate_compatible_scopes(
+    static_scope: ScopeMetadata,
+    dynamic_scope: ScopeMetadata,
+) -> None:
+    if (
+        static_scope.target_scope_id != dynamic_scope.target_scope_id
+        or static_scope.root_url != dynamic_scope.root_url
+        or static_scope.scope_policy_version != dynamic_scope.scope_policy_version
+    ):
+        raise DynamicIntegrityError(
+            "Static and Dynamic components must use identical scope metadata "
+            "except for producer decision references"
+        )
+
+
+def _merge_scope_metadata(
+    static_scope: ScopeMetadata,
+    dynamic_scope: ScopeMetadata,
+) -> ScopeMetadata:
+    _validate_compatible_scopes(static_scope, dynamic_scope)
+    return ScopeMetadata(
+        target_scope_id=static_scope.target_scope_id,
+        root_url=static_scope.root_url,
+        scope_policy_version=static_scope.scope_policy_version,
+        scope_decision_refs=tuple(
+            sorted(
+                {
+                    *static_scope.scope_decision_refs,
+                    *dynamic_scope.scope_decision_refs,
+                }
+            )
+        ),
+    )
 
 
 def _validate_component(

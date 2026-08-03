@@ -20,6 +20,7 @@ from vulnspider.discovery.contracts import (
     CrawlStatistics,
     DiscoveryMetadata,
     DiscoveryProvenance,
+    DiscoverySafetyInvariant,
     DiscoveryWarning,
     ProbeReadiness,
     ScopeMetadata,
@@ -902,6 +903,7 @@ def _build_discovery_result(
     provenance: dict[str, DiscoveryProvenance] = {}
     hints: dict[str, BACStaticHint] = {}
     warnings = dict(state.warnings)
+    safety_invariants: set[DiscoverySafetyInvariant] = set()
 
     for extraction in state.extractions:
         discovery = extraction.discovery
@@ -921,6 +923,7 @@ def _build_discovery_result(
             hints.setdefault(item.id or "", item)
         for item in discovery.warnings:
             warnings.setdefault(item.id or "", item)
+        safety_invariants.update(discovery.safety_invariants)
 
     points = tuple(
         _merge_input_points(group)
@@ -956,6 +959,9 @@ def _build_discovery_result(
         crawl_provenance=tuple(provenance.values()),
         bac_static_hints=tuple(hints.values()),
         warnings=tuple(warnings.values()),
+        safety_invariants=tuple(
+            sorted(safety_invariants, key=lambda item: item.value)
+        ),
     )
 
 

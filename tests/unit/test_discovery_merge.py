@@ -823,6 +823,31 @@ class DiscoveryMergeTests(unittest.TestCase):
         self.assertEqual(static.to_dict(), static_snapshot.to_dict())
         self.assertEqual(dynamic.to_dict(), dynamic_snapshot.to_dict())
 
+    def test_compatible_producer_scope_references_are_preserved(self) -> None:
+        static_scope = replace(
+            SCOPE,
+            scope_decision_refs=("scope-decision:origin:static",),
+        )
+        dynamic_scope = replace(
+            SCOPE,
+            scope_decision_refs=("scope-decision:dynamic-authority:dynamic",),
+        )
+
+        aggregate = merge_discovery_results(
+            build_component(CollectorKind.NATIVE_STATIC, scope=static_scope),
+            build_component(CollectorKind.NATIVE_DYNAMIC, scope=dynamic_scope),
+            POLICY,
+        )
+
+        self.assertEqual(
+            aggregate.scope_metadata.scope_decision_refs,
+            (
+                "scope-decision:dynamic-authority:dynamic",
+                "scope-decision:origin:static",
+            ),
+        )
+        aggregate.validate()
+
     def test_multi_item_input_permutations_produce_equal_aggregates(self) -> None:
         static_specs = (
             ("/static-b", "b", "2"),

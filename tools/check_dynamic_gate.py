@@ -28,6 +28,7 @@ from vulnspider.discovery import (  # noqa: E402
 SUITE_BROWSER_LOOPBACK = "browser-loopback"
 SUITE_RENDERED_DOM = "rendered-dom"
 SUITE_BOUNDED_NAVIGATION = "bounded-navigation"
+SUITE_COMBINED_DISCOVERY = "combined-discovery"
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,10 +276,54 @@ BOUNDED_NAVIGATION_CASES = tuple(
     )
 )
 
+COMBINED_DISCOVERY_CASES = (
+    BrowserManifestCase(
+        "combined-basic",
+        (
+            "tests.integration.test_combined_discovery_loopback."
+            "CombinedDiscoveryLoopbackTests.test_combined_basic"
+        ),
+        "Static-only, Dynamic-only, and exact duplicate surfaces merge canonically.",
+    ),
+    BrowserManifestCase(
+        "combined-sensitive-elision",
+        (
+            "tests.integration.test_combined_discovery_loopback."
+            "CombinedDiscoveryLoopbackTests.test_combined_sensitive_elision"
+        ),
+        "Both producers elide a colliding sensitive form before canonical merge.",
+    ),
+    BrowserManifestCase(
+        "combined-multipage",
+        (
+            "tests.integration.test_combined_discovery_loopback."
+            "CombinedDiscoveryLoopbackTests.test_combined_multipage"
+        ),
+        "Multi-page producer provenance and canonical references survive merge.",
+    ),
+    BrowserManifestCase(
+        "combined-deterministic",
+        (
+            "tests.integration.test_combined_discovery_loopback."
+            "CombinedDiscoveryLoopbackTests.test_combined_deterministic"
+        ),
+        "Repeated Chromium orchestration preserves every stable canonical field.",
+    ),
+    BrowserManifestCase(
+        "combined-producer-failure",
+        (
+            "tests.integration.test_combined_discovery_loopback."
+            "CombinedDiscoveryLoopbackTests.test_combined_producer_failure"
+        ),
+        "A real browser operational failure remains explicitly degraded.",
+    ),
+)
+
 MANIFESTS = {
     SUITE_BROWSER_LOOPBACK: BROWSER_LOOPBACK_CASES,
     SUITE_RENDERED_DOM: RENDERED_DOM_CASES,
     SUITE_BOUNDED_NAVIGATION: BOUNDED_NAVIGATION_CASES,
+    SUITE_COMBINED_DISCOVERY: COMBINED_DISCOVERY_CASES,
 }
 
 

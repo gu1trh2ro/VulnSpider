@@ -19,6 +19,11 @@ from vulnspider.discovery.contracts import (
     discovery_run_id_for,
     scope_id_for_root,
 )
+from vulnspider.discovery.combined import (
+    CombinedDiscoveryResult,
+    NativeDiscoveryOrchestrator,
+    discover_native_combined,
+)
 from vulnspider.discovery.dynamic_browser import (
     PLAYWRIGHT_REQUIREMENT,
     BrowserAuditEvent,
@@ -99,6 +104,7 @@ __all__ = [
     "CONTRACT_VERSION",
     "CanonicalDiscoveryResult",
     "CollectorKind",
+    "CombinedDiscoveryResult",
     "CrawlPolicy",
     "CrawlStatistics",
     "DiscoveryContractError",
@@ -136,6 +142,7 @@ __all__ = [
     "LegacyCrawlerAdapter",
     "LegacyCrawlRecord",
     "NavigableLink",
+    "NativeDiscoveryOrchestrator",
     "NonProbeReadyReason",
     "ProbeReadiness",
     "ProbeReadyStatus",
@@ -160,6 +167,7 @@ __all__ = [
     "UrlLibStaticCrawlerTransport",
     "canonicalize_crawl_url",
     "discovery_run_id_for",
+    "discover_native_combined",
     "extract_static_html",
     "extract_rendered_dom",
     "merge_discovery_results",

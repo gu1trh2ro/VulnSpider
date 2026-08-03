@@ -120,6 +120,11 @@ class DynamicLoopbackSite:
         self.navigation_good_url = ""
         self.navigation_timeout_url = ""
         self.navigation_sensitive_url = ""
+        self.combined_basic_url = ""
+        self.combined_sensitive_url = ""
+        self.combined_multipage_url = ""
+        self.combined_page_a_url = ""
+        self.combined_page_b_url = ""
         self.sentinel_origin = ""
         self.cleanup_complete = False
 
@@ -682,6 +687,90 @@ class DynamicLoopbackSite:
                         "text/html; charset=utf-8",
                     )
                     return
+                if route == "/combined/basic":
+                    html = """<!doctype html>
+                    <html><body>
+                      <a id="static-only"
+                        href="/combined/static-only?static_only=1">static</a>
+                      <a href="/combined/shared?shared=1">shared</a>
+                      <script>
+                        document.querySelector("#static-only").remove();
+                        const dynamic = document.createElement("a");
+                        dynamic.href = "/combined/dynamic-only?dynamic_only=1";
+                        dynamic.textContent = "dynamic";
+                        document.body.appendChild(dynamic);
+                      </script>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/combined/sensitive":
+                    html = """<!doctype html>
+                    <html><body>
+                      <a href="/combined/collision?q=safe">safe</a>
+                      <form action="/combined/collision" method="get">
+                        <input type="password" name="q"
+                          value="COMBINED_SECRET_SENTINEL_2c91">
+                      </form>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/combined/multipage":
+                    self._send(
+                        200,
+                        (
+                            b"<html><body>"
+                            b"<a href='/combined/page-a'>page a</a>"
+                            b"<a href='/combined/page-b'>page b</a>"
+                            b"</body></html>"
+                        ),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/combined/page-a":
+                    html = """<!doctype html>
+                    <html><body>
+                      <a href="/combined/static-a?static_a=1">static a</a>
+                      <script>
+                        const dynamic = document.createElement("a");
+                        dynamic.href = "/combined/dynamic-a?dynamic_a=1";
+                        document.body.appendChild(dynamic);
+                      </script>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/combined/page-b":
+                    html = """<!doctype html>
+                    <html><body>
+                      <form action="/combined/shared-search" method="get">
+                        <input name="shared_page" value="b">
+                      </form>
+                      <script>
+                        const form = document.createElement("form");
+                        form.action = "/combined/dynamic-search";
+                        form.method = "get";
+                        form.innerHTML =
+                          '<input name="dynamic_page" value="b">';
+                        document.body.appendChild(form);
+                      </script>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
                 if route in {"/rendered-basic", "/rendered-deterministic"}:
                     html = """<!doctype html>
                     <html>
@@ -1028,6 +1117,11 @@ class DynamicLoopbackSite:
         self.navigation_sensitive_url = (
             navigation_origin + "/navigation/sensitive"
         )
+        self.combined_basic_url = navigation_origin + "/combined/basic"
+        self.combined_sensitive_url = navigation_origin + "/combined/sensitive"
+        self.combined_multipage_url = navigation_origin + "/combined/multipage"
+        self.combined_page_a_url = navigation_origin + "/combined/page-a"
+        self.combined_page_b_url = navigation_origin + "/combined/page-b"
         return self
 
     def __exit__(

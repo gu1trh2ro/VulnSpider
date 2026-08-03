@@ -85,6 +85,27 @@ class DynamicGateManifestTests(unittest.TestCase):
         self.assertEqual(len({case.test_id for case in cases}), 7)
         self.assertTrue(all(case.required for case in cases))
 
+    def test_combined_discovery_manifest_is_explicit_unique_and_linked(self) -> None:
+        cases = gate.COMBINED_DISCOVERY_CASES
+
+        gate.validate_manifest(cases)
+        suite, missing = gate.load_manifest_suite(cases)
+
+        self.assertEqual(
+            [case.case_id for case in cases],
+            [
+                "combined-basic",
+                "combined-sensitive-elision",
+                "combined-multipage",
+                "combined-deterministic",
+                "combined-producer-failure",
+            ],
+        )
+        self.assertEqual(missing, ())
+        self.assertEqual(suite.countTestCases(), 5)
+        self.assertEqual(len({case.test_id for case in cases}), 5)
+        self.assertTrue(all(case.required for case in cases))
+
     def test_missing_or_renamed_test_link_is_rejected(self) -> None:
         missing_case = gate.BrowserManifestCase(
             case_id="missing-test",

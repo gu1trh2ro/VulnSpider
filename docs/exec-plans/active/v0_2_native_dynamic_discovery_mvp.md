@@ -1836,27 +1836,32 @@ strict browser-loopback manifest evidence only.
 
 **Maximum correction loops:** 2
 
-### Milestone 5 — Static and Dynamic Result Merge
+### Milestone 5 — Combined Native Discovery Orchestration
 
 **Objective**
 
-Implement the reviewed Static-first merge and prove canonical identity,
-provenance, readiness, ordering, and ownership across producers.
+Run the existing Native Static and Native Dynamic crawlers through one strict
+Static-first public entry point, validate both components, and hand them to the
+existing reviewed merge core. Prove canonical identity, provenance, readiness,
+ordering, ownership, and explicit degraded completion across producers.
 
 **Allowed files to modify**
 
-- `src/vulnspider/discovery/discovery_merge.py`
-- minimal contract corrections in
-  `src/vulnspider/discovery/contracts.py`
+- `src/vulnspider/discovery/combined.py`
+- minimal compatible-scope correction in `src/vulnspider/discovery/merge.py`
+- minimal Static aggregate safety-marker propagation in
+  `src/vulnspider/discovery/static_crawler.py`
 - `src/vulnspider/discovery/__init__.py`
-- `tests/unit/test_discovery_merge.py`
-- `tests/unit/test_discovery_merge_adversarial.py`
-- existing contract tests for regression
+- `tests/unit/test_combined_discovery.py`
+- narrow existing merge/Gate tests
+- `tests/integration/test_combined_discovery_loopback.py`
+- minimal shared loopback fixture and strict Gate manifest additions
 - this active plan
 
 **Files that must not be modified**
 
-- Static crawler/extractor behavior
+- Static crawler transport/extraction behavior beyond propagating an explicitly
+  declared, already-enforced safety invariant
 - browser lifecycle/navigation behavior
 - pipeline/CLI
 - observation/scoring/selection/reporting
@@ -1864,40 +1869,38 @@ provenance, readiness, ordering, and ownership across producers.
 
 **Public interface added or changed**
 
-- Final `merge_discovery_results(static_result, dynamic_result, policy)`.
-- Section 10 statistics merge implementation.
-- Operational-only Static warning augmentation path; canonical integrity
-  exceptions are excluded from it.
+- `NativeDiscoveryOrchestrator.discover(...) -> CombinedDiscoveryResult`.
+- `discover_native_combined(...) -> CombinedDiscoveryResult` convenience entry.
+- `CombinedDiscoveryResult.discovery` is the validated
+  `NATIVE_COMBINED CanonicalDiscoveryResult` accepted by the existing consumer;
+  producer crawl results and Dynamic `COMPLETE`/`DEGRADED` state remain visible.
+- Existing `merge_discovery_results(static, dynamic, policy)` remains the only
+  canonical identity/conflict/statistics merge implementation.
 
 **Narrow implementation unit**
 
-Accept only independently validated Static and Dynamic results produced through
-the Section 10 pre-canonical-elision contract. Perform no sensitive-form
-detection, filtering, artifact removal, shared-InputPoint reconstruction, value
-scrubbing, or provenance repair. Reject any producer result/test fixture that
-contains password-bearing canonical data, then rebuild aggregate
-run/provenance, merge exact surviving identities, resolve reviewed metadata/
-readiness conflicts, apply every Section 10 statistics rule, call
-`CanonicalDiscoveryResult.create()`, and validate. Exercise N-20 through N-34,
-including the mandatory N-34 collision as already-sanitized inputs: only the
-safe anchor `q` InputPoint may enter merge. Preserve each producer's
-`SENSITIVE_FORM_ELIDED` warning: exact duplicate suppression is allowed only
-inside the same producer, Static and Dynamic warnings are not cross-producer
-deduplicated or synthesized, and aggregate order is Static warnings first then
-Dynamic warnings with existing stable order inside each producer. Never mutate
-either input, compare producer forms, read/match values, or catch
-`DiscoveryContractError` or a proposed typed merge integrity error as an
-operational fallback.
+Validate immutable caller authority before transport. Bind the reviewed
+pre-canonical sensitive-form elision policy to the default Static producer, run
+Static then Dynamic, validate each canonical component, and call the existing
+merge core unchanged for identity/conflict/statistics rules. Producer or
+canonical-integrity exceptions propagate without a Static-only fallback.
+Validated partial Dynamic output may merge, but `CombinedDiscoveryResult`
+retains and serializes `DEGRADED`; it cannot present partial execution as
+complete. Compatible producer-local scope-decision references are preserved as
+a canonical union while root, target-scope identity, and policy version must
+match exactly. No producer object is mutated, no sensitive-form comparison or
+post-canonical filtering occurs, and no Probe/CLI/Feature/Scoring work is added.
 
 **Narrow test command**
 
 ```powershell
 $env:PYTHONPATH='src'
 python -B -m unittest `
+  tests.unit.test_combined_discovery `
   tests.unit.test_discovery_merge `
-  tests.unit.test_discovery_merge_adversarial `
-  tests.unit.test_discovery_contract `
-  tests.unit.test_discovery_contract_adversarial
+  tests.unit.test_dynamic_gate `
+  tests.integration.test_combined_discovery_loopback
+python -B tools/check_dynamic_gate.py --suite combined-discovery
 ```
 
 **Complete regression command**
@@ -1965,11 +1968,12 @@ git diff --check
 
 **Focused commit boundary**
 
-Validated deterministic Static-plus-Dynamic merge only.
+Strict Static-plus-Dynamic orchestration, direct seam corrections, and its
+five-case real-Chromium Gate only.
 
 **Proposed focused commit message**
 
-`feat(discovery): merge static and dynamic results`
+`feat(discovery): orchestrate combined native discovery`
 
 **Maximum correction loops:** 2
 
@@ -2716,16 +2720,16 @@ dumps.
 
 ## 22. Completion Checklist
 
-- [ ] Plan approved.
-- [ ] Aggregate contract and merge policy approved by producer and consumer.
+- [x] Plan approved.
+- [x] Aggregate contract and merge policy approved by producer and consumer.
 - [x] Dependency declaration strategy approved.
 - [x] Browser binary installation strategy approved.
 - [x] Dynamic default budgets approved.
-- [ ] Milestone 1 implemented and focused narrow tests passed.
+- [x] Milestone 1 implemented and focused narrow tests passed.
 - [x] Milestone 2 implemented and focused narrow tests passed.
 - [x] Milestone 3 implemented and focused narrow tests passed.
 - [x] Milestone 4 implemented and focused narrow tests passed.
-- [ ] Milestone 5 implemented and focused narrow tests passed.
+- [x] Milestone 5 implemented and focused narrow tests passed.
 - [ ] Milestone 6 implemented and focused narrow tests passed.
 - [ ] Milestone 7 implemented and focused narrow tests passed.
 - [ ] Full regression passed after every milestone.
@@ -2965,6 +2969,39 @@ dumps.
   topology/provenance/completion validation, and pre-target duplicate redirect
   blocking. Re-review passed with Critical 0, High 0, Medium 0, and Low 0 and
   independently confirmed zero worker, temporary directory, or Chromium leak.
+- 2026-08-03: Implemented Milestone 5 combined orchestration. The new strict
+  public handoff runs Native Static before Native Dynamic, validates both
+  components, preserves producer-local scope-decision references, and delegates
+  all canonical identity/conflict/statistics behavior to the existing merge
+  core. `CombinedDiscoveryResult` retains both producer results and exposes
+  Dynamic `COMPLETE`/`DEGRADED` state while its `discovery` member is directly
+  consumable by the existing canonical analysis boundary. No CLI, Probe,
+  Feature, Scoring, Top-K, or generalized pipeline work was added.
+- 2026-08-03: Milestone 5 pre-review verification passed real-Chromium
+  `combined-discovery` 5/5, retained `browser-loopback` 15/15, `rendered-dom`
+  6/6, and `bounded-navigation` 7/7, all with skipped 0, failed 0, missing 0,
+  and `FINAL=PASS`. Full repository regression passed 399 tests, Native Static
+  E2E passed 1, v0.1 smoke passed 7, and format, lint, type-hint, and
+  `git diff --check` passed.
+- 2026-08-03: The one requested Independent Gate Review returned `BLOCK` with
+  Critical 0, High 4, Medium 1, and Low 0. High findings covered a caller-
+  asserted Static safety marker, missing crawl-wrapper revalidation, an
+  uncorrelated public combined handoff, and a mock-only fifth strict-Gate case.
+  The single permitted correction loop removed the caller marker, revalidated
+  both complete crawl wrappers, required the handoff to equal a fresh pure
+  merge of its retained producers, and replaced the mock-only manifest link
+  with an actual Chromium operational-failure case.
+- 2026-08-03: Post-correction verification passed focused orchestration/merge/
+  Gate unit tests 36/36, actual-Chromium `combined-discovery` 5/5 with skipped
+  0, failed 0, missing 0 and `FINAL=PASS`, and full repository regression
+  402/402. The correction audit leaves Critical 0 and High 0. One non-blocking
+  Medium remains recorded: the shared fixture redacts query strings before
+  storing `LoopbackRequest.path`, so the sensitive test's path-level sentinel
+  assertion is weaker than a dedicated secret-free forbidden-query counter.
+  Canonical serialization, producer warning cardinality, zero POST, safe-anchor
+  preservation, and the actual Gate remain green. Per the requested single
+  independent review limit, no second independent review was run; Milestone 5
+  is `COMPLETE` with this recorded Medium follow-up.
 
 ### Gate Review Correction Record
 
@@ -2982,6 +3019,11 @@ dumps.
 | M4-NAV-H-03 | Preserved crawler canonical and authority exceptions across the managed operation boundary and re-raised them after browser cleanup | 15, 17, 21; Milestone 4 | Addressed in Correction Loop 1; focused re-review passed |
 | M4-NAV-H-04 | Enforced visited/root/origin/order, parent-depth, page provenance, depth-budget, and completion/termination invariants in the public Dynamic handoff | 3, 10, 17; Milestone 4 | Addressed in Correction Loop 1; focused re-review passed |
 | M4-NAV-H-05 | Blocked previously dispatched redirect targets at the Location decision before target transport and added reverse-order real-Chromium evidence | 5, 14, 17; Milestone 4 | Addressed in Correction Loop 1; focused re-review passed |
+| M5-ORCH-H-01 | Removed caller-asserted Static safety markers; aggregate safety evidence now comes only from the policy-bound extractor output | 9, 17, 22; Milestone 5 | Addressed in the single correction loop; focused adversarial tests passed |
+| M5-ORCH-H-02 | Reconstructed both frozen crawl wrappers through their validators before merge and handoff construction | 10, 15, 17; Milestone 5 | Addressed in the single correction loop; mutated completion/termination proof now fails closed |
+| M5-ORCH-H-03 | Required every public combined handoff to equal a fresh existing-core merge of its retained producer components and policy | 3, 10, 17; Milestone 5 | Addressed in the single correction loop; unrelated valid aggregate proof now fails closed |
+| M5-ORCH-H-04 | Replaced the mock-only fifth strict-Gate link with a concrete Chromium operational-failure/degraded-result case | 14, 17, 20, 22; Milestone 5 | Addressed in the single correction loop; strict Gate passed 5/5 actual Chromium |
+| M5-ORCH-M-01 | Shared fixture request records omit query strings, weakening one path-level sentinel assertion; canonical/server-count safety evidence remains green | 14, 17, 22; Milestone 5 | Recorded non-blocking follow-up; not changed in the Critical/High-only correction loop |
 | C-01 | Separated discovery eligibility from immutable exact caller navigation/resource authority; unauthorized same-origin GET remains discovery-only and is tested with zero server counters | 1, 3–9, 13–18, 20–22; Milestones 2, 4, 6, 7 | Addressed in Correction Loop 1 |
 | H-01 | Made every context sharing a sensitive-redacted form template PARTIAL/NOT_READY and prohibited execution or sibling upgrade | 9, 10, 12–18, 22; Milestones 1, 3, 5, 6 | Addressed in Correction Loop 1 |
 | H-02 | Defined every existing `CrawlStatistics` field, aggregate arithmetic, component validation, partial behavior, and adversarial tests | 10, 14–18, 21–22; Milestones 1, 5, 7 | Addressed in Correction Loop 1 |
