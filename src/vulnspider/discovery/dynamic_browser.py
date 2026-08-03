@@ -741,7 +741,11 @@ def _browser_launch_options(
 ) -> dict[str, Any]:
     browser_environment = dict(os.environ)
     browser_environment["CHROME_LOG_FILE"] = os.devnull
-    options: dict[str, Any] = {"headless": True, "env": browser_environment}
+    options: dict[str, Any] = {
+        "headless": True,
+        "env": browser_environment,
+        "args": [f"--log-file={os.devnull}"],
+    }
     if timeout_seconds is not None:
         options["timeout"] = max(1.0, timeout_seconds * 1000.0)
     return options

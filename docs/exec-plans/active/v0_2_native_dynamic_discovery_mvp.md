@@ -2731,47 +2731,47 @@ dumps.
 - [x] Milestone 4 implemented and focused narrow tests passed.
 - [x] Milestone 5 implemented and focused narrow tests passed.
 - [x] Milestone 6 implemented and focused narrow tests passed.
-- [ ] Milestone 7 implemented and focused narrow tests passed.
-- [ ] Full regression passed after every milestone.
-- [ ] Format, lint, type-hint, and `git diff --check` passed after every
+- [x] Milestone 7 implemented and focused narrow tests passed.
+- [x] Full regression passed after every milestone.
+- [x] Format, lint, type-hint, and `git diff --check` passed after every
   milestone.
-- [ ] Independent Gate Review passed after every milestone.
-- [ ] Maximum two correction loops was respected for each milestone.
-- [ ] All Critical/High findings were resolved.
-- [ ] Medium/Low deferrals were recorded without prolonging the milestone.
-- [ ] Each milestone produced at most one focused commit.
-- [ ] Final loopback E2E passed.
-- [ ] External-origin request count is zero.
-- [ ] Cross-origin navigation count is zero.
-- [ ] POST submission count is zero.
-- [ ] Unauthorized same-origin unsafe endpoint request counts are zero.
-- [ ] WebSocket denial hook was installed before every page; attempt/block
+- [x] Independent Gate Review passed after every milestone.
+- [x] Maximum two correction loops was respected for each milestone.
+- [x] All Critical/High findings were resolved.
+- [x] Medium/Low deferrals were recorded without prolonging the milestone.
+- [x] Each milestone produced at most one focused commit.
+- [x] Final loopback E2E passed.
+- [x] External-origin request count is zero.
+- [x] Cross-origin navigation count is zero.
+- [x] POST submission count is zero.
+- [x] Unauthorized same-origin unsafe endpoint request counts are zero.
+- [x] WebSocket denial hook was installed before every page; attempt/block
   counts match and browser connected/server handshake/server connection counts
   are zero.
-- [ ] EventSource attempt/block counts match and browser allowed/server request
+- [x] EventSource attempt/block counts match and browser allowed/server request
   counts are zero.
-- [ ] Server and browser audit counters agree for popup, frame, redirect,
+- [x] Server and browser audit counters agree for popup, frame, redirect,
   location, fetch/XHR, navigation, and cleanup behavior.
-- [ ] Child-frame attach/request/block/commit/completion/detach evidence,
+- [x] Child-frame attach/request/block/commit/completion/detach evidence,
   internal-document classifications, safe bounded origin summaries, and server
   counters jointly prove zero authorized child completion.
-- [ ] Every sensitive raw form is elided before value collection and canonical
+- [x] Every sensitive raw form is elided before value collection and canonical
   construction; it contributes no Endpoint/InputPoint/template/context/
   readiness/provenance, no GET/POST executes, form-only Endpoints are absent,
   and independent safe discoveries remain unaffected.
-- [ ] The N-34 safe-anchor/password-form collision contains only the safe
+- [x] The N-34 safe-anchor/password-form collision contains only the safe
   `q` InputPoint, safe `baseline_values`/raw-query metadata, zero password
   artifacts, valid ownership, and zero `PW_SENTINEL`. When both producers
   observe the form, it contains exactly two `SENSITIVE_FORM_ELIDED` warnings:
   one Static then one Dynamic, both secret-free and neither converted into a
   finding.
-- [ ] Aggregate statistics satisfy every Section 10 rule.
+- [x] Aggregate statistics satisfy every Section 10 rule.
 - [x] Strict Dynamic gate executed real Chromium with zero required skips.
 - [x] Milestone 4 strict `bounded-navigation` manifest executed all seven owned
   real-Chromium cases while the retained `browser-loopback` 15-case and
   `rendered-dom` six-case manifests remained green; every suite matched
   expected/executed counts with zero skipped, failed, or missing cases.
-- [ ] Capability, integrity, and degraded operational exit paths match Section
+- [x] Capability, integrity, and degraded operational exit paths match Section
   21.
 - [x] Password/secret scan by diff review found no leaked value/artifact.
 - [x] Existing Static Discovery and v0.1 smoke suites remain green.
@@ -2786,17 +2786,9 @@ dumps.
 
 ### Plan record
 
-- Status: Milestones 2, 3, and 4 are COMPLETE. The managed lifecycle, immutable
-  exact request authority, shared bounded HTTP/WebSocket guards, secret-free
-  audit, deterministic cleanup, loopback harness, and explicit non-skippable
-  15-case `browser-loopback` manifest cover Milestone 2. The isolated-world,
-  bounded rendered snapshot, pre-canonical sensitive-form elision, canonical
-  Native Dynamic extraction, and explicit non-skippable six-case `rendered-dom`
-  manifest cover Milestone 3. Deterministic rendered-anchor BFS, exact caller
-  authority, canonical deduplication, page/depth/navigation/time bounds,
-  page-owned Native Dynamic components, and the non-skippable seven-case
-  `bounded-navigation` manifest cover Milestone 4. Milestones 5 onward remain
-  pending.
+- Status: Milestones 1 through 7 and the Native Dynamic Discovery MVP are
+  COMPLETE locally. The feature-branch push, PR, teammate review, and merge
+  remain separate follow-up actions.
 - Baseline: `origin/main` and branch base
   `7598fdee9fabd1372b1c9e5810792aed26b1c45c`.
 - 2026-07-27: Initial repository-grounded plan drafted. No runtime code, test,
@@ -3021,11 +3013,39 @@ dumps.
   supervised worker seam; both re-reviews returned `PASS` with Critical 0,
   High 0, and no Medium/Low deferrals. Milestone 6 is `COMPLETE`; Milestone 7
   remains unimplemented.
+- 2026-08-03: Implemented the Milestone 7 final loopback scenario and strict
+  seven-case `final` manifest. Two independent public `cli.main()` executions
+  used real Chromium and the real loopback probe transport, retained 11
+  canonical input points with READY/NOT_READY counts 9/2, executed nine paired
+  baseline/probe plans, emitted 18 selected findings consistently to JSON and
+  HTML, preserved N-34's safe-only `q` metadata and Static-then-Dynamic warning
+  pair, and recorded zero sentinel, cross-authority, POST, process, temporary-
+  directory, or `debug.log` residue. A failing cleanup assertion exposed a
+  Chromium log in the caller working directory; the narrow correction isolated
+  the supervised Dynamic worker in its owned temporary directory and directed
+  Chromium logging to the null device without changing crawl semantics.
+- 2026-08-03: Milestone 7 pre-review verification passed focused E2E 7/7 and
+  strict real-Chromium gates `final` 7/7, `browser-loopback` 15/15,
+  `rendered-dom` 6/6, `bounded-navigation` 7/7, and `combined-discovery` 5/5;
+  every gate reported skipped 0, failed 0, missing 0, and `FINAL=PASS`. Full
+  repository regression passed 417/417; Native Static E2E passed 1/1 and v0.1
+  smoke passed 7/7. Format, lint, type-hint, and `git diff --check` passed before
+  the single Independent Gate Review.
+- 2026-08-03: The one Independent Gate Reviewer initially returned `BLOCK`
+  with Critical 0, High 1, Medium 0, and Low 0 because the deterministic report
+  comparison sorted candidate identities and could miss cross-run result-order
+  drift. The single permitted correction compares scoring-result order,
+  authoritative selection order, and JSON candidate identity order directly.
+  Focused E2E 7/7, strict `final` 7/7 with skipped/failed/missing 0 and
+  `FINAL=PASS`, plus format, lint, type-hint, and `git diff --check` passed after
+  the correction. The same reviewer returned `PASS` with Critical/High/Medium/
+  Low all 0. Milestone 7 and the Native Dynamic Discovery MVP are `COMPLETE`.
 
 ### Gate Review Correction Record
 
 | Finding ID | Correction Summary | Affected Sections | Status |
 |---|---|---|---|
+| M7-E2E-H-01 | Replaced sorted cross-run candidate comparison with direct scoring-result, authoritative selection, and JSON candidate identity order checks | 17; Milestone 7 | Addressed in the single correction; same-reviewer re-review passed |
 | M2-STRICT-H-01 | Replaced synthetic effective redirect URLs with guarded one-hop `location.replace` navigations; added actual final-URL, final-path relative-resource, and same-origin-intermediate-to-cross-authority sentinel evidence | 13, 14, 17; Milestone 2 | Addressed in Correction Loop 1; focused re-review passed |
 | M2-LIFECYCLE-H-01 | Made HTTP and WebSocket share one atomic transport-decision budget, requested one active-page stop on first overflow, bounded post-overflow accounting, and added unit plus sustained real-Chromium evidence | 7, 13, 14; Milestone 2 | Addressed in Correction Loop 1; focused re-review passed |
 | M3-RENDERED-C-01 | Moved snapshot evaluation from the target page main world to a fresh main-frame CDP isolated world with a fixed one-second evaluation timeout; added prototype-poisoning and cleanup evidence | 6, 14, 17; Milestone 3 | Addressed in Correction Loop 1; focused re-review passed |

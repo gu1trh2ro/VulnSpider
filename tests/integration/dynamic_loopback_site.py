@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 class LoopbackRequest:
     method: str
     path: str
+    raw_target: str
 
 
 class _QuietThreadingHttpServer(ThreadingHTTPServer):
@@ -125,6 +126,8 @@ class DynamicLoopbackSite:
         self.combined_multipage_url = ""
         self.combined_page_a_url = ""
         self.combined_page_b_url = ""
+        self.final_e2e_url = ""
+        self.final_e2e_follow_url = ""
         self.sentinel_origin = ""
         self.cleanup_complete = False
 
@@ -771,6 +774,59 @@ class DynamicLoopbackSite:
                         "text/html; charset=utf-8",
                     )
                     return
+                if route == "/final-e2e":
+                    html = f"""<!doctype html>
+                    <html><body>
+                      <a id="static-only"
+                        href="/final/static?static_only=source">static</a>
+                      <a href="/final/shared?shared=duplicate">shared</a>
+                      <a href="/final/repeated?repeat=one&amp;repeat=two&amp;fixed=keep">
+                        repeated
+                      </a>
+                      <a href="/final/probe?probe_target=base&amp;fixed=keep">probe</a>
+                      <a href="/final/search?q=safe">safe search</a>
+                      <a href="/final-e2e/follow">follow</a>
+                      <a href="{site.sentinel_origin}/outside">outside</a>
+                      <form action="/final/search" method="get">
+                        <input type="password" name="q" value="PW_SENTINEL">
+                      </form>
+                      <script>
+                        document.querySelector("#static-only").remove();
+                        const dynamic = document.createElement("a");
+                        dynamic.href = "/final/dynamic?dynamic_only=rendered";
+                        dynamic.textContent = "dynamic";
+                        document.body.appendChild(dynamic);
+                      </script>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/final-e2e/follow":
+                    html = """<!doctype html>
+                    <html><body>
+                      <script>
+                        const form = document.createElement("form");
+                        form.action = "/final/follow-search";
+                        form.method = "get";
+                        form.innerHTML =
+                          '<input name="dynamic_follow" value="page-two">' +
+                          '<input name="follow_fixed" value="keep">';
+                        document.body.appendChild(form);
+                      </script>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route.startswith("/final/"):
+                    body = f"request-target:{self.path}".encode("utf-8")
+                    self._send(200, body, "text/plain; charset=utf-8")
+                    return
                 if route in {"/rendered-basic", "/rendered-deterministic"}:
                     html = """<!doctype html>
                     <html>
@@ -1122,6 +1178,8 @@ class DynamicLoopbackSite:
         self.combined_multipage_url = navigation_origin + "/combined/multipage"
         self.combined_page_a_url = navigation_origin + "/combined/page-a"
         self.combined_page_b_url = navigation_origin + "/combined/page-b"
+        self.final_e2e_url = navigation_origin + "/final-e2e"
+        self.final_e2e_follow_url = navigation_origin + "/final-e2e/follow"
         return self
 
     def __exit__(
@@ -1166,4 +1224,6 @@ class DynamicLoopbackSite:
     ) -> None:
         route = urlsplit(path).path
         with self._lock:
-            log.append(LoopbackRequest(method=method, path=route))
+            log.append(
+                LoopbackRequest(method=method, path=route, raw_target=path)
+            )

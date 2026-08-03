@@ -29,6 +29,7 @@ SUITE_BROWSER_LOOPBACK = "browser-loopback"
 SUITE_RENDERED_DOM = "rendered-dom"
 SUITE_BOUNDED_NAVIGATION = "bounded-navigation"
 SUITE_COMBINED_DISCOVERY = "combined-discovery"
+SUITE_FINAL = "final"
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,11 +320,54 @@ COMBINED_DISCOVERY_CASES = (
     ),
 )
 
+FINAL_CASES = tuple(
+    BrowserManifestCase(
+        case_id,
+        (
+            "tests.integration.test_native_dynamic_discovery_e2e."
+            "NativeDynamicDiscoveryE2ETests."
+            f"test_{case_id.replace('-', '_')}"
+        ),
+        invariant,
+    )
+    for case_id, invariant in (
+        (
+            "final-cli-combined-probe",
+            "The public CLI runs combined discovery through READY GET probes.",
+        ),
+        (
+            "final-sensitive-secret-free",
+            "The password sentinel is absent from canonical, request, and report surfaces.",
+        ),
+        (
+            "final-cross-authority-zero",
+            "The cross-authority sentinel server receives zero requests.",
+        ),
+        (
+            "final-output-consistency",
+            "JSON and HTML render the same authoritative selected findings.",
+        ),
+        (
+            "final-deterministic",
+            "Two independent public CLI runs retain every deterministic identity.",
+        ),
+        (
+            "final-cleanup",
+            "Browser, worker, temporary-directory, and loopback cleanup is complete.",
+        ),
+        (
+            "final-n34-safe-anchor-collision",
+            "N-34 retains only safe anchor metadata and two producer warnings.",
+        ),
+    )
+)
+
 MANIFESTS = {
     SUITE_BROWSER_LOOPBACK: BROWSER_LOOPBACK_CASES,
     SUITE_RENDERED_DOM: RENDERED_DOM_CASES,
     SUITE_BOUNDED_NAVIGATION: BOUNDED_NAVIGATION_CASES,
     SUITE_COMBINED_DISCOVERY: COMBINED_DISCOVERY_CASES,
+    SUITE_FINAL: FINAL_CASES,
 }
 
 

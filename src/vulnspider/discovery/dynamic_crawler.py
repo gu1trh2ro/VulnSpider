@@ -459,6 +459,18 @@ class DynamicCrawler:
             )
             environment = dict(os.environ)
             environment[_DYNAMIC_WORKER_ENV] = "1"
+            parent_cwd = Path.cwd()
+            python_path_entries = [
+                Path(item) if Path(item).is_absolute() else parent_cwd / item
+                for item in environment.get("PYTHONPATH", "").split(os.pathsep)
+                if item
+            ]
+            source_root = Path(__file__).resolve().parents[2]
+            if source_root not in python_path_entries:
+                python_path_entries.insert(0, source_root)
+            environment["PYTHONPATH"] = os.pathsep.join(
+                str(item.resolve()) for item in python_path_entries
+            )
             command = (
                 sys.executable,
                 "-B",
@@ -475,6 +487,7 @@ class DynamicCrawler:
                 "stdin": subprocess.DEVNULL,
                 "stdout": subprocess.DEVNULL,
                 "stderr": subprocess.DEVNULL,
+                "cwd": temp_dir,
             }
             if os.name == "nt":
                 process_options["creationflags"] = (
