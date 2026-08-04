@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from functools import partial
 from ipaddress import ip_address
@@ -33,6 +33,7 @@ from vulnspider.discovery import (
 )
 from vulnspider.domain import (
     Endpoint,
+    FeatureVector,
     HttpMethod,
     InputPoint,
     InputPointRequestContext,
@@ -85,6 +86,7 @@ class AnalysisResult:
     discovery_result: CanonicalDiscoveryResult | None = None
     crawl_result: StaticCrawlResult | None = None
     combined_result: CombinedDiscoveryResult | None = None
+    feature_vectors: tuple[FeatureVector, ...] = ()
 
     @property
     def dynamic_crawl_result(self) -> DynamicCrawlResult | None:
@@ -197,6 +199,11 @@ def analyze_url(
     transport: RequestTransport | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
+    on_crawl_validated: Callable[
+        [StaticCrawlResult | CombinedDiscoveryResult], None
+    ]
+    | None = None,
+    elide_sensitive_forms: bool = False,
 ) -> AnalysisResult:
     """Analyze Static discovery, or explicit Static-plus-Dynamic discovery."""
 
@@ -204,6 +211,10 @@ def analyze_url(
         raise PipelineError(
             "crawler and crawler_transport cannot be supplied together"
         )
+    if on_crawl_validated is not None and not callable(on_crawl_validated):
+        raise PipelineError("on_crawl_validated must be callable")
+    if type(elide_sensitive_forms) is not bool:
+        raise PipelineError("elide_sensitive_forms must be a bool")
     if dynamic_authority is None and (
         dynamic_policy is not None or dynamic_crawler is not None
     ):
@@ -237,6 +248,8 @@ def analyze_url(
             raise DynamicIntegrityError(
                 "combined discovery wrapper failed revalidation"
             ) from exc
+        if on_crawl_validated is not None:
+            on_crawl_validated(combined)
         analysis = analyze_discovery_result(
             combined.discovery,
             top_k=top_k,
@@ -254,14 +267,28 @@ def analyze_url(
             combined_result=combined,
         )
 
-    active_crawler = crawler
-    if active_crawler is None:
-        active_crawler = (
-            StaticCrawler(transport=crawler_transport)
-            if crawler_transport is not None
-            else StaticCrawler()
+    if elide_sensitive_forms:
+        active_crawler = _combined_static_crawler(
+            crawler=crawler,
+            crawler_transport=crawler_transport,
         )
+    else:
+        active_crawler = crawler
+        if active_crawler is None:
+            active_crawler = (
+                StaticCrawler(transport=crawler_transport)
+                if crawler_transport is not None
+                else StaticCrawler()
+            )
     crawl_result = active_crawler.crawl(root_url, crawl_policy)
+    if type(crawl_result) is not StaticCrawlResult:
+        raise PipelineError("Static discovery must return StaticCrawlResult")
+    try:
+        crawl_result = replace(crawl_result)
+    except (TypeError, ValueError) as exc:
+        raise PipelineError("Static discovery result failed revalidation") from exc
+    if on_crawl_validated is not None:
+        on_crawl_validated(crawl_result)
     analysis = analyze_discovery_result(
         crawl_result.discovery,
         top_k=top_k,
@@ -342,6 +369,7 @@ def _analyze_contexts(
     )
     planner = ProbePlanner()
     scoring_results: list[ScoringResult] = []
+    feature_vectors: list[FeatureVector] = []
     probe_observations: list[ProbeObservation] = []
     warnings = list(initial_warnings)
     started = monotonic()
@@ -376,6 +404,7 @@ def _analyze_contexts(
             execution.baseline_response,
             execution.probe_response,
         )
+        feature_vectors.append(feature_vector)
         probe_observations.append(
             ProbeObservation(
                 feature_vector_id=feature_vector.id or "",
@@ -397,6 +426,7 @@ def _analyze_contexts(
         probe_observations=tuple(probe_observations),
         elapsed_seconds=elapsed_seconds,
         discovery_result=discovery_result,
+        feature_vectors=tuple(feature_vectors),
     )
 
 

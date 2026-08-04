@@ -784,6 +784,7 @@ class DynamicLoopbackSite:
                       </head>
                       <body>
                         <div id="simple-root"></div>
+                        <a href="/simple-cli/static?simple_static=source">static</a>
                         <script src="/simple-cli.js"></script>
                       </body>
                     </html>"""
@@ -858,6 +859,13 @@ class DynamicLoopbackSite:
                     self._send(
                         200,
                         b"<html><body>simple dynamic follow</body></html>",
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/simple-cli/static":
+                    self._send(
+                        200,
+                        b"<html><body>simple static follow</body></html>",
                         "text/html; charset=utf-8",
                     )
                     return

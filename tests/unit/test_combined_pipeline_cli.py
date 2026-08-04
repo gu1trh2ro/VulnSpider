@@ -360,6 +360,7 @@ class CombinedPipelineTests(unittest.TestCase):
             ),
         )
         probe_transport = MarkerTransport()
+        published: list[CombinedDiscoveryResult] = []
 
         with patch(
             "vulnspider.pipeline.discover_native_combined",
@@ -370,9 +371,36 @@ class CombinedPipelineTests(unittest.TestCase):
                 top_k=1,
                 dynamic_authority=DynamicRequestAuthority(ROOT_URL),
                 transport=probe_transport,
+                on_crawl_validated=published.append,
             )
 
         self.assertEqual(probe_transport.requests, [])
+        self.assertEqual(published, [])
+
+    def test_validated_combined_crawl_is_handed_off_before_probe_failure(self) -> None:
+        combined = _combined_result()
+        published: list[CombinedDiscoveryResult | StaticCrawlResult] = []
+
+        with (
+            patch(
+                "vulnspider.pipeline.discover_native_combined",
+                return_value=combined,
+            ),
+            patch(
+                "vulnspider.pipeline.analyze_discovery_result",
+                side_effect=PipelineError("probe failure"),
+            ),
+            self.assertRaisesRegex(PipelineError, "probe failure"),
+        ):
+            analyze_url(
+                ROOT_URL,
+                top_k=1,
+                dynamic_authority=DynamicRequestAuthority(ROOT_URL),
+                on_crawl_validated=published.append,
+            )
+
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0], combined)
 
 
 class CombinedCliTests(unittest.TestCase):

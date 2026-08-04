@@ -52,22 +52,41 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
                     primary_requests = site.primary_requests
                     sentinel_requests = site.sentinel_requests
                     follow_url = site.simple_cli_follow_url
-                output_path = Path(workdir) / "vulnspider-result.json"
-                output_text = output_path.read_text(encoding="utf-8")
-                report = json.loads(output_text)
+                crawl_path = Path(workdir) / "vulnspider-crawl.json"
+                analysis_path = Path(workdir) / "vulnspider-analysis.json"
+                crawl_text = crawl_path.read_text(encoding="utf-8")
+                analysis_text = analysis_path.read_text(encoding="utf-8")
+                crawl_report = json.loads(crawl_text)
+                analysis_report = json.loads(analysis_text)
             finally:
                 os.chdir(original_cwd)
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(captured), 1)
         self.assertEqual(stderr.getvalue(), "")
-        self.assertEqual(len(stdout.getvalue().splitlines()), 2)
+        self.assertEqual(len(stdout.getvalue().splitlines()), 3)
         self.assertIn("mode=dynamic", stdout.getvalue())
-        self.assertIn("vulnspider-result.json", stdout.getvalue())
+        self.assertIn("vulnspider-crawl.json", stdout.getvalue())
+        self.assertIn("vulnspider-analysis.json", stdout.getvalue())
         self.assertNotIn(SENTINEL, stdout.getvalue())
         self.assertNotIn(SENTINEL, stderr.getvalue())
-        self.assertNotIn(SENTINEL, output_text)
-        self.assertEqual(report["summary"]["top_k_requested"], 10)
+        self.assertNotIn(SENTINEL, crawl_text)
+        self.assertNotIn(SENTINEL, analysis_text)
+        self.assertEqual(crawl_report["report_kind"], "crawl")
+        self.assertEqual(crawl_report["crawl_mode"], "combined")
+        self.assertEqual(crawl_report["completion"], "COMPLETE")
+        self.assertFalse(crawl_report["degraded"])
+        self.assertNotIn("probe_observations", crawl_report)
+        self.assertNotIn("feature_vectors", crawl_report)
+        self.assertNotIn("scoring_results", crawl_report)
+        self.assertNotIn("candidates", crawl_report)
+        self.assertEqual(analysis_report["report_kind"], "analysis")
+        self.assertEqual(analysis_report["summary"]["top_k_requested"], 10)
+        self.assertTrue(analysis_report["ready_context_ids"])
+        self.assertTrue(analysis_report["executed_input_point_ids"])
+        self.assertTrue(analysis_report["probe_observations"])
+        self.assertTrue(analysis_report["feature_vectors"])
+        self.assertTrue(analysis_report["scoring_results"])
 
         analysis = captured[0]
         combined = analysis.combined_result
@@ -79,6 +98,39 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
             json.dumps(combined.to_dict(), sort_keys=True),
         )
         self.assertIn(follow_url, combined.dynamic_crawl.visited_urls)
+        crawl_discovery = crawl_report["crawl"]["discovery"]
+        crawl_input_ids = {
+            item["id"] for item in crawl_discovery["input_points"]
+        }
+        self.assertEqual(
+            set(analysis_report["crawl_reference"]["input_point_ids"]),
+            crawl_input_ids,
+        )
+        self.assertTrue(
+            set(analysis_report["executed_input_point_ids"]) <= crawl_input_ids
+        )
+        for observation in analysis_report["probe_observations"]:
+            self.assertIn(observation["input_point_id"], crawl_input_ids)
+            self.assertEqual(
+                observation["probe_plan"]["input_point_id"],
+                observation["input_point_id"],
+            )
+            self.assertTrue(observation["response_pair_ids"])
+        static_names = {
+            item["name"]
+            for item in crawl_report["crawl"]["static_crawl"]["discovery"][
+                "input_points"
+            ]
+        }
+        dynamic_names = {
+            item["name"]
+            for item in crawl_report["crawl"]["dynamic_crawl"]["discovery"][
+                "input_points"
+            ]
+        }
+        self.assertIn("simple_static", static_names)
+        self.assertNotIn("simple_dynamic", static_names)
+        self.assertIn("simple_dynamic", dynamic_names)
         audit = combined.dynamic_crawl.browser_audit
         self.assertTrue(audit.cleanup_complete)
         self.assertGreaterEqual(audit.websocket_attempt_count, 1)
@@ -109,6 +161,7 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertIn("/simple-cli.js", requested_paths)
         self.assertIn("/simple-cli.css", requested_paths)
         self.assertIn("/simple-cli/follow", requested_paths)
+        self.assertIn("/simple-cli/static", requested_paths)
         self.assertFalse(
             requested_paths
             & {

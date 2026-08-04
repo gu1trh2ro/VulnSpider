@@ -37,12 +37,18 @@ Use `docs/DOMAIN_MODEL.md`, `docs/FEATURE_SCHEMA.md`, and
 ## Implemented analysis entry points
 
 The default user command runs the existing combined discovery and Light Probe
-pipeline and atomically writes `vulnspider-result.json` in the current
-directory:
+pipeline and atomically writes two reports in the current directory:
+
+- `vulnspider-crawl.json`: the validated Combined Discovery result, including
+  Static/Dynamic provenance, READY/NOT_READY contexts, crawl statistics, and
+  completion state.
+- `vulnspider-analysis.json`: executed ProbePlan/response identities, retained
+  observations and features, scoring evidence, and the existing Top-K fields,
+  linked by stable InputPoint IDs to the crawl report.
 
 ```powershell
 vulnspider -u http://127.0.0.1:8080/
-vulnspider -u http://127.0.0.1:8080/ -o result.json
+vulnspider -u http://127.0.0.1:8080/ --crawl-output crawl.json -o analysis.json
 vulnspider -u http://127.0.0.1:8080/ --static-only
 ```
 
@@ -54,11 +60,15 @@ frame traversal, cross-origin, and different-port traffic remain blocked by
 default. Existing `--dynamic-allow-navigation` and
 `--dynamic-allow-resource` flags add explicit advanced grants.
 
-The JSON report is rendered completely into a same-directory temporary file
-and replaces the requested destination only after success. Failed or degraded
-simple scans do not publish a partial result. Successful simple scans print
-only a bounded summary and the resolved output path; reports and diagnostics
-do not print raw DOM or sensitive form values.
+Each JSON report is rendered completely into a same-directory temporary file
+and replaces its requested destination only after validation, flush, and
+`fsync`. Invalid discovery publishes neither new file. If validated crawl
+publication succeeds but probe/analysis later fails, the crawl report remains
+available and the analysis report is not published. Degraded Dynamic discovery
+publishes only a crawl report explicitly marked `DEGRADED` and exits with code
+4. Successful simple scans print only a bounded summary and the two resolved
+output paths; reports and diagnostics do not print raw DOM or sensitive form
+values.
 
 The frozen compatibility path consumes legacy crawl records, then performs
 authorized localhost/loopback Light Probes:
@@ -119,8 +129,8 @@ respectively.
 - Explicit `--dynamic` combined Native Discovery with exact, immutable
   navigation/resource authority and lazy Playwright capability checking.
 - Dynamic-first `vulnspider -u URL` adapter with rendered same-origin GET
-  anchor navigation, same-origin script/style loading, atomic default JSON,
-  and `--static-only` compatibility.
+  anchor navigation, same-origin script/style loading, separately atomic crawl
+  and analysis JSON reports, and `--static-only` compatibility.
 - Combined canonical handoff to the existing READY-context analysis consumer;
   NOT_READY contexts remain non-executable.
 - `LegacyCrawlerAdapter` normalization into canonical v0.1 domain models.

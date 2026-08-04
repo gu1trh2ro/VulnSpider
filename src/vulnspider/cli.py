@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 from vulnspider import __version__
 from vulnspider.discovery import (
+    CombinedDiscoveryResult,
     CrawlPolicy,
     DiscoveryContractError,
     DynamicBrowserError,
@@ -26,6 +27,7 @@ from vulnspider.discovery import (
     DynamicResourceGrant,
     DynamicResourceKind,
     StaticCrawler,
+    StaticCrawlResult,
     StaticCrawlerTransport,
 )
 from vulnspider.domain import Endpoint
@@ -35,15 +37,25 @@ from vulnspider.pipeline import (
     analyze_legacy_records,
     analyze_url,
 )
-from vulnspider.reporting import write_html_report, write_json_report
+from vulnspider.reporting import (
+    write_analysis_report,
+    write_crawl_report,
+    write_html_report,
+    write_json_report,
+)
 
 
-_SIMPLE_DEFAULT_OUTPUT = Path("vulnspider-result.json")
+_SIMPLE_DEFAULT_CRAWL_OUTPUT = Path("vulnspider-crawl.json")
+_SIMPLE_DEFAULT_ANALYSIS_OUTPUT = Path("vulnspider-analysis.json")
 _SIMPLE_DEFAULT_TOP_K = 10
 
 
 class CLIError(ValueError):
     """Raised for normal user-facing CLI input errors."""
+
+
+class _SimpleDegradedCrawl(RuntimeError):
+    """Stop the simple adapter before probes when crawl is degraded."""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,7 +64,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="VulnSpider prototype command line interface.",
         epilog=(
             "Simple scan: vulnspider -u http://127.0.0.1:8080/ "
-            "[-o result.json] [--static-only]"
+            "[--crawl-output crawl.json] [-o analysis.json] [--static-only]. "
+            "Defaults: vulnspider-crawl.json and vulnspider-analysis.json."
         ),
     )
     parser.add_argument(
@@ -72,7 +85,14 @@ def build_parser() -> argparse.ArgumentParser:
         dest="simple_output",
         type=Path,
         default=None,
-        help="JSON file (default: vulnspider-result.json).",
+        help="Analysis JSON file (default: vulnspider-analysis.json).",
+    )
+    parser.add_argument(
+        "--crawl-output",
+        dest="simple_crawl_output",
+        type=Path,
+        default=None,
+        help="Crawl JSON file (default: vulnspider-crawl.json).",
     )
     parser.add_argument(
         "--static-only",
@@ -250,6 +270,7 @@ def main(
     parser = build_parser()
     args = parser.parse_args(argv)
     simple_mode = args.command is None and args.simple_url is not None
+    crawl_published = False
     if args.command is None and not simple_mode:
         if _simple_options_without_url(args):
             parser.error("simple scan options require -u/--url")
@@ -262,6 +283,11 @@ def main(
         if simple_mode:
             args = _simple_analysis_args(args)
         _reject_shared_report_destinations(args.output, args.html_output)
+        if simple_mode:
+            _reject_shared_crawl_analysis_destinations(
+                args.crawl_output,
+                args.output,
+            )
         if args.input is not None:
             _reject_native_policy_with_legacy_input(args)
             records = _load_legacy_records(args.input)
@@ -277,6 +303,22 @@ def main(
                 if args.dynamic
                 else None
             )
+            on_crawl_validated = None
+            if simple_mode:
+
+                def publish_crawl(
+                    crawl: StaticCrawlResult | CombinedDiscoveryResult,
+                ) -> None:
+                    nonlocal crawl_published
+                    write_crawl_report(crawl, args.crawl_output)
+                    crawl_published = True
+                    if (
+                        type(crawl) is CombinedDiscoveryResult
+                        and crawl.degraded
+                    ):
+                        raise _SimpleDegradedCrawl
+
+                on_crawl_validated = publish_crawl
             analysis = analyze_url(
                 args.url,
                 top_k=args.top_k,
@@ -289,26 +331,44 @@ def main(
                 ),
                 dynamic_crawler=(dynamic_crawler if args.dynamic else None),
                 transport=transport,
+                on_crawl_validated=on_crawl_validated,
+                elide_sensitive_forms=simple_mode,
             )
+            if simple_mode and not crawl_published:
+                raise CLIError("pipeline did not publish a validated crawl result")
         if (
             simple_mode
             and analysis.combined_result is not None
             and analysis.combined_result.degraded
         ):
+            _print_partial_simple_result(args)
             print(
                 "vulnspider: error: DYNAMIC_INCOMPLETE: "
-                "no successful result was written",
+                "crawl result is degraded; analysis was not written",
                 file=sys.stderr,
             )
             return 4
-        write_json_report(
-            analysis.selection,
-            args.output,
-            warnings=analysis.warnings,
-        )
+        if simple_mode:
+            write_analysis_report(analysis, args.output)
+        else:
+            write_json_report(
+                analysis.selection,
+                args.output,
+                warnings=analysis.warnings,
+            )
         if args.html_output is not None:
             _write_html_report(analysis, args.html_output)
+    except _SimpleDegradedCrawl:
+        _print_partial_simple_result(args)
+        print(
+            "vulnspider: error: DYNAMIC_INCOMPLETE: "
+            "crawl result is degraded; analysis was not written",
+            file=sys.stderr,
+        )
+        return 4
     except (DiscoveryContractError, DynamicIntegrityError, DynamicCrawlerError):
+        if simple_mode and crawl_published:
+            _print_partial_simple_result(args)
         print(
             "vulnspider: error: DYNAMIC_INTEGRITY: "
             "combined discovery failed validation",
@@ -316,12 +376,16 @@ def main(
         )
         return 3
     except DynamicCapabilityError as exc:
+        if simple_mode and crawl_published:
+            _print_partial_simple_result(args)
         print(
             f"vulnspider: error: {exc.code.value}: {exc}; {exc.setup_hint}",
             file=sys.stderr,
         )
         return 2
     except DynamicBrowserError as exc:
+        if simple_mode and crawl_published:
+            _print_partial_simple_result(args)
         if exc.code == DynamicBrowserErrorCode.INVALID_AUTHORITY:
             print(
                 f"vulnspider: error: {exc.code.value}: {exc}",
@@ -334,6 +398,8 @@ def main(
         )
         return 4
     except (OSError, ValueError) as exc:
+        if simple_mode and crawl_published:
+            _print_partial_simple_result(args)
         print(f"vulnspider: error: {exc}", file=sys.stderr)
         return 2
     if analysis.combined_result is not None and analysis.combined_result.degraded:
@@ -344,13 +410,21 @@ def main(
             "vulnspider: scan complete "
             f"(mode={mode}, selected={analysis.selection.summary.selected_results})"
         )
-        print(f"vulnspider: output: {args.output.resolve(strict=False)}")
+        print(
+            "vulnspider: crawl output: "
+            f"{args.crawl_output.resolve(strict=False)}"
+        )
+        print(
+            "vulnspider: analysis output: "
+            f"{args.output.resolve(strict=False)}"
+        )
     return 0
 
 
 def _simple_options_without_url(args: argparse.Namespace) -> bool:
     return bool(
         args.simple_output is not None
+        or args.simple_crawl_output is not None
         or args.static_only
         or args.simple_dynamic_allow_navigation
         or args.simple_dynamic_allow_resource
@@ -370,7 +444,10 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         input=None,
         url=args.simple_url,
         top_k=_SIMPLE_DEFAULT_TOP_K,
-        output=args.simple_output or _SIMPLE_DEFAULT_OUTPUT,
+        output=args.simple_output or _SIMPLE_DEFAULT_ANALYSIS_OUTPUT,
+        crawl_output=(
+            args.simple_crawl_output or _SIMPLE_DEFAULT_CRAWL_OUTPUT
+        ),
         html_output=None,
         max_pages=None,
         max_depth=None,
@@ -440,6 +517,24 @@ def _reject_shared_report_destinations(
         html_destination
     ):
         raise CLIError("--output and --html-output must refer to different files")
+
+
+def _reject_shared_crawl_analysis_destinations(
+    crawl_destination: Path,
+    analysis_destination: Path,
+) -> None:
+    if _normalized_destination(crawl_destination) == _normalized_destination(
+        analysis_destination
+    ):
+        raise CLIError("--crawl-output and --output must refer to different files")
+
+
+def _print_partial_simple_result(args: argparse.Namespace) -> None:
+    print("vulnspider: scan incomplete (crawl=created, analysis=not-written)")
+    print(
+        "vulnspider: crawl output: "
+        f"{args.crawl_output.resolve(strict=False)}"
+    )
 
 
 def _normalized_destination(destination: Path) -> str:
