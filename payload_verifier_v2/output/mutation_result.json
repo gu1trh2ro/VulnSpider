@@ -18,7 +18,7 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": "user_a",
-          "rationale": "Baseline request using the original resource ID and the original authorized user context to establish a reference response.",
+          "rationale": "Baseline request using the original resource ID and the original user context to establish a reference for successful access.",
           "expected_signal": "200 OK",
           "baseline_request": {
             "method": "GET",
@@ -46,7 +46,7 @@
           },
           "auth_context_id": "user_a",
           "rationale": "Testing for Insecure Direct Object Reference (IDOR) by attempting to access a resource owned by user_b while authenticated as user_a.",
-          "expected_signal": "403 Forbidden or 404 Not Found",
+          "expected_signal": "403 Forbidden",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
@@ -73,7 +73,7 @@
           },
           "auth_context_id": "user_b",
           "rationale": "Testing for cross-user access by attempting to access a resource owned by user_a while authenticated as user_b.",
-          "expected_signal": "403 Forbidden or 404 Not Found",
+          "expected_signal": "403 Forbidden",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
@@ -99,7 +99,7 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": "admin",
-          "rationale": "Testing for administrative access to a standard user resource to verify that elevated privileges can access the resource as expected.",
+          "rationale": "Verifying that an administrative user can access a resource owned by user_b, confirming the authorization logic correctly handles elevated privileges.",
           "expected_signal": "200 OK",
           "baseline_request": {
             "method": "GET",
@@ -162,7 +162,7 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": "anonymous",
-          "rationale": "Testing if the overview tab is accessible without authentication, which would indicate a broken access control vulnerability.",
+          "rationale": "Testing if the overview tab is accessible to an anonymous user, which would indicate a broken access control vulnerability.",
           "expected_signal": "401 Unauthorized or 403 Forbidden",
           "baseline_request": {
             "method": "GET",
@@ -189,7 +189,7 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": "admin",
-          "rationale": "Testing if the overview tab is accessible with administrative privileges to ensure consistent access control behavior.",
+          "rationale": "Verifying if an administrative context can access the overview tab, ensuring that elevated privileges do not result in unexpected access patterns.",
           "expected_signal": "200 OK",
           "baseline_request": {
             "method": "GET",
@@ -216,7 +216,7 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": "authenticated_user",
-          "rationale": "Re-verifying the authenticated user access to ensure the baseline remains consistent during the test sequence.",
+          "rationale": "Re-validating the authenticated user access to ensure consistency in the authorization check process.",
           "expected_signal": "200 OK",
           "baseline_request": {
             "method": "GET",
@@ -252,8 +252,8 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": null,
-          "rationale": "Testing with a different valid integer ID to verify standard application behavior for existing resources.",
-          "expected_signal": "HTTP 200 OK with valid product data",
+          "rationale": "Testing baseline response for a different valid numeric identifier to establish a control state.",
+          "expected_signal": "Standard HTTP 200 OK response with content corresponding to the new ID.",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
@@ -271,7 +271,7 @@
         },
         {
           "kind": "true_condition",
-          "value": "1000",
+          "value": "42 OR 1=1",
           "operation": "replace_parameter",
           "target": {
             "location": "query",
@@ -279,8 +279,8 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": null,
-          "rationale": "Testing with a larger valid integer ID to ensure the application handles different numeric inputs correctly.",
-          "expected_signal": "HTTP 200 OK or 404 Not Found depending on database state",
+          "rationale": "Injecting a tautological SQL condition to verify if the application logic evaluates the expression as true.",
+          "expected_signal": "Response identical or similar to the original valid ID request.",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
@@ -290,7 +290,7 @@
           },
           "mutated_request": {
             "method": "GET",
-            "url": "http://127.0.0.1:8899/product?id=1000",
+            "url": "http://127.0.0.1:8899/product?id=42+OR+1%3D1",
             "body": null,
             "auth_context_id": null,
             "credentials_mode": "preserve"
@@ -306,8 +306,8 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": null,
-          "rationale": "Testing with a non-numeric string to verify how the application handles invalid input types.",
-          "expected_signal": "HTTP 400 Bad Request or 404 Not Found",
+          "rationale": "Testing application behavior when provided with non-numeric input to establish a baseline for error handling.",
+          "expected_signal": "HTTP 404 Not Found or a generic error page indicating invalid input format.",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
@@ -325,7 +325,7 @@
         },
         {
           "kind": "false_condition",
-          "value": "999999999999",
+          "value": "42 AND 1=0",
           "operation": "replace_parameter",
           "target": {
             "location": "query",
@@ -333,8 +333,8 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": null,
-          "rationale": "Testing with an extremely large integer that likely does not exist to verify error handling for out-of-range IDs.",
-          "expected_signal": "HTTP 404 Not Found",
+          "rationale": "Injecting a contradictory SQL condition to verify if the application logic evaluates the expression as false.",
+          "expected_signal": "Response indicating no record found or an empty result set, distinct from the original valid ID response.",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
@@ -344,7 +344,7 @@
           },
           "mutated_request": {
             "method": "GET",
-            "url": "http://127.0.0.1:8899/product?id=999999999999",
+            "url": "http://127.0.0.1:8899/product?id=42+AND+1%3D0",
             "body": null,
             "auth_context_id": null,
             "credentials_mode": "preserve"
@@ -369,7 +369,7 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": null,
-          "rationale": "Provides a baseline string to verify if the input is reflected in the response without triggering any browser-side execution.",
+          "rationale": "Establishes a baseline for how the application handles alphanumeric strings containing the probe identifier to verify if the input is reflected without modification.",
           "expected_signal": "The string '42-xss-probe-control' should appear in the HTTP response body.",
           "baseline_request": {
             "method": "GET",
@@ -396,8 +396,8 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": null,
-          "rationale": "Uses a unique marker to identify the exact reflection point in the HTML structure while remaining inert.",
-          "expected_signal": "The string '42-xss-probe-marker-1' should be present in the response body.",
+          "rationale": "Uses a unique marker to identify the exact reflection point of the input parameter within the HTML document structure.",
+          "expected_signal": "The string '42-xss-probe-marker-1' should appear in the HTTP response body.",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
@@ -423,8 +423,8 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": null,
-          "rationale": "Uses a second unique marker to confirm consistent reflection behavior across different parts of the document.",
-          "expected_signal": "The string '42-xss-probe-marker-2' should be present in the response body.",
+          "rationale": "Uses a secondary unique marker to confirm consistent reflection behavior and verify if the input is reflected in multiple locations.",
+          "expected_signal": "The string '42-xss-probe-marker-2' should appear in the HTTP response body.",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",

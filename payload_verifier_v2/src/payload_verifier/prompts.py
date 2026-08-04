@@ -47,9 +47,11 @@ Required kinds:
 Rules:
 - each value must be a complete replacement value for the
   existing parameter
-- DO NOT use or append any SQL query syntax or conditions (like AND, OR, 1=1, etc.).
-- For true_condition, completely replace the original value with a DIFFERENT valid-looking number (e.g., 1000, 9999).
-- For false_condition, completely replace the original value with an invalid random text string (e.g., "arbitrary_text", "invalid_id").
+- For the FIRST true_condition, completely replace the original value with a DIFFERENT valid-looking number (e.g., 1000) WITHOUT any SQL syntax.
+- For the SECOND true_condition, use or append a valid true SQL boolean condition (e.g., "42 AND 1=1" or "1000 OR 1=1").
+- For the FIRST false_condition, completely replace the original value with an invalid random text string (e.g., "invalid_id_string") WITHOUT any SQL syntax.
+- For the SECOND false_condition, use or append a valid false SQL boolean condition (e.g., "42 AND 1=0" or "1000 AND 1=2").
+- use boolean or response-behavior verification only
 - do not use SQL comments
 - do not use UNION
 - do not use SELECT
