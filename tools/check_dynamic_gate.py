@@ -320,17 +320,18 @@ COMBINED_DISCOVERY_CASES = (
     ),
 )
 
-FINAL_CASES = tuple(
-    BrowserManifestCase(
-        case_id,
-        (
-            "tests.integration.test_native_dynamic_discovery_e2e."
-            "NativeDynamicDiscoveryE2ETests."
-            f"test_{case_id.replace('-', '_')}"
-        ),
-        invariant,
-    )
-    for case_id, invariant in (
+FINAL_CASES = (
+    *tuple(
+        BrowserManifestCase(
+            case_id,
+            (
+                "tests.integration.test_native_dynamic_discovery_e2e."
+                "NativeDynamicDiscoveryE2ETests."
+                f"test_{case_id.replace('-', '_')}"
+            ),
+            invariant,
+        )
+        for case_id, invariant in (
         (
             "final-cli-combined-probe",
             "The public CLI runs combined discovery through READY GET probes.",
@@ -359,7 +360,17 @@ FINAL_CASES = tuple(
             "final-n34-safe-anchor-collision",
             "N-34 retains only safe anchor metadata and two producer warnings.",
         ),
-    )
+        )
+    ),
+    BrowserManifestCase(
+        "simple-cli-real-chromium-policy",
+        (
+            "tests.integration.test_simple_cli_loopback."
+            "SimpleDynamicCliLoopbackTests."
+            "test_simple_cli_real_chromium_policy"
+        ),
+        "Simple CLI follows rendered same-origin GET anchors and blocks active transports.",
+    ),
 )
 
 MANIFESTS = {

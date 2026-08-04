@@ -106,6 +106,21 @@ class DynamicGateManifestTests(unittest.TestCase):
         self.assertEqual(len({case.test_id for case in cases}), 5)
         self.assertTrue(all(case.required for case in cases))
 
+    def test_final_manifest_includes_simple_cli_real_chromium_policy(self) -> None:
+        cases = gate.FINAL_CASES
+
+        gate.validate_manifest(cases)
+        suite, missing = gate.load_manifest_suite(cases)
+
+        self.assertEqual(len(cases), 8)
+        self.assertEqual(missing, ())
+        self.assertEqual(suite.countTestCases(), 8)
+        self.assertEqual(
+            cases[-1].case_id,
+            "simple-cli-real-chromium-policy",
+        )
+        self.assertTrue(all(case.required for case in cases))
+
     def test_missing_or_renamed_test_link_is_rejected(self) -> None:
         missing_case = gate.BrowserManifestCase(
             case_id="missing-test",

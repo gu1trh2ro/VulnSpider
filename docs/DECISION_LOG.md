@@ -294,6 +294,31 @@ integration PR은 review 후 merge commit을 사용할 수 있다. contract
 
 ---
 
+## ADR-019 — Simple CLI defaults to bounded Dynamic discovery
+
+**Status:** Accepted
+
+**Date:** 2026-08-04
+
+**Decision:** `vulnspider -u URL` is a thin adapter over the existing combined
+Static + Dynamic + merge + Light Probe pipeline. It uses the reviewed Dynamic
+budget defaults, allows only exact same-origin GET URLs extracted from rendered
+anchors for crawler-initiated navigation, and allows same-origin GET
+script/style resources needed to render those anchors. The advanced
+`vulnspider analyze` interface and its exact-grant defaults remain unchanged.
+
+**Reason:** The public one-line command should discover JavaScript-rendered GET
+surfaces without requiring users to predict those URLs, while page code must
+not gain general navigation or active-transport authority.
+
+**Consequences:** Fetch/XHR, WebSocket, EventSource, POST, form submission,
+popup, child-frame documents, cross-origin, and different-port traffic remain
+blocked unless an existing explicit advanced grant category permits it. JSON
+publication uses same-directory temporary output plus atomic replacement, and
+failed or degraded simple scans do not publish a new result.
+
+---
+
 ## New Decision Template
 
 ```text

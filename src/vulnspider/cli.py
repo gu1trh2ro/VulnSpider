@@ -38,6 +38,10 @@ from vulnspider.pipeline import (
 from vulnspider.reporting import write_html_report, write_json_report
 
 
+_SIMPLE_DEFAULT_OUTPUT = Path("vulnspider-result.json")
+_SIMPLE_DEFAULT_TOP_K = 10
+
+
 class CLIError(ValueError):
     """Raised for normal user-facing CLI input errors."""
 
@@ -46,11 +50,50 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="vulnspider",
         description="VulnSpider prototype command line interface.",
+        epilog=(
+            "Simple scan: vulnspider -u http://127.0.0.1:8080/ "
+            "[-o result.json] [--static-only]"
+        ),
     )
     parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
+    )
+    parser.add_argument(
+        "-u",
+        "--url",
+        dest="simple_url",
+        help="Run the simple bounded scan for an authorized loopback URL.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        dest="simple_output",
+        type=Path,
+        default=None,
+        help="JSON file (default: vulnspider-result.json).",
+    )
+    parser.add_argument(
+        "--static-only",
+        action="store_true",
+        help="Use Native Static Discovery only in simple URL mode.",
+    )
+    parser.add_argument(
+        "--dynamic-allow-navigation",
+        action="append",
+        default=None,
+        dest="simple_dynamic_allow_navigation",
+        metavar="URL",
+        help="Add one exact same-origin navigation grant in simple mode.",
+    )
+    parser.add_argument(
+        "--dynamic-allow-resource",
+        action="append",
+        default=None,
+        dest="simple_dynamic_allow_resource",
+        metavar="CATEGORY=URL",
+        help="Add one exact same-origin resource grant in simple mode.",
     )
     subparsers = parser.add_subparsers(dest="command")
     analyze = subparsers.add_parser(
@@ -206,11 +249,18 @@ def main(
 ) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command is None:
+    simple_mode = args.command is None and args.simple_url is not None
+    if args.command is None and not simple_mode:
+        if _simple_options_without_url(args):
+            parser.error("simple scan options require -u/--url")
+        parser.print_help()
         return 0
     if args.command != "analyze":
-        parser.error(f"unsupported command: {args.command}")
+        if not simple_mode:
+            parser.error(f"unsupported command: {args.command}")
     try:
+        if simple_mode:
+            args = _simple_analysis_args(args)
         _reject_shared_report_destinations(args.output, args.html_output)
         if args.input is not None:
             _reject_native_policy_with_legacy_input(args)
@@ -223,7 +273,9 @@ def main(
         else:
             _reject_dynamic_options_without_opt_in(args)
             dynamic_authority = (
-                _dynamic_authority_from_args(args) if args.dynamic else None
+                _dynamic_authority_from_args(args, simple_mode=simple_mode)
+                if args.dynamic
+                else None
             )
             analysis = analyze_url(
                 args.url,
@@ -238,6 +290,17 @@ def main(
                 dynamic_crawler=(dynamic_crawler if args.dynamic else None),
                 transport=transport,
             )
+        if (
+            simple_mode
+            and analysis.combined_result is not None
+            and analysis.combined_result.degraded
+        ):
+            print(
+                "vulnspider: error: DYNAMIC_INCOMPLETE: "
+                "no successful result was written",
+                file=sys.stderr,
+            )
+            return 4
         write_json_report(
             analysis.selection,
             args.output,
@@ -275,7 +338,57 @@ def main(
         return 2
     if analysis.combined_result is not None and analysis.combined_result.degraded:
         return 4
+    if simple_mode:
+        mode = "static-only" if not args.dynamic else "dynamic"
+        print(
+            "vulnspider: scan complete "
+            f"(mode={mode}, selected={analysis.selection.summary.selected_results})"
+        )
+        print(f"vulnspider: output: {args.output.resolve(strict=False)}")
     return 0
+
+
+def _simple_options_without_url(args: argparse.Namespace) -> bool:
+    return bool(
+        args.simple_output is not None
+        or args.static_only
+        or args.simple_dynamic_allow_navigation
+        or args.simple_dynamic_allow_resource
+    )
+
+
+def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
+    if args.static_only and (
+        args.simple_dynamic_allow_navigation
+        or args.simple_dynamic_allow_resource
+    ):
+        raise CLIError(
+            "--dynamic-allow-* cannot be combined with --static-only"
+        )
+    return argparse.Namespace(
+        command="analyze",
+        input=None,
+        url=args.simple_url,
+        top_k=_SIMPLE_DEFAULT_TOP_K,
+        output=args.simple_output or _SIMPLE_DEFAULT_OUTPUT,
+        html_output=None,
+        max_pages=None,
+        max_depth=None,
+        max_requests=None,
+        timeout_seconds=None,
+        max_redirects=None,
+        dynamic=not args.static_only,
+        dynamic_allow_navigation=args.simple_dynamic_allow_navigation,
+        dynamic_allow_resource=args.simple_dynamic_allow_resource,
+        dynamic_max_pages=None,
+        dynamic_max_depth=None,
+        dynamic_max_navigation_attempts=None,
+        dynamic_max_route_actions=None,
+        dynamic_max_elapsed_seconds=None,
+        dynamic_navigation_timeout_seconds=None,
+        dynamic_max_redirects=None,
+        dynamic_request_decision_budget=None,
+    )
 
 
 def _write_html_report(analysis: AnalysisResult, destination: Path) -> None:
@@ -420,6 +533,8 @@ def _reject_dynamic_options_without_opt_in(args: argparse.Namespace) -> None:
 
 def _dynamic_authority_from_args(
     args: argparse.Namespace,
+    *,
+    simple_mode: bool = False,
 ) -> DynamicRequestAuthority:
     grants: list[DynamicResourceGrant] = []
     for value in args.dynamic_allow_resource or ():
@@ -441,6 +556,8 @@ def _dynamic_authority_from_args(
         root_url=args.url,
         navigation_urls=tuple(args.dynamic_allow_navigation or ()),
         resource_grants=tuple(grants),
+        allow_rendered_navigation=simple_mode,
+        allow_passive_same_origin_resources=simple_mode,
     )
 
 

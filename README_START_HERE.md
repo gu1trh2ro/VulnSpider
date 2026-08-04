@@ -6,10 +6,11 @@ This repository retains the **Completed and Frozen v0.1 checkpoint** and now
 also contains the in-progress v0.2 Native Discovery implementation.
 
 - **Implemented:** the `prototype/v0.1` legacy-record analysis path, JSON
-  report, optional HTML report, Native Static Discovery, and opt-in combined
-  Native Static plus bounded Native Dynamic Discovery through Milestone 6.
-- **Still planned for v0.2:** the final Dynamic loopback E2E acceptance
-  milestone, BAC prioritization, and LLM-assisted focused verification.
+  report, optional HTML report, Native Static Discovery, bounded combined
+  Native Static plus Native Dynamic Discovery, final loopback E2E acceptance,
+  and the simple Dynamic-first CLI adapter.
+- **Still planned for v0.2:** BAC prioritization and LLM-assisted focused
+  verification.
 - **Historical:** the Prompt 01-07 sequence that produced and reviewed v0.1.
 
 Planning documents do not imply that later v0.2 milestones are implemented.
@@ -34,6 +35,30 @@ Use `docs/DOMAIN_MODEL.md`, `docs/FEATURE_SCHEMA.md`, and
 `docs/EVALUATION_PROTOCOL.md` when changing their respective boundaries.
 
 ## Implemented analysis entry points
+
+The default user command runs the existing combined discovery and Light Probe
+pipeline and atomically writes `vulnspider-result.json` in the current
+directory:
+
+```powershell
+vulnspider -u http://127.0.0.1:8080/
+vulnspider -u http://127.0.0.1:8080/ -o result.json
+vulnspider -u http://127.0.0.1:8080/ --static-only
+```
+
+Simple Dynamic mode automatically admits only rendered GET anchors on the
+exact root origin and GET script/style resources on that same origin. Existing
+page, depth, elapsed-time, navigation, and request-decision budgets remain in
+force. Fetch/XHR, WebSocket, EventSource, POST, form submission, popup, child
+frame traversal, cross-origin, and different-port traffic remain blocked by
+default. Existing `--dynamic-allow-navigation` and
+`--dynamic-allow-resource` flags add explicit advanced grants.
+
+The JSON report is rendered completely into a same-directory temporary file
+and replaces the requested destination only after success. Failed or degraded
+simple scans do not publish a partial result. Successful simple scans print
+only a bounded summary and the resolved output path; reports and diagnostics
+do not print raw DOM or sensitive form values.
 
 The frozen compatibility path consumes legacy crawl records, then performs
 authorized localhost/loopback Light Probes:
@@ -93,6 +118,9 @@ respectively.
 - Direct authorized URL input through bounded Native Static Discovery.
 - Explicit `--dynamic` combined Native Discovery with exact, immutable
   navigation/resource authority and lazy Playwright capability checking.
+- Dynamic-first `vulnspider -u URL` adapter with rendered same-origin GET
+  anchor navigation, same-origin script/style loading, atomic default JSON,
+  and `--static-only` compatibility.
 - Combined canonical handoff to the existing READY-context analysis consumer;
   NOT_READY contexts remain non-executable.
 - `LegacyCrawlerAdapter` normalization into canonical v0.1 domain models.
@@ -105,7 +133,6 @@ respectively.
 
 ### Planned for v0.2, not implemented
 
-- Milestone 7 final Dynamic loopback E2E acceptance.
 - BAC preprocessing, features, scoring, and role/session orchestration.
 - Feature cache and automated quantitative ranking evaluation.
 - GPT/Gemini comparison harness.

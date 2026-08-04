@@ -353,6 +353,8 @@ class DynamicRequestAuthority:
     root_url: str
     navigation_urls: tuple[str, ...] = ()
     resource_grants: tuple[DynamicResourceGrant, ...] = ()
+    allow_rendered_navigation: bool = False
+    allow_passive_same_origin_resources: bool = False
 
     def __post_init__(self) -> None:
         root_url = _canonical_authority_url(self.root_url)
@@ -369,6 +371,15 @@ class DynamicRequestAuthority:
                 DynamicBrowserErrorCode.INVALID_AUTHORITY,
                 "Dynamic request authority collections must be iterable.",
             ) from None
+        for name in (
+            "allow_rendered_navigation",
+            "allow_passive_same_origin_resources",
+        ):
+            if type(getattr(self, name)) is not bool:
+                raise DynamicBrowserError(
+                    DynamicBrowserErrorCode.INVALID_AUTHORITY,
+                    f"{name} must be a boolean.",
+                )
 
         navigation_urls = {root_url}
         for url in navigation_inputs:
@@ -407,6 +418,17 @@ class DynamicRequestAuthority:
         except DynamicBrowserError:
             return False
         return canonical in self.navigation_urls
+
+    def allows_rendered_navigation(self, url: str) -> bool:
+        """Allow one crawler-observed anchor URL without granting page code."""
+
+        if not self.allow_rendered_navigation:
+            return False
+        try:
+            canonical = _canonical_request_url(url)
+        except DynamicBrowserError:
+            return False
+        return _origin(self.root_url) == _origin(canonical)
 
     def decide_http(
         self,
@@ -492,6 +514,18 @@ class DynamicRequestAuthority:
                 canonical,
                 normalized_kind,
             )
+        if (
+            self.allow_passive_same_origin_resources
+            and grant_kind
+            in {DynamicResourceKind.SCRIPT, DynamicResourceKind.STYLE}
+            and _origin(self.root_url) == _origin(canonical)
+        ):
+            return DynamicNetworkDecision(
+                DynamicNetworkDecisionKind.ALLOW,
+                DynamicNetworkReason.AUTHORIZED_RESOURCE,
+                canonical,
+                normalized_kind,
+            )
         return DynamicNetworkDecision(
             DynamicNetworkDecisionKind.BLOCK,
             DynamicNetworkReason.REQUEST_NOT_AUTHORIZED,
@@ -508,8 +542,9 @@ class DynamicBrowserSession(Protocol):
         url: str | None = None,
         *,
         timeout_seconds: float | None = None,
+        rendered_navigation: bool = False,
     ) -> str:
-        """Navigate only to an exact caller-authorized URL."""
+        """Navigate to exact authority or one crawler-observed anchor URL."""
 
     def navigation_status_code(self) -> int | None:
         """Return the last direct navigation HTTP status when available."""
@@ -1212,17 +1247,19 @@ class _RouteGuard:
         self._redirect_count = 0
         self._dispatched_main_frame_urls: set[str] = set()
         self._pending_redirect_target: str | None = None
+        self._rendered_navigation_url: str | None = None
         self._redirect_duplicate = False
         self._request_failure: DynamicBrowserError | None = None
 
     def set_primary_page(self, page: Any) -> None:
         self.primary_page = page
 
-    def begin_navigation(self) -> None:
+    def begin_navigation(self, rendered_navigation_url: str | None = None) -> None:
         with self._decision_lock:
             self._redirect_count = 0
             self._pending_redirect_target = None
             self._redirect_duplicate = False
+            self._rendered_navigation_url = rendered_navigation_url
 
     def handle_http(self, route: Any, request: Any) -> None:
         url = _safe_provider_text(request, "url")
@@ -1250,6 +1287,20 @@ class _RouteGuard:
                 is_primary_page=is_primary_page,
                 is_main_frame=is_main_frame,
             )
+            if (
+                is_primary_page
+                and is_main_frame
+                and resource_type.strip().lower() == "document"
+                and decision.decision == DynamicNetworkDecisionKind.BLOCK
+                and decision.reason == DynamicNetworkReason.REQUEST_NOT_AUTHORIZED
+                and decision.canonical_url == self._rendered_navigation_url
+            ):
+                decision = DynamicNetworkDecision(
+                    DynamicNetworkDecisionKind.ALLOW,
+                    DynamicNetworkReason.AUTHORIZED_NAVIGATION,
+                    decision.canonical_url,
+                    resource_type.strip().lower(),
+                )
         navigation_budget_first_exhaustion = False
         is_main_frame_document = (
             is_primary_page
@@ -1920,15 +1971,26 @@ class _PlaywrightDynamicSession:
         url: str | None = None,
         *,
         timeout_seconds: float | None = None,
+        rendered_navigation: bool = False,
     ) -> str:
         self._guard.raise_if_failed()
         target = self._authority.root_url if url is None else url
-        if not self._authority.allows_navigation(target):
+        if type(rendered_navigation) is not bool:
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.OPERATION_FAILED,
+                "Rendered navigation marker must be a boolean.",
+            )
+        canonical = _canonical_request_url(target)
+        exact_authority = self._authority.allows_navigation(canonical)
+        rendered_authority = (
+            rendered_navigation
+            and self._authority.allows_rendered_navigation(canonical)
+        )
+        if not exact_authority and not rendered_authority:
             raise DynamicBrowserError(
                 DynamicBrowserErrorCode.NAVIGATION_NOT_AUTHORIZED,
                 "Navigation URL is not present in caller-owned authority.",
             )
-        canonical = _canonical_request_url(target)
         active_timeout = self._policy.navigation_timeout_seconds
         if timeout_seconds is not None:
             if (
@@ -1942,7 +2004,9 @@ class _PlaywrightDynamicSession:
                 )
             active_timeout = min(active_timeout, float(timeout_seconds))
         self._last_navigation_status = None
-        self._guard.begin_navigation()
+        self._guard.begin_navigation(
+            canonical if rendered_authority and not exact_authority else None
+        )
         try:
             response = self._page.goto(
                 canonical,

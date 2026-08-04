@@ -657,6 +657,64 @@ class DynamicRequestAuthorityTests(unittest.TestCase):
         self.assertEqual(script.decision, DynamicNetworkDecisionKind.ALLOW)
         self.assertEqual(fetch.decision, DynamicNetworkDecisionKind.ALLOW)
 
+    def test_simple_mode_allows_only_observed_navigation_and_passive_resources(
+        self,
+    ) -> None:
+        root = "http://127.0.0.1:8080/"
+        authority = DynamicRequestAuthority(
+            root,
+            allow_rendered_navigation=True,
+            allow_passive_same_origin_resources=True,
+        )
+
+        self.assertTrue(
+            authority.allows_rendered_navigation(
+                "http://127.0.0.1:8080/rendered?x=1"
+            )
+        )
+        self.assertFalse(
+            authority.allows_rendered_navigation(
+                "http://127.0.0.1:8081/rendered?x=1"
+            )
+        )
+        document = authority.decide_http(
+            method="GET",
+            url="http://127.0.0.1:8080/rendered?x=1",
+            resource_type="document",
+            is_primary_page=True,
+            is_main_frame=True,
+        )
+        decisions = {
+            resource_type: authority.decide_http(
+                method="GET",
+                url=f"http://127.0.0.1:8080/{resource_type}",
+                resource_type=resource_type,
+                is_primary_page=True,
+                is_main_frame=True,
+            )
+            for resource_type in ("script", "stylesheet", "fetch", "xhr")
+        }
+        cross_script = authority.decide_http(
+            method="GET",
+            url="http://127.0.0.1:8081/app.js",
+            resource_type="script",
+            is_primary_page=True,
+            is_main_frame=True,
+        )
+
+        self.assertEqual(document.decision, DynamicNetworkDecisionKind.BLOCK)
+        self.assertEqual(
+            decisions["script"].decision,
+            DynamicNetworkDecisionKind.ALLOW,
+        )
+        self.assertEqual(
+            decisions["stylesheet"].decision,
+            DynamicNetworkDecisionKind.ALLOW,
+        )
+        self.assertEqual(decisions["fetch"].decision, DynamicNetworkDecisionKind.BLOCK)
+        self.assertEqual(decisions["xhr"].decision, DynamicNetworkDecisionKind.BLOCK)
+        self.assertEqual(cross_script.decision, DynamicNetworkDecisionKind.BLOCK)
+
     def test_blocks_cross_origin_redirect_methods_frames_and_internal_urls(
         self,
     ) -> None:

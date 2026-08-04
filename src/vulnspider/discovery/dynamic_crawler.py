@@ -549,6 +549,8 @@ class DynamicCrawler:
                         (item.kind.value, item.url)
                         for item in authority.resource_grants
                     ),
+                    authority.allow_rendered_navigation,
+                    authority.allow_passive_same_origin_resources,
                 ),
             ),
         )
@@ -697,14 +699,21 @@ class DynamicCrawler:
             state.attempted.add(requested_url)
             state.visited_urls.append(requested_url)
             state.explicit_navigation_calls += 1
+            rendered_navigation = (
+                bool(parent_url)
+                and not state.authority.allows_navigation(requested_url)
+                and state.authority.allows_rendered_navigation(requested_url)
+            )
             try:
-                final_raw = session.navigate(
-                    requested_url,
-                    timeout_seconds=min(
+                navigation_options = {
+                    "timeout_seconds": min(
                         state.policy.navigation_timeout_seconds,
                         remaining,
-                    ),
-                )
+                    )
+                }
+                if rendered_navigation:
+                    navigation_options["rendered_navigation"] = True
+                final_raw = session.navigate(requested_url, **navigation_options)
             except DynamicBrowserError as exc:
                 if exc.code == DynamicBrowserErrorCode.REDIRECT_DUPLICATE:
                     state.warn(
@@ -724,7 +733,10 @@ class DynamicCrawler:
                 ) from exc
             if not same_origin_crawl_url(state.root_url, final_url):
                 raise DynamicCrawlerError("browser escaped exact same-origin scope")
-            if not state.authority.allows_navigation(final_url):
+            if not (
+                state.authority.allows_navigation(final_url)
+                or (rendered_navigation and final_url == requested_url)
+            ):
                 raise DynamicCrawlerError("browser returned an unauthorized final URL")
 
             status_getter = getattr(session, "navigation_status_code", None)
@@ -788,9 +800,14 @@ class DynamicCrawler:
                 state.operational_failure = True
                 return
 
+            extraction_authority: Any = state.authority
+            if state.authority.allow_rendered_navigation:
+                extraction_authority = _SimpleRenderedRequestAuthority(
+                    state.authority
+                )
             component = extract_rendered_dom(
                 snapshot,
-                state.authority,
+                extraction_authority,
                 discovery_metadata=state.metadata,
                 scope_metadata=state.scope,
                 parent_url=parent_url or None,
@@ -843,7 +860,10 @@ class DynamicCrawler:
                     },
                 )
                 continue
-            if not state.authority.allows_navigation(candidate):
+            if not (
+                state.authority.allows_navigation(candidate)
+                or state.authority.allows_rendered_navigation(candidate)
+            ):
                 state.warn(
                     "DYNAMIC_REQUEST_NOT_AUTHORIZED",
                     "Rendered link lacks exact caller navigation authority.",
@@ -923,6 +943,22 @@ class DynamicCrawler:
         if state.operational_failure:
             return DynamicCrawlTerminationReason.COMPLETED_WITH_FAILURES
         return DynamicCrawlTerminationReason.FRONTIER_EXHAUSTED
+
+
+@dataclass(frozen=True, slots=True)
+class _SimpleRenderedRequestAuthority:
+    """Extraction-only view; browser transport remains exact and ephemeral."""
+
+    authority: DynamicRequestAuthority
+
+    @property
+    def root_url(self) -> str:
+        return self.authority.root_url
+
+    def allows_navigation(self, url: str) -> bool:
+        return self.authority.allows_navigation(
+            url
+        ) or self.authority.allows_rendered_navigation(url)
 
 
 def _url_fingerprint(url: str) -> str:

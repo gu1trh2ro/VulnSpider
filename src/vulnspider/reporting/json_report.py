@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Sequence
 from pathlib import Path
+import tempfile
 from typing import Any
 
 from vulnspider.domain import ScoreEvidence
@@ -81,10 +83,33 @@ def write_json_report(
     *,
     warnings: Sequence[str] = (),
 ) -> None:
-    Path(destination).write_text(
-        render_json_report(outcome, warnings=warnings),
-        encoding="utf-8",
+    destination_path = Path(destination)
+    rendered = render_json_report(outcome, warnings=warnings)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=destination_path.parent,
+        prefix=f".{destination_path.name}.",
+        suffix=".tmp",
     )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(
+            descriptor,
+            "w",
+            encoding="utf-8",
+            newline="",
+        ) as temporary_file:
+            temporary_file.write(rendered)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, destination_path)
+    except BaseException:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        raise
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def _candidate_record(

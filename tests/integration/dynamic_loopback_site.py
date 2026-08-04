@@ -128,6 +128,8 @@ class DynamicLoopbackSite:
         self.combined_page_b_url = ""
         self.final_e2e_url = ""
         self.final_e2e_follow_url = ""
+        self.simple_cli_url = ""
+        self.simple_cli_follow_url = ""
         self.sentinel_origin = ""
         self.cleanup_complete = False
 
@@ -774,6 +776,91 @@ class DynamicLoopbackSite:
                         "text/html; charset=utf-8",
                     )
                     return
+                if route == "/simple-cli":
+                    html = """<!doctype html>
+                    <html>
+                      <head>
+                        <link rel="stylesheet" href="/simple-cli.css">
+                      </head>
+                      <body>
+                        <div id="simple-root"></div>
+                        <script src="/simple-cli.js"></script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/simple-cli.css":
+                    self._send(
+                        200,
+                        b"#simple-root { display: block; }",
+                        "text/css; charset=utf-8",
+                    )
+                    return
+                if route == "/simple-cli.js":
+                    script = f"""
+                    const root = document.querySelector("#simple-root");
+                    const anchor = document.createElement("a");
+                    anchor.href = "/simple-cli/follow?simple_dynamic=rendered";
+                    anchor.textContent = "rendered follow";
+                    root.appendChild(anchor);
+
+                    const outside = document.createElement("a");
+                    outside.href = "{site.sentinel_origin}/simple-outside";
+                    outside.textContent = "outside";
+                    root.appendChild(outside);
+
+                    const sensitive = document.createElement("form");
+                    sensitive.action = "/simple-sensitive";
+                    sensitive.method = "post";
+                    sensitive.innerHTML = `
+                      <input name="user" value="SIMPLE_SECRET_SENTINEL_51af">
+                      <input type="password" name="password"
+                        value="SIMPLE_SECRET_SENTINEL_51af">
+                    `;
+                    root.appendChild(sensitive);
+
+                    fetch("/simple-denied-fetch").catch(() => {{}});
+                    const xhr = new XMLHttpRequest();
+                    xhr.open("GET", "/simple-denied-xhr");
+                    xhr.send();
+                    new EventSource("/simple-denied-events");
+                    new WebSocket(
+                      "ws://127.0.0.1:{site.primary_port}/simple-denied-socket"
+                    );
+
+                    const frame = document.createElement("iframe");
+                    frame.name = "simple-submit-target";
+                    frame.src = "/simple-denied-frame";
+                    document.body.appendChild(frame);
+                    const submit = document.createElement("form");
+                    submit.action = "/simple-denied-post";
+                    submit.method = "post";
+                    submit.target = "simple-submit-target";
+                    document.body.appendChild(submit);
+                    submit.submit();
+
+                    window.open("/simple-denied-popup", "simple-popup");
+                    const crossScript = document.createElement("script");
+                    crossScript.src = "{site.sentinel_origin}/simple-cross.js";
+                    document.head.appendChild(crossScript);
+                    """
+                    self._send(
+                        200,
+                        script.encode("utf-8"),
+                        "application/javascript; charset=utf-8",
+                    )
+                    return
+                if route == "/simple-cli/follow":
+                    self._send(
+                        200,
+                        b"<html><body>simple dynamic follow</body></html>",
+                        "text/html; charset=utf-8",
+                    )
+                    return
                 if route == "/final-e2e":
                     html = f"""<!doctype html>
                     <html><body>
@@ -1180,6 +1267,10 @@ class DynamicLoopbackSite:
         self.combined_page_b_url = navigation_origin + "/combined/page-b"
         self.final_e2e_url = navigation_origin + "/final-e2e"
         self.final_e2e_follow_url = navigation_origin + "/final-e2e/follow"
+        self.simple_cli_url = navigation_origin + "/simple-cli"
+        self.simple_cli_follow_url = (
+            navigation_origin + "/simple-cli/follow?simple_dynamic=rendered"
+        )
         return self
 
     def __exit__(

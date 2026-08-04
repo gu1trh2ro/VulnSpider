@@ -45,11 +45,13 @@ Legacy crawl-record JSON
 ```
 
 The frozen compatibility CLI boundary remains
-`vulnspider analyze --input <legacy-records.json>`. The implemented v0.2
-boundary also accepts `--url`: it uses Native Static Discovery by default and
-adds combined Native Dynamic Discovery only with explicit `--dynamic` plus
-caller-owned exact authority. Both analysis paths execute probes only against
-localhost/loopback targets.
+`vulnspider analyze --input <legacy-records.json>`. The advanced implemented
+v0.2 boundary also accepts `analyze --url`: it uses Native Static Discovery by
+default and adds combined Native Dynamic Discovery only with explicit
+`--dynamic` plus caller-owned exact authority. The thin user adapter
+`vulnspider -u URL` calls that same `analyze_url()` pipeline with Dynamic
+enabled by default; `--static-only` selects the existing Native Static path.
+Both analysis paths execute probes only against localhost/loopback targets.
 
 ### 1.3 Implemented boundaries
 
@@ -123,13 +125,18 @@ not mean that `ScopeGuard`, a native surface collector, or a separate
 
 #### Native discovery
 
-`discovery/` implements bounded Static and Dynamic producers, strict exact
-Dynamic request authority, pre-canonical sensitive-form elision for combined
-mode, and a deterministic Static-first merge. `pipeline.analyze_url()` sends
-the validated combined `CombinedDiscoveryResult.discovery` to the unchanged
-`analyze_discovery_result()` consumer only when Dynamic is explicitly
-requested. Plain `--url` stays Static-only, while legacy `--input` cannot
-activate browser code.
+`discovery/` implements bounded Static and Dynamic producers, strict request
+authority, pre-canonical sensitive-form elision for combined mode, and a
+deterministic Static-first merge. The advanced `analyze --dynamic` boundary
+keeps exact caller grants. The simple adapter additionally permits only an
+exact same-origin GET URL already extracted from a rendered anchor, for that
+single crawler navigation, plus same-origin GET script/style resources.
+Fetch/XHR, WebSocket, EventSource, POST, popup, and child-frame documents stay
+blocked by default. `pipeline.analyze_url()` sends the validated combined
+`CombinedDiscoveryResult.discovery` to the unchanged
+`analyze_discovery_result()` consumer. Advanced plain `analyze --url` and
+simple `--static-only` stay Static-only, while legacy `--input` cannot activate
+browser code.
 
 ### 1.5 Implemented dependency direction
 

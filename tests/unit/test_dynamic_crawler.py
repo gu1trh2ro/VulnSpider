@@ -66,18 +66,22 @@ class FakeDynamicSession:
     current_url: str | None = None
     current_status: int | None = None
     navigation_calls: list[str] = field(default_factory=list)
+    rendered_navigation_calls: list[str] = field(default_factory=list)
 
     def navigate(
         self,
         url: str | None = None,
         *,
         timeout_seconds: float | None = None,
+        rendered_navigation: bool = False,
     ) -> str:
         if url is None:
             raise AssertionError("crawler must pass an explicit URL")
         if timeout_seconds is None or timeout_seconds <= 0:
             raise AssertionError("crawler must pass a bounded timeout")
         self.navigation_calls.append(url)
+        if rendered_navigation:
+            self.rendered_navigation_calls.append(url)
         self.recorder.record_http(
             _allow(url),
             url=url,
@@ -157,6 +161,43 @@ class FakeDynamicBrowser:
 
 
 class DynamicCrawlerTests(unittest.TestCase):
+    def test_simple_authority_navigates_only_rendered_same_origin_anchors(
+        self,
+    ) -> None:
+        root = "http://127.0.0.1:8080/start"
+        rendered = "http://127.0.0.1:8080/rendered?q=1"
+        browser = FakeDynamicBrowser(
+            {
+                root: rendered_snapshot(
+                    root,
+                    (
+                        '<a href="/rendered?q=1"></a>'
+                        '<a href="http://127.0.0.1:8081/out"></a>'
+                    ),
+                ),
+                rendered: rendered_snapshot(rendered),
+            }
+        )
+        authority = DynamicRequestAuthority(
+            root,
+            allow_rendered_navigation=True,
+            allow_passive_same_origin_resources=True,
+        )
+
+        result = DynamicCrawler(browser=browser, clock=lambda: 0.0).crawl(
+            root,
+            DynamicCrawlPolicy(),
+            authority,
+        )
+
+        self.assertEqual(result.visited_urls, (root, rendered))
+        self.assertEqual(browser.session.navigation_calls, [root, rendered])
+        self.assertEqual(browser.session.rendered_navigation_calls, [rendered])
+        self.assertIn(
+            "DYNAMIC_OFF_AUTHORITY_LINK",
+            {warning.code for warning in result.discovery.warnings},
+        )
+
     def test_deterministic_bfs_uses_exact_authority_and_page_provenance(self) -> None:
         root = "http://127.0.0.1/start"
         page_a = "http://127.0.0.1/page-a"
