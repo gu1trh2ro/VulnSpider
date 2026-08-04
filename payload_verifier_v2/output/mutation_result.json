@@ -1,0 +1,447 @@
+{
+  "schema_version": "0.1",
+  "top_k": 4,
+  "records": [
+    {
+      "candidate_id": "acand_50fd39bd4724d812",
+      "vulnerability_type": "BROKEN_ACCESS_CONTROL",
+      "status": "generated",
+      "model": "gemini-3.1-flash-lite",
+      "payloads": [
+        {
+          "kind": "authorization_control",
+          "value": "42",
+          "operation": "keep_original",
+          "target": {
+            "location": "query",
+            "parameter_name": "id",
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": "user_a",
+          "rationale": "Baseline request using the original resource ID and the original authorized user context to establish a reference response.",
+          "expected_signal": "200 OK",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": "user_a",
+            "credentials_mode": "use_context"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": "user_a",
+            "credentials_mode": "use_context"
+          }
+        },
+        {
+          "kind": "authorization_variant",
+          "value": "43",
+          "operation": "substitute_resource",
+          "target": {
+            "location": "query",
+            "parameter_name": "id",
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": "user_a",
+          "rationale": "Testing for Insecure Direct Object Reference (IDOR) by attempting to access a resource owned by user_b while authenticated as user_a.",
+          "expected_signal": "403 Forbidden or 404 Not Found",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": "user_a",
+            "credentials_mode": "use_context"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=43",
+            "body": null,
+            "auth_context_id": "user_a",
+            "credentials_mode": "use_context"
+          }
+        },
+        {
+          "kind": "authorization_variant",
+          "value": "42",
+          "operation": "substitute_resource",
+          "target": {
+            "location": "query",
+            "parameter_name": "id",
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": "user_b",
+          "rationale": "Testing for cross-user access by attempting to access a resource owned by user_a while authenticated as user_b.",
+          "expected_signal": "403 Forbidden or 404 Not Found",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": "user_a",
+            "credentials_mode": "use_context"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": "user_b",
+            "credentials_mode": "use_context"
+          }
+        },
+        {
+          "kind": "authorization_variant",
+          "value": "43",
+          "operation": "substitute_resource",
+          "target": {
+            "location": "query",
+            "parameter_name": "id",
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": "admin",
+          "rationale": "Testing for administrative access to a standard user resource to verify that elevated privileges can access the resource as expected.",
+          "expected_signal": "200 OK",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": "user_a",
+            "credentials_mode": "use_context"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=43",
+            "body": null,
+            "auth_context_id": "admin",
+            "credentials_mode": "use_context"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "candidate_id": "acand_59d69bfb131e7677",
+      "vulnerability_type": "BROKEN_ACCESS_CONTROL",
+      "status": "generated",
+      "model": "gemini-3.1-flash-lite",
+      "payloads": [
+        {
+          "kind": "authorization_control",
+          "value": "overview",
+          "operation": "keep_original",
+          "target": {
+            "location": "credentials",
+            "parameter_name": null,
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": "authenticated_user",
+          "rationale": "Baseline request using the authenticated user context to establish a reference response for the overview tab.",
+          "expected_signal": "200 OK",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/account?tab=overview",
+            "body": null,
+            "auth_context_id": "authenticated_user",
+            "credentials_mode": "use_context"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/account?tab=overview",
+            "body": null,
+            "auth_context_id": "authenticated_user",
+            "credentials_mode": "use_context"
+          }
+        },
+        {
+          "kind": "authorization_variant",
+          "value": "overview",
+          "operation": "remove_credentials",
+          "target": {
+            "location": "credentials",
+            "parameter_name": null,
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": "anonymous",
+          "rationale": "Testing if the overview tab is accessible without authentication, which would indicate a broken access control vulnerability.",
+          "expected_signal": "401 Unauthorized or 403 Forbidden",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/account?tab=overview",
+            "body": null,
+            "auth_context_id": "authenticated_user",
+            "credentials_mode": "use_context"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/account?tab=overview",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "omit"
+          }
+        },
+        {
+          "kind": "authorization_variant",
+          "value": "overview",
+          "operation": "change_auth_context",
+          "target": {
+            "location": "credentials",
+            "parameter_name": null,
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": "admin",
+          "rationale": "Testing if the overview tab is accessible with administrative privileges to ensure consistent access control behavior.",
+          "expected_signal": "200 OK",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/account?tab=overview",
+            "body": null,
+            "auth_context_id": "authenticated_user",
+            "credentials_mode": "use_context"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/account?tab=overview",
+            "body": null,
+            "auth_context_id": "admin",
+            "credentials_mode": "use_context"
+          }
+        },
+        {
+          "kind": "authorization_variant",
+          "value": "overview",
+          "operation": "change_auth_context",
+          "target": {
+            "location": "credentials",
+            "parameter_name": null,
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": "authenticated_user",
+          "rationale": "Re-verifying the authenticated user access to ensure the baseline remains consistent during the test sequence.",
+          "expected_signal": "200 OK",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/account?tab=overview",
+            "body": null,
+            "auth_context_id": "authenticated_user",
+            "credentials_mode": "use_context"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/account?tab=overview",
+            "body": null,
+            "auth_context_id": "authenticated_user",
+            "credentials_mode": "use_context"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "candidate_id": "cand_404bdc9da19de1ee",
+      "vulnerability_type": "SQLI",
+      "status": "generated",
+      "model": "gemini-3.1-flash-lite",
+      "payloads": [
+        {
+          "kind": "true_condition",
+          "value": "43",
+          "operation": "replace_parameter",
+          "target": {
+            "location": "query",
+            "parameter_name": "id",
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": null,
+          "rationale": "Testing with a different valid integer ID to verify standard application behavior for existing resources.",
+          "expected_signal": "HTTP 200 OK with valid product data",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=43",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          }
+        },
+        {
+          "kind": "true_condition",
+          "value": "1000",
+          "operation": "replace_parameter",
+          "target": {
+            "location": "query",
+            "parameter_name": "id",
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": null,
+          "rationale": "Testing with a larger valid integer ID to ensure the application handles different numeric inputs correctly.",
+          "expected_signal": "HTTP 200 OK or 404 Not Found depending on database state",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=1000",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          }
+        },
+        {
+          "kind": "false_condition",
+          "value": "invalid_id_string",
+          "operation": "replace_parameter",
+          "target": {
+            "location": "query",
+            "parameter_name": "id",
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": null,
+          "rationale": "Testing with a non-numeric string to verify how the application handles invalid input types.",
+          "expected_signal": "HTTP 400 Bad Request or 404 Not Found",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=invalid_id_string",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          }
+        },
+        {
+          "kind": "false_condition",
+          "value": "999999999999",
+          "operation": "replace_parameter",
+          "target": {
+            "location": "query",
+            "parameter_name": "id",
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": null,
+          "rationale": "Testing with an extremely large integer that likely does not exist to verify error handling for out-of-range IDs.",
+          "expected_signal": "HTTP 404 Not Found",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=999999999999",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "candidate_id": "cand_84b05c14a9207160",
+      "vulnerability_type": "REFLECTED_XSS",
+      "status": "generated",
+      "model": "gemini-3.1-flash-lite",
+      "payloads": [
+        {
+          "kind": "reflection_control",
+          "value": "42-xss-probe-control",
+          "operation": "replace_parameter",
+          "target": {
+            "location": "query",
+            "parameter_name": "id",
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": null,
+          "rationale": "Provides a baseline string to verify if the input is reflected in the response without triggering any browser-side execution.",
+          "expected_signal": "The string '42-xss-probe-control' should appear in the HTTP response body.",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42-xss-probe-control",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          }
+        },
+        {
+          "kind": "reflection_marker",
+          "value": "42-xss-probe-marker-1",
+          "operation": "replace_parameter",
+          "target": {
+            "location": "query",
+            "parameter_name": "id",
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": null,
+          "rationale": "Uses a unique marker to identify the exact reflection point in the HTML structure while remaining inert.",
+          "expected_signal": "The string '42-xss-probe-marker-1' should be present in the response body.",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42-xss-probe-marker-1",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          }
+        },
+        {
+          "kind": "reflection_marker",
+          "value": "42-xss-probe-marker-2",
+          "operation": "replace_parameter",
+          "target": {
+            "location": "query",
+            "parameter_name": "id",
+            "parameter_occurrence": 0
+          },
+          "auth_context_id": null,
+          "rationale": "Uses a second unique marker to confirm consistent reflection behavior across different parts of the document.",
+          "expected_signal": "The string '42-xss-probe-marker-2' should be present in the response body.",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42-xss-probe-marker-2",
+            "body": null,
+            "auth_context_id": null,
+            "credentials_mode": "preserve"
+          }
+        }
+      ],
+      "warnings": []
+    }
+  ]
+}
