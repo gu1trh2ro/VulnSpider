@@ -117,8 +117,12 @@ class BrokenAccessControlSmokeTests(unittest.TestCase):
 
         self.assertIn("Broken Access Control", html_text)
         self.assertIn("Executed requests", html_text)
+        self.assertIn("유형별 선정 후보", html_text)
+        self.assertIn("var(--bac)", html_text)
         for misleading_name in ("confidence", "probability", "confirmed"):
             self.assertNotIn(misleading_name, html_text.lower())
+        for misleading_word in ("확률", "신뢰도", "확정"):
+            self.assertNotIn(misleading_word, html_text)
 
     def test_cli_produces_no_access_candidates_when_no_credentials_or_ids(self) -> None:
         records = [

@@ -540,10 +540,26 @@ vulnspider analyze \
 `--html-output` is optional; omitting it leaves CLI behavior identical to
 05D (JSON report only).
 
-Terminology: the dashboard labels `selection_priority` as "priority" / "rank
-score" with its exact scorer maximum shown alongside it. It never uses
-"confidence", "probability", or "confirmed" — the same constraint the JSON
-report's evidence text already follows (AGENTS.md rules 5-6, ADR-010).
+Terminology: the dashboard labels `selection_priority` as "priority" /
+"RankScore" (우선순위) with its exact scorer maximum shown alongside it. It
+never uses "confidence", "probability", or "confirmed" — the same constraint
+the JSON report's evidence text already follows (AGENTS.md rules 5-6,
+ADR-010). Body copy is Korean, and the constraint is about the claim rather
+than the language, so the Korean equivalents (확률, 신뢰도, 확정) are banned
+too; both bans are asserted by the reporting tests. Vulnerability/check
+names (SQL Injection, Reflected XSS, Broken Access Control), identifiers,
+URLs, and feature names stay verbatim so the dashboard, the JSON report, and
+these docs keep naming the same things the same way.
+
+Charts: `reporting/charts.py` renders inline SVG/CSS only — a priority-band
+donut, a per-type bar chart, a pipeline funnel, a Top-K priority comparison,
+one bar per evidence term (sized by its share of the scorer maximum), and a
+baseline/probe response comparison. Every chart is a second reading of
+numbers already in the report context; none of them derives a new signal,
+and none loads an external script, stylesheet, font, or image, so the report
+stays a single static file that renders offline and makes no outbound
+request when opened. Chart colours come from a fixed tone whitelist, never
+from interpolated observed data.
 
 Verification content: v0.1's Light Probe sends exactly one baseline request
 and one probe request per `InputPoint` (§2.3). The dashboard's "Executed
@@ -559,7 +575,8 @@ list, summary counts, warnings, unrankable results) is the same data the
 JSON report already exposes, joined for display only — no new derived
 signal is introduced. All text interpolated from crawled/observed data
 (endpoint path, parameter name, evidence reason strings, warnings) is HTML
-escaped, since that data can come from an untrusted target response.
+escaped — including chart labels and captions — since that data can come
+from an untrusted target response.
 
 ## 14. Broken Access Control (BAC) Semantics (ADR-012)
 

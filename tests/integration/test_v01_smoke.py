@@ -120,9 +120,17 @@ class V01EndToEndSmokeTests(unittest.TestCase):
         self.assertIn("Executed requests", html_text)
         self.assertIn("baseline", html_text)
         self.assertIn("probe", html_text)
+        # Charts are a second reading of those same numbers, inlined so the
+        # report stays a single offline file.
+        self.assertIn("우선순위 구간 분포", html_text)
+        self.assertIn("선정 후보 우선순위 비교", html_text)
+        self.assertIn('class="donut-seg"', html_text)
+        self.assertIn('class="bar-row"', html_text)
         lowered_html = html_text.lower()
         for misleading_name in ("confidence", "probability", "confirmed"):
             self.assertNotIn(misleading_name, lowered_html)
+        for misleading_word in ("확률", "신뢰도", "확정"):
+            self.assertNotIn(misleading_word, html_text)
 
     def test_cli_html_output_is_optional_and_does_not_change_json_behavior(
         self,

@@ -251,6 +251,68 @@ class HtmlReportingTests(unittest.TestCase):
         for misleading_name in ("confidence", "probability", "confirmed"):
             self.assertNotIn(misleading_name, lowered)
 
+    def test_korean_copy_avoids_likelihood_and_verdict_wording(self) -> None:
+        endpoint = self._endpoint()
+        input_point = self._input_point(endpoint)
+        vector = self._vector(
+            input_point.id or "",
+            status_code_changed=1.0,
+            marker_reflected=1.0,
+            sql_error_pattern=1.0,
+        )
+        results = (SQLiScorer().score(vector), XSSScorer().score(vector))
+        outcome = select_top_k(results, k=2)
+
+        html_text = render_html_report(
+            outcome, **self._full_context_kwargs(endpoint, input_point, vector)
+        )
+
+        # The English ban (AGENTS.md rules 5-6) is about the claim, not the
+        # language it is written in.
+        for misleading_word in ("확률", "신뢰도", "확정"):
+            self.assertNotIn(misleading_word, html_text)
+        self.assertIn("검증 우선순위", html_text)
+
+    # -- charts ------------------------------------------------------------
+
+    def test_renders_overview_charts_from_the_same_numbers(self) -> None:
+        endpoint = self._endpoint()
+        input_point = self._input_point(endpoint)
+        vector = self._vector(
+            input_point.id or "",
+            marker_reflected=1.0,
+            sql_error_pattern=1.0,
+            response_length_diff_ratio=0.5,
+        )
+        results = (SQLiScorer().score(vector), XSSScorer().score(vector))
+        outcome = select_top_k(results, k=2)
+
+        html_text = render_html_report(
+            outcome, **self._full_context_kwargs(endpoint, input_point, vector)
+        )
+
+        self.assertIn("우선순위 구간 분포", html_text)
+        self.assertIn("유형별 선정 후보", html_text)
+        self.assertIn("분석 파이프라인 요약", html_text)
+        self.assertIn("선정 후보 우선순위 비교", html_text)
+        self.assertIn("응답 비교", html_text)
+        self.assertIn("리포트 읽는 법", html_text)
+        self.assertIn('class="donut-seg"', html_text)
+        self.assertIn('class="bar-row"', html_text)
+
+    def test_charts_reference_no_external_resource(self) -> None:
+        endpoint = self._endpoint()
+        input_point = self._input_point(endpoint)
+        vector = self._vector(input_point.id or "", marker_reflected=1.0)
+        outcome = select_top_k((XSSScorer().score(vector),), k=1)
+
+        html_text = render_html_report(
+            outcome, **self._full_context_kwargs(endpoint, input_point, vector)
+        )
+
+        for external in ("http://", "https://", "//cdn", "<script"):
+            self.assertNotIn(external, html_text.replace("http://127.0.0.1:8899", ""))
+
     # -- graceful degradation --------------------------------------------
 
     def test_renders_without_optional_display_maps(self) -> None:
@@ -259,16 +321,16 @@ class HtmlReportingTests(unittest.TestCase):
 
         html_text = render_html_report(outcome)
 
-        self.assertIn("endpoint not supplied to report builder", html_text)
+        self.assertIn("엔드포인트 정보가 리포트에 전달되지 않았습니다.", html_text)
         self.assertIn(
-            "No executed-request detail was supplied to the report builder",
+            "이 후보에 대한 실행 요청 상세가 리포트에 전달되지 않았습니다.",
             html_text,
         )
 
     def test_renders_empty_state_with_no_selected_candidates(self) -> None:
         outcome = select_top_k((), k=1)
         html_text = render_html_report(outcome)
-        self.assertIn("No rankable candidates were selected.", html_text)
+        self.assertIn("선정된 순위 후보가 없습니다.", html_text)
 
     # -- truthful revalidation at the reporting boundary ------------------
 

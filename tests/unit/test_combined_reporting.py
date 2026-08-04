@@ -179,16 +179,49 @@ class CombinedHtmlReportTests(unittest.TestCase):
         self.assertIn("Broken Access Control", html_text)
         self.assertIn("GET /account", html_text)
         self.assertIn("Executed requests", html_text)
+        self.assertIn("실제로 전송된 요청", html_text)
         self.assertIn(candidate_id, html_text)
         for misleading_name in ("confidence", "probability", "confirmed"):
             self.assertNotIn(misleading_name, html_text.lower())
+        for misleading_word in ("확률", "신뢰도", "확정"):
+            self.assertNotIn(misleading_word, html_text)
+
+    def test_charts_cover_bac_candidates_too(self) -> None:
+        plan, access_result = _access_result_and_plan()
+        access_outcome = select_top_k_access((access_result,), k=1)
+        injection_outcome = select_top_k((), k=1)
+        combined = select_combined_top_k(injection_outcome, access_outcome, k=1)
+
+        endpoint = _endpoint()
+        html_text = render_combined_html_report(
+            combined, endpoints={endpoint.id or "": endpoint}
+        )
+
+        self.assertIn("우선순위 구간 분포", html_text)
+        self.assertIn("유형별 선정 후보", html_text)
+        self.assertIn("선정 후보 우선순위 비교", html_text)
+        self.assertIn("var(--bac)", html_text)
+        self.assertIn('class="donut-seg"', html_text)
+        # The BAC evidence list is a bar chart built from the same
+        # contributions the JSON report exposes.
+        self.assertIn("[bac] access_unauthorized_success", html_text)
+
+    def test_html_output_is_deterministic(self) -> None:
+        _plan, access_result = _access_result_and_plan()
+        access_outcome = select_top_k_access((access_result,), k=1)
+        injection_outcome = select_top_k((), k=1)
+        combined = select_combined_top_k(injection_outcome, access_outcome, k=1)
+
+        first = render_combined_html_report(combined, warnings=("z", "a", "z"))
+        second = render_combined_html_report(combined, warnings=("a", "z"))
+        self.assertEqual(first, second)
 
     def test_renders_empty_state_with_no_selected_candidates(self) -> None:
         injection_outcome = select_top_k((), k=1)
         access_outcome = select_top_k_access((), k=1)
         combined = select_combined_top_k(injection_outcome, access_outcome, k=1)
         html_text = render_combined_html_report(combined)
-        self.assertIn("No rankable candidates were selected.", html_text)
+        self.assertIn("선정된 순위 후보가 없습니다.", html_text)
 
 
 if __name__ == "__main__":
