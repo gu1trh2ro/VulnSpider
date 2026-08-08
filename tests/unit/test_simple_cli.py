@@ -133,6 +133,7 @@ class SimpleCliTests(unittest.TestCase):
         self.assertEqual(args, (ROOT_URL,))
         self.assertEqual(kwargs["top_k"], 10)
         self.assertIsInstance(kwargs["dynamic_policy"], DynamicCrawlPolicy)
+        self.assertEqual(kwargs["dynamic_policy"].max_depth, 2)
         authority = kwargs["dynamic_authority"]
         self.assertTrue(authority.allow_rendered_navigation)
         self.assertTrue(authority.allow_passive_same_origin_resources)

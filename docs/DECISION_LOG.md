@@ -302,9 +302,10 @@ integration PR은 review 후 merge commit을 사용할 수 있다. contract
 
 **Decision:** `vulnspider -u URL` is a thin adapter over the existing combined
 Static + Dynamic + merge + Light Probe pipeline. It uses the reviewed Dynamic
-budget defaults, allows only exact same-origin GET URLs extracted from rendered
-anchors for crawler-initiated navigation, and allows same-origin GET
-script/style resources needed to render those anchors. The advanced
+budget defaults except for a simple-adapter maximum link depth of two, allows
+only exact same-origin GET URLs extracted from rendered anchors for
+crawler-initiated navigation, and allows same-origin GET script/style resources
+needed to render those anchors. The advanced
 `vulnspider analyze` interface and its exact-grant defaults remain unchanged.
 
 **Reason:** The public one-line command should discover JavaScript-rendered GET

@@ -107,6 +107,7 @@ class DynamicLoopbackSite:
         self.rendered_attribute_large_url = ""
         self.rendered_text_large_url = ""
         self.rendered_noisy_url = ""
+        self.simple_cli_page_b_url = ""
         self.navigation_start_url = ""
         self.navigation_page_a_url = ""
         self.navigation_page_b_url = ""
@@ -856,9 +857,38 @@ class DynamicLoopbackSite:
                     )
                     return
                 if route == "/simple-cli/follow":
+                    html = f"""<!doctype html>
+                    <html><body>
+                      <form action="/simple-cli/page-a-search" method="get">
+                        <input name="page_a_form" value="a">
+                      </form>
+                      <a href="/simple-cli/page-b?simple_page_b=second#first">
+                        page b
+                      </a>
+                      <a href="/simple-cli/page-b?simple_page_b=second#duplicate">
+                        page b duplicate
+                      </a>
+                      <a href="{site.sentinel_origin}/simple-page-a-outside">
+                        outside
+                      </a>
+                    </body></html>"""
                     self._send(
                         200,
-                        b"<html><body>simple dynamic follow</body></html>",
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/simple-cli/page-b":
+                    self._send(
+                        200,
+                        (
+                            b"<html><body>"
+                            b"<form action='/simple-cli/page-b-search' method='get'>"
+                            b"<input name='page_b_form' value='b'>"
+                            b"</form>"
+                            b"<a href='/simple-cli#cycle'>cycle</a>"
+                            b"</body></html>"
+                        ),
                         "text/html; charset=utf-8",
                     )
                     return
@@ -1278,6 +1308,9 @@ class DynamicLoopbackSite:
         self.simple_cli_url = navigation_origin + "/simple-cli"
         self.simple_cli_follow_url = (
             navigation_origin + "/simple-cli/follow?simple_dynamic=rendered"
+        )
+        self.simple_cli_page_b_url = (
+            navigation_origin + "/simple-cli/page-b?simple_page_b=second"
         )
         return self
 

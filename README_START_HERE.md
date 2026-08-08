@@ -55,7 +55,9 @@ vulnspider -u http://127.0.0.1:8080/ --static-only
 Simple Dynamic mode automatically admits only rendered GET anchors on the
 exact root origin and GET script/style resources on that same origin. Existing
 page, depth, elapsed-time, navigation, and request-decision budgets remain in
-force. Fetch/XHR, WebSocket, EventSource, POST, form submission, popup, child
+force; the simple adapter permits at most two link depths while the advanced
+Dynamic policy default remains unchanged. Fetch/XHR, WebSocket, EventSource,
+POST, form submission, popup, child
 frame traversal, cross-origin, and different-port traffic remain blocked by
 default. Existing `--dynamic-allow-navigation` and
 `--dynamic-allow-resource` flags add explicit advanced grants.

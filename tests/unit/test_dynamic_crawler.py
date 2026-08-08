@@ -165,19 +165,35 @@ class DynamicCrawlerTests(unittest.TestCase):
         self,
     ) -> None:
         root = "http://127.0.0.1:8080/start"
-        rendered = "http://127.0.0.1:8080/rendered?q=1"
-        browser = FakeDynamicBrowser(
-            {
-                root: rendered_snapshot(
-                    root,
-                    (
-                        '<a href="/rendered?q=1"></a>'
-                        '<a href="http://127.0.0.1:8081/out"></a>'
-                    ),
+        page_a = "http://127.0.0.1:8080/page-a?from_start=one"
+        page_b = "http://127.0.0.1:8080/page-b?from_a=two"
+        snapshots = {
+            root: rendered_snapshot(
+                root,
+                (
+                    '<a href="/page-a?from_start=one#first"></a>'
+                    '<a href="/page-a?from_start=one#duplicate"></a>'
+                    '<a href="http://127.0.0.1:8081/out"></a>'
                 ),
-                rendered: rendered_snapshot(rendered),
-            }
-        )
+            ),
+            page_a: rendered_snapshot(
+                page_a,
+                (
+                    '<a href="/page-b?from_a=two#first"></a>'
+                    '<a href="/page-b?from_a=two#duplicate"></a>'
+                ),
+            ),
+            page_b: rendered_snapshot(
+                page_b,
+                (
+                    '<a href="/start#cycle"></a>'
+                    '<form action="/search" method="get">'
+                    '<input name="from_b" value="three">'
+                    "</form>"
+                ),
+            ),
+        }
+        browser = FakeDynamicBrowser(snapshots)
         authority = DynamicRequestAuthority(
             root,
             allow_rendered_navigation=True,
@@ -186,17 +202,48 @@ class DynamicCrawlerTests(unittest.TestCase):
 
         result = DynamicCrawler(browser=browser, clock=lambda: 0.0).crawl(
             root,
-            DynamicCrawlPolicy(),
+            DynamicCrawlPolicy(max_depth=2),
             authority,
         )
 
-        self.assertEqual(result.visited_urls, (root, rendered))
-        self.assertEqual(browser.session.navigation_calls, [root, rendered])
-        self.assertEqual(browser.session.rendered_navigation_calls, [rendered])
+        self.assertEqual(result.visited_urls, (root, page_a, page_b))
+        self.assertEqual([page.depth for page in result.pages], [0, 1, 2])
+        self.assertEqual(
+            [page.parent_url for page in result.pages],
+            [None, root, page_a],
+        )
+        self.assertEqual(
+            browser.session.navigation_calls,
+            [root, page_a, page_b],
+        )
+        self.assertEqual(
+            browser.session.rendered_navigation_calls,
+            [page_a, page_b],
+        )
+        self.assertEqual(
+            {point.name for point in result.discovery.input_points},
+            {"from_a", "from_b", "from_start"},
+        )
+        self.assertNotIn(root + "#cycle", result.visited_urls)
         self.assertIn(
             "DYNAMIC_OFF_AUTHORITY_LINK",
             {warning.code for warning in result.discovery.warnings},
         )
+        self.assertIn(
+            "DYNAMIC_DUPLICATE_URL",
+            {warning.code for warning in result.discovery.warnings},
+        )
+
+        rerun_browser = FakeDynamicBrowser(snapshots)
+        rerun = DynamicCrawler(browser=rerun_browser, clock=lambda: 0.0).crawl(
+            root,
+            DynamicCrawlPolicy(max_depth=2),
+            authority,
+        )
+        self.assertEqual(rerun.visited_urls, result.visited_urls)
+        self.assertEqual(rerun.pages, result.pages)
+        self.assertEqual(rerun.discovery.endpoints, result.discovery.endpoints)
+        self.assertEqual(rerun.discovery.input_points, result.discovery.input_points)
 
     def test_deterministic_bfs_uses_exact_authority_and_page_provenance(self) -> None:
         root = "http://127.0.0.1/start"

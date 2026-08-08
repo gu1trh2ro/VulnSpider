@@ -48,6 +48,7 @@ from vulnspider.reporting import (
 _SIMPLE_DEFAULT_CRAWL_OUTPUT = Path("vulnspider-crawl.json")
 _SIMPLE_DEFAULT_ANALYSIS_OUTPUT = Path("vulnspider-analysis.json")
 _SIMPLE_DEFAULT_TOP_K = 10
+_SIMPLE_DEFAULT_DYNAMIC_MAX_DEPTH = 2
 
 
 class CLIError(ValueError):
@@ -327,7 +328,9 @@ def main(
                 crawler_transport=crawler_transport,
                 dynamic_authority=dynamic_authority,
                 dynamic_policy=(
-                    _dynamic_policy_from_args(args) if args.dynamic else None
+                    _dynamic_policy_from_args(args, simple_mode=simple_mode)
+                    if args.dynamic
+                    else None
                 ),
                 dynamic_crawler=(dynamic_crawler if args.dynamic else None),
                 transport=transport,
@@ -656,7 +659,11 @@ def _dynamic_authority_from_args(
     )
 
 
-def _dynamic_policy_from_args(args: argparse.Namespace) -> DynamicCrawlPolicy:
+def _dynamic_policy_from_args(
+    args: argparse.Namespace,
+    *,
+    simple_mode: bool = False,
+) -> DynamicCrawlPolicy:
     defaults = DynamicCrawlPolicy()
     try:
         return DynamicCrawlPolicy(
@@ -666,7 +673,11 @@ def _dynamic_policy_from_args(args: argparse.Namespace) -> DynamicCrawlPolicy:
                 else args.dynamic_max_pages
             ),
             max_depth=(
-                defaults.max_depth
+                (
+                    _SIMPLE_DEFAULT_DYNAMIC_MAX_DEPTH
+                    if simple_mode
+                    else defaults.max_depth
+                )
                 if args.dynamic_max_depth is None
                 else args.dynamic_max_depth
             ),
