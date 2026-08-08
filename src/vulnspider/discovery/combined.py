@@ -8,8 +8,6 @@ from typing import Any
 from vulnspider.discovery.contracts import (
     CanonicalDiscoveryResult,
     CollectorKind,
-    DiscoveryMetadata,
-    ScopeMetadata,
 )
 from vulnspider.discovery.dynamic_browser import DynamicRequestAuthority
 from vulnspider.discovery.dynamic_crawler import (
@@ -19,9 +17,7 @@ from vulnspider.discovery.dynamic_crawler import (
     DynamicCrawlResult,
 )
 from vulnspider.discovery.html_extractor import (
-    SensitiveFormElisionPolicy,
-    StaticExtractionResult,
-    extract_static_html,
+    extract_static_html_with_sensitive_form_elision,
 )
 from vulnspider.discovery.merge import (
     DiscoveryMergePolicy,
@@ -36,33 +32,10 @@ from vulnspider.discovery.static_crawler import (
 )
 
 
-_SENSITIVE_FORM_POLICY = SensitiveFormElisionPolicy()
-
-
-def _extract_static_for_combined(
-    html: str,
-    source_url: str,
-    *,
-    discovery_metadata: DiscoveryMetadata,
-    scope_metadata: ScopeMetadata,
-    parent_url: str | None,
-    depth: int,
-) -> StaticExtractionResult:
-    """Bind the required pre-canonical elision policy to Static extraction."""
-
-    return extract_static_html(
-        html,
-        source_url,
-        discovery_metadata=discovery_metadata,
-        scope_metadata=scope_metadata,
-        parent_url=parent_url,
-        depth=depth,
-        sensitive_form_policy=_SENSITIVE_FORM_POLICY,
-    )
-
-
 def _default_static_crawler() -> StaticCrawler:
-    return StaticCrawler(extractor=_extract_static_for_combined)
+    return StaticCrawler(
+        extractor=extract_static_html_with_sensitive_form_elision,
+    )
 
 
 @dataclass(frozen=True, slots=True)

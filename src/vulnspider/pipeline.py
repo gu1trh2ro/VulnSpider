@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from functools import partial
 from ipaddress import ip_address
 from time import monotonic
 from typing import Any
@@ -24,12 +23,11 @@ from vulnspider.discovery import (
     LegacyCrawlerAdapter,
     LegacyCrawlRecord,
     ProbeReadyStatus,
-    SensitiveFormElisionPolicy,
     StaticCrawler,
     StaticCrawlerTransport,
     StaticCrawlResult,
     discover_native_combined,
-    extract_static_html,
+    extract_static_html_with_sensitive_form_elision,
 )
 from vulnspider.domain import (
     Endpoint,
@@ -299,12 +297,6 @@ def analyze_url(
     return replace(analysis, crawl_result=crawl_result)
 
 
-_COMBINED_STATIC_EXTRACTOR = partial(
-    extract_static_html,
-    sensitive_form_policy=SensitiveFormElisionPolicy(),
-)
-
-
 def _combined_static_crawler(
     *,
     crawler: StaticCrawler | None,
@@ -315,12 +307,17 @@ def _combined_static_crawler(
     if crawler is not None:
         if type(crawler) is not StaticCrawler:
             raise TypeError("crawler must be a StaticCrawler")
-        return replace(crawler, extractor=_COMBINED_STATIC_EXTRACTOR)
+        return replace(
+            crawler,
+            extractor=extract_static_html_with_sensitive_form_elision,
+        )
     if crawler_transport is None:
-        return StaticCrawler(extractor=_COMBINED_STATIC_EXTRACTOR)
+        return StaticCrawler(
+            extractor=extract_static_html_with_sensitive_form_elision,
+        )
     return StaticCrawler(
         transport=crawler_transport,
-        extractor=_COMBINED_STATIC_EXTRACTOR,
+        extractor=extract_static_html_with_sensitive_form_elision,
     )
 
 

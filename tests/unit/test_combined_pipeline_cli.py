@@ -18,6 +18,7 @@ from vulnspider.discovery import (
     CrawlPolicy,
     DiscoveryMergePolicy,
     DiscoveryMetadata,
+    DiscoverySafetyInvariant,
     DynamicCapabilityCode,
     DynamicCapabilityError,
     DynamicCrawlCompletion,
@@ -66,6 +67,7 @@ HTML = f"""
 @dataclass
 class SinglePageCrawlerTransport:
     html: str = HTML
+    status_code: int = 200
     requests: list[StaticCrawlerRequest] = field(default_factory=list)
 
     def send(
@@ -77,7 +79,7 @@ class SinglePageCrawlerTransport:
     ) -> StaticCrawlerResponse:
         self.requests.append(request)
         return StaticCrawlerResponse(
-            status_code=200,
+            status_code=self.status_code,
             body=self.html.encode("utf-8"),
             content_type="text/html",
             encoding="utf-8",
@@ -232,6 +234,45 @@ def _combined_result() -> CombinedDiscoveryResult:
 
 
 class CombinedPipelineTests(unittest.TestCase):
+    def test_static_http_error_keeps_elision_safety_invariant_for_merge(
+        self,
+    ) -> None:
+        crawler_transport = SinglePageCrawlerTransport(
+            "<html></html>",
+            status_code=404,
+        )
+        dynamic_crawler = RecordingDynamicCrawler(
+            _dynamic_result(html="<html></html>")
+        )
+
+        analysis = analyze_url(
+            ROOT_URL,
+            top_k=10,
+            crawler_transport=crawler_transport,
+            dynamic_authority=DynamicRequestAuthority(ROOT_URL),
+            dynamic_crawler=dynamic_crawler,
+            transport=MarkerTransport(),
+        )
+
+        combined = analysis.combined_result
+        self.assertIsNotNone(combined)
+        assert combined is not None
+        self.assertEqual(
+            combined.static_crawl.discovery.safety_invariants,
+            (
+                DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION,
+            ),
+        )
+        self.assertEqual(
+            tuple(item.code for item in combined.static_crawl.warnings),
+            ("HTTP_ERROR",),
+        )
+        self.assertEqual(combined.static_crawl.processed_urls, ())
+        self.assertEqual(combined.static_crawl.discovery.endpoints, ())
+        combined.dynamic_crawl.discovery.validate()
+        combined.discovery.validate()
+        self.assertEqual(analysis.selection.summary.total_scoring_results, 0)
+
     def test_combined_handoff_preserves_contexts_occurrences_and_secrets(
         self,
     ) -> None:

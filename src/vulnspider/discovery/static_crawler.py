@@ -29,6 +29,7 @@ from vulnspider.discovery.contracts import (
 from vulnspider.discovery.html_extractor import (
     StaticExtractionResult,
     extract_static_html,
+    extract_static_html_with_sensitive_form_elision,
 )
 from vulnspider.domain import (
     Endpoint,
@@ -208,6 +209,16 @@ class StaticHtmlExtractor(Protocol):
         """Extract one already-fetched HTML document."""
 
 
+def _extractor_safety_invariants(
+    extractor: StaticHtmlExtractor,
+) -> tuple[DiscoverySafetyInvariant, ...]:
+    if extractor is extract_static_html_with_sensitive_form_elision:
+        return (
+            DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION,
+        )
+    return ()
+
+
 class _NoRedirectHandler(HTTPRedirectHandler):
     def redirect_request(  # type: ignore[override]
         self,
@@ -374,6 +385,7 @@ class _CrawlState:
     started: float
     queue: list[tuple[int, str, str]]
     scheduled: set[str]
+    extractor_safety_invariants: tuple[DiscoverySafetyInvariant, ...]
     requested: set[str] = field(default_factory=set)
     visited_urls: list[str] = field(default_factory=list)
     processed_urls: list[str] = field(default_factory=list)
@@ -432,6 +444,7 @@ class StaticCrawler:
         active_policy = policy or CrawlPolicy()
         if not isinstance(active_policy, CrawlPolicy):
             raise StaticCrawlerError("policy must be a CrawlPolicy")
+        extractor_safety_invariants = _extractor_safety_invariants(self.extractor)
         canonical_root = canonicalize_crawl_url(root_url)
         metadata = DiscoveryMetadata(
             collector_kind=CollectorKind.NATIVE_STATIC,
@@ -439,6 +452,7 @@ class StaticCrawler:
             configuration_fingerprint=stable_fingerprint(
                 "native-static-crawl-policy",
                 active_policy.to_dict(),
+                tuple(item.value for item in extractor_safety_invariants),
             ),
         )
         scope_ref = (
@@ -462,6 +476,7 @@ class StaticCrawler:
             started=self.clock(),
             queue=[(0, canonical_root, "")],
             scheduled={canonical_root},
+            extractor_safety_invariants=extractor_safety_invariants,
         )
 
         while state.queue:
@@ -903,7 +918,7 @@ def _build_discovery_result(
     provenance: dict[str, DiscoveryProvenance] = {}
     hints: dict[str, BACStaticHint] = {}
     warnings = dict(state.warnings)
-    safety_invariants: set[DiscoverySafetyInvariant] = set()
+    safety_invariants = set(state.extractor_safety_invariants)
 
     for extraction in state.extractions:
         discovery = extraction.discovery

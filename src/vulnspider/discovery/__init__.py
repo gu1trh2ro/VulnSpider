@@ -62,6 +62,7 @@ from vulnspider.discovery.html_extractor import (
     SensitiveFormElisionPolicy,
     StaticExtractionResult,
     extract_static_html,
+    extract_static_html_with_sensitive_form_elision,
 )
 from vulnspider.discovery.legacy_adapter import (
     LegacyAdapterResult,
@@ -169,6 +170,7 @@ __all__ = [
     "discovery_run_id_for",
     "discover_native_combined",
     "extract_static_html",
+    "extract_static_html_with_sensitive_form_elision",
     "extract_rendered_dom",
     "merge_discovery_results",
     "preflight_dynamic_browser",

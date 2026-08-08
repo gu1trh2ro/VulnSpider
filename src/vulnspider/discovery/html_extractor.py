@@ -1433,6 +1433,28 @@ def extract_static_html(
     )
 
 
+def extract_static_html_with_sensitive_form_elision(
+    html: str,
+    source_url: str,
+    *,
+    discovery_metadata: DiscoveryMetadata,
+    scope_metadata: ScopeMetadata,
+    parent_url: str | None,
+    depth: int,
+) -> StaticExtractionResult:
+    """Extract Static HTML with the merge-required elision policy bound."""
+
+    return extract_static_html(
+        html,
+        source_url,
+        discovery_metadata=discovery_metadata,
+        scope_metadata=scope_metadata,
+        parent_url=parent_url,
+        depth=depth,
+        sensitive_form_policy=SensitiveFormElisionPolicy(),
+    )
+
+
 def _attribute_map(
     attrs: Sequence[tuple[str, str | None]],
 ) -> dict[str, str | None]:
