@@ -320,6 +320,36 @@ failed or degraded simple scans do not publish a new result.
 
 ---
 
+## ADR-020 - Interface Contract v1 joins two canonical artifacts
+
+**Status:** Accepted
+
+**Date:** 2026-08-09
+
+**Decision:** The current Probe-to-Feature boundary keeps the existing
+`InputPoint`, `ProbePlan`, `ResponsePair`, and role-owned `ResponseSnapshot`
+objects without a wrapper. Downstream Mutation integration consumes only
+`vulnspider-crawl.json` and `vulnspider-analysis.json` through a validating,
+in-memory `NormalizedCandidate` adapter. The adapter output is derived handoff
+data, not a third canonical artifact.
+
+**Reason:** Existing producers already own stable identity, provenance,
+feature, scoring, and selection validation. A small join boundary makes those
+guarantees consumable without duplicating the domain graph or introducing a
+`context_registry.json` that could drift from its sources.
+
+**Consequences:** Unresolved or contradictory IDs fail explicitly. Raw
+credentials and unavailable evidence cannot be fabricated into mutation
+context. BAC category/type values are reserved for a later reviewed producer;
+this decision does not implement BAC behavior. Canonical discovery emits a
+deterministic content-bound `discovery_snapshot_id`, and analysis records the
+same snapshot reference. Non-decision elapsed-time telemetry is normalized out
+of that binding. The handoff recalculates the binding and validates
+serialized FeatureVectors, scoring evidence, and selection through the existing
+scorers and Top-K implementation rather than trusting duplicated report values.
+
+---
+
 ## New Decision Template
 
 ```text

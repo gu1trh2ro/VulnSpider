@@ -15,6 +15,7 @@ from vulnspider.domain import (
     RequestContextCompleteness,
     RequestInstance,
     RequestTemplate,
+    normalize_parameter_name,
     stable_fingerprint,
     validate_input_point_request_context,
 )
@@ -220,7 +221,7 @@ def _target_pair_index(
     matches = [
         (index, value)
         for index, (name, value) in enumerate(pairs)
-        if _normalize_name(name) == input_point.name
+        if normalize_parameter_name(name) == input_point.name
     ]
     if not matches:
         raise ProbePlanningError("InputPoint target is missing from RequestTemplate")
@@ -335,7 +336,3 @@ def _changed_field(input_point: InputPoint) -> str:
     if input_point.occurrence_index is None:
         return f"{location}.{input_point.name}"
     return f"{location}.{input_point.name}[{input_point.occurrence_index}]"
-
-
-def _normalize_name(value: str) -> str:
-    return value.strip().lower()

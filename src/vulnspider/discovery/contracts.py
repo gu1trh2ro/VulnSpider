@@ -24,6 +24,7 @@ from vulnspider.domain import (
 )
 
 CONTRACT_VERSION = "canonical-discovery/1.0"
+DISCOVERY_SNAPSHOT_VERSION = "canonical-discovery-snapshot/1.0"
 
 
 class DiscoveryContractError(ValueError):
@@ -691,6 +692,33 @@ def discovery_run_id_for(
         scope.scope_policy_version,
     )
     return f"discovery_{fingerprint[:16]}"
+
+
+def discovery_snapshot_id_for(
+    discovery_record: Mapping[str, Any],
+) -> str:
+    """Bind one deterministic canonical discovery serialization by content."""
+
+    if not isinstance(discovery_record, Mapping):
+        raise DiscoveryContractError("discovery snapshot input must be a mapping")
+    content = {
+        str(key): value
+        for key, value in discovery_record.items()
+        if key != "discovery_snapshot_id"
+    }
+    crawl_statistics = content.get("crawl_statistics")
+    if isinstance(crawl_statistics, Mapping):
+        content["crawl_statistics"] = {
+            str(key): 0.0 if key == "elapsed_ms" else value
+            for key, value in crawl_statistics.items()
+        }
+    try:
+        fingerprint = stable_fingerprint(DISCOVERY_SNAPSHOT_VERSION, content)
+    except TypeError as exc:
+        raise DiscoveryContractError(
+            "discovery snapshot contains unsupported content"
+        ) from exc
+    return f"dsnap_{fingerprint[:32]}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1644,6 +1672,7 @@ class CanonicalDiscoveryResult:
             result["safety_invariants"] = [
                 item.value for item in self.safety_invariants
             ]
+        result["discovery_snapshot_id"] = discovery_snapshot_id_for(result)
         return result
 
 

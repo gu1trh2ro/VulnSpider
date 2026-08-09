@@ -53,6 +53,12 @@ def _normalize_text(value: str | None) -> str:
     return (value or "").strip().lower()
 
 
+def normalize_parameter_name(value: str | None) -> str:
+    """Return the canonical InputPoint/request-parameter comparison name."""
+
+    return _normalize_text(value)
+
+
 def canonical_path(path: str) -> str:
     parsed = urlsplit(path)
     normalized = parsed.path or "/"
@@ -223,7 +229,7 @@ class InputPoint:
 
     def __post_init__(self) -> None:
         location = InputLocation(self.location)
-        normalized_name = _normalize_text(self.name)
+        normalized_name = normalize_parameter_name(self.name)
         if not normalized_name:
             raise ValueError("InputPoint.name must not be empty")
         if not self.endpoint_id:
@@ -272,7 +278,7 @@ def input_point_fingerprint(
         "input-point",
         endpoint_fingerprint,
         InputLocation(location).value,
-        _normalize_text(name),
+        normalize_parameter_name(name),
         _normalize_text(auth_context_id),
     ]
     if occurrence_index is not None:
@@ -427,7 +433,7 @@ def validate_input_point_request_context(
     matches = [
         value
         for name, value in pairs
-        if _normalize_text(name) == input_point.name
+        if normalize_parameter_name(name) == input_point.name
     ]
     if not matches:
         raise ValueError("InputPoint target is missing from RequestTemplate")
