@@ -63,6 +63,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="vulnspider",
         description="VulnSpider prototype command line interface.",
+        # Simple-mode --dynamic-allow-* options otherwise make the analyze
+        # subcommand's --dynamic an ambiguous top-level abbreviation.
+        allow_abbrev=False,
         epilog=(
             "Simple scan: vulnspider -u http://127.0.0.1:8080/ "
             "[--crawl-output crawl.json] [-o analysis.json] [--static-only]. "
