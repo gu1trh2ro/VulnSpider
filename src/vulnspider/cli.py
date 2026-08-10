@@ -482,14 +482,21 @@ def _write_html_report(analysis: AnalysisResult, destination: Path) -> None:
     endpoints = {
         endpoint.id or "": endpoint for endpoint in analysis.endpoints
     }
-    probe_runs = {
-        observation.feature_vector_id: (
-            observation.probe_plan,
-            observation.baseline_response,
-            observation.probe_response,
+    probe_runs: dict[str, Any] = {}
+    for observation in sorted(
+        analysis.probe_observations,
+        key=lambda item: item.probe_plan.id or "",
+    ):
+        # One InputPoint can own several request contexts, so show the first
+        # probe run by stable ProbePlan id rather than an arbitrary last one.
+        probe_runs.setdefault(
+            observation.feature_vector_id,
+            (
+                observation.probe_plan,
+                observation.baseline_response,
+                observation.probe_response,
+            ),
         )
-        for observation in analysis.probe_observations
-    }
     write_html_report(
         analysis.selection,
         destination,
@@ -497,6 +504,7 @@ def _write_html_report(analysis: AnalysisResult, destination: Path) -> None:
         input_points=input_points,
         endpoints=endpoints,
         probe_runs=probe_runs,
+        requests_executed=2 * len(analysis.probe_observations),
         target=_analysis_target(analysis),
         elapsed_seconds=analysis.elapsed_seconds,
     )

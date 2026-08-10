@@ -39,7 +39,10 @@ from vulnspider.domain import (
     RequestTemplate,
     ResponseSnapshot,
 )
-from vulnspider.features import extract_minimal_features
+from vulnspider.features import (
+    combine_input_point_features,
+    extract_minimal_features,
+)
 from vulnspider.observation import (
     DEFAULT_MAX_BODY_BYTES,
     DEFAULT_TIMEOUT_SECONDS,
@@ -59,15 +62,27 @@ class PipelineError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ProbeObservation:
-    """The one executed baseline/probe request pair behind a FeatureVector.
+    """One executed baseline/probe request pair behind a FeatureVector.
 
     Retained only for reporting (ADR-011): it lets a report join a selected
     candidate back to the real request it was derived from without
-    reporting recomputing or re-deriving anything.
+    reporting recomputing or re-deriving anything. One InputPoint may own
+    several probe-ready request contexts, so several observations can share
+    the same combined `feature_vector_id`.
     """
 
     feature_vector_id: str
     input_point_id: str
+    probe_plan: ProbePlan
+    baseline_response: ResponseSnapshot
+    probe_response: ResponseSnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class _ProbeRun:
+    """One executed request context before its InputPoint runs are combined."""
+
+    feature_vector: FeatureVector
     probe_plan: ProbePlan
     baseline_response: ResponseSnapshot
     probe_response: ResponseSnapshot
@@ -365,9 +380,8 @@ def _analyze_contexts(
         max_body_bytes=max_body_bytes,
     )
     planner = ProbePlanner()
-    scoring_results: list[ScoringResult] = []
-    feature_vectors: list[FeatureVector] = []
-    probe_observations: list[ProbeObservation] = []
+    collector_label = _collector_label(discovery_result)
+    runs: dict[str, list[_ProbeRun]] = {}
     warnings = list(initial_warnings)
     started = monotonic()
 
@@ -381,7 +395,7 @@ def _analyze_contexts(
         ):
             warnings.append(
                 f"input point {input_point.id} context {context.id} skipped: "
-                "native static analysis executes GET request contexts only"
+                f"{collector_label} analysis executes GET request contexts only"
             )
             continue
         _require_loopback_request(request_template.url)
@@ -401,17 +415,34 @@ def _analyze_contexts(
             execution.baseline_response,
             execution.probe_response,
         )
-        feature_vectors.append(feature_vector)
-        probe_observations.append(
-            ProbeObservation(
-                feature_vector_id=feature_vector.id or "",
-                input_point_id=input_point.id or "",
+        runs.setdefault(input_point.id or "", []).append(
+            _ProbeRun(
+                feature_vector=feature_vector,
                 probe_plan=probe_plan,
                 baseline_response=execution.baseline_response,
                 probe_response=execution.probe_response,
             )
         )
-        scoring_results.extend(generate_candidates(feature_vector))
+
+    scoring_results: list[ScoringResult] = []
+    feature_vectors: list[FeatureVector] = []
+    probe_observations: list[ProbeObservation] = []
+    for input_point_id, input_point_runs in sorted(runs.items()):
+        combined = combine_input_point_features(
+            [run.feature_vector for run in input_point_runs]
+        )
+        feature_vectors.append(combined)
+        probe_observations.extend(
+            ProbeObservation(
+                feature_vector_id=combined.id or "",
+                input_point_id=input_point_id,
+                probe_plan=run.probe_plan,
+                baseline_response=run.baseline_response,
+                probe_response=run.probe_response,
+            )
+            for run in input_point_runs
+        )
+        scoring_results.extend(generate_candidates(combined))
 
     elapsed_seconds = monotonic() - started
     selection = select_top_k(scoring_results, k=top_k)
@@ -425,6 +456,14 @@ def _analyze_contexts(
         discovery_result=discovery_result,
         feature_vectors=tuple(feature_vectors),
     )
+
+
+def _collector_label(discovery_result: CanonicalDiscoveryResult | None) -> str:
+    """Name the collector that produced the skipped context, not a guess."""
+
+    if discovery_result is None:
+        return "legacy adapter"
+    return discovery_result.discovery_metadata.collector_kind.value
 
 
 def _require_loopback_request(url: str) -> None:

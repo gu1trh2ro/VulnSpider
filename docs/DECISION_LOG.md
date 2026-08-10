@@ -320,6 +320,50 @@ failed or degraded simple scans do not publish a new result.
 
 ---
 
+## ADR-020 — One FeatureVector per InputPoint across its probe-ready contexts
+
+**Status:** Accepted
+
+**Date:** 2026-08-10
+
+**Decision:** When one `InputPoint` owns several probe-ready
+`InputPointRequestContext` objects, every executed probe run still runs, but
+their per-run `FeatureVector` objects are combined into exactly one
+`FeatureVector` for that `InputPoint` before candidate generation. Each feature
+is combined existentially: the largest observed value wins, ties resolve by
+ascending probe-run id, and a feature stays unobserved when no run observed it.
+`probe_run_ids` lists every contributing `ResponsePair`, and `details` records
+the aggregation version, the participating runs, the run that supplied the
+retained value, each run's value, and the unobserved-run count. Aggregation
+policy version: `input-point-existential-v1`.
+
+**Context:** `docs/DOMAIN_MODEL.md` §9 already defines a `FeatureVector` as one
+`InputPoint` plus the probe runs that produced it, and ADR-002 keeps
+`InputPoint x VulnerabilityType` as the ranking atom. Native Static single-seed
+crawls happened to bind one context per `InputPoint`, so a per-run vector was
+indistinguishable from a per-InputPoint vector. Native Dynamic and Combined
+discovery observe the same endpoint parameter through several request
+templates, so per-run vectors produced several `ScoringResult` objects sharing
+one candidate id. `select_top_k` then collapsed them silently, the same
+candidate could appear in both `selected` and `unrankable`, and the reported
+summary counted observations instead of candidates.
+
+**Alternatives:** Probe only one deterministically chosen context per
+`InputPoint`. Rejected because it discards the observation that discriminates
+between contexts, for example a numeric baseline versus an already-broken one.
+Fixing only the selection accounting was also rejected because it leaves the
+ranking atom split across several feature vectors.
+
+**Consequences:** `AnalysisResult.feature_vectors` holds one vector per
+observed `InputPoint`, and several `ProbeObservation` records can reference the
+same `feature_vector_id`. Reporting joins by `probe_run_ids` membership instead
+of assuming one run per vector. A combined feature value can come from a
+different probe run than its sibling feature, so a combined vector is not the
+replay of one request pair; `selected_probe_run_id` keeps that explainable.
+Single-context analyses are unchanged and keep their previous vector ids.
+
+---
+
 ## New Decision Template
 
 ```text
