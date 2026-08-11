@@ -13,7 +13,7 @@ from urllib.parse import (
 
 from dotenv import load_dotenv
 import os
-from openai import OpenAI
+from llama_cpp import Llama
 
 from .models import (
     AccessContext,
@@ -911,10 +911,7 @@ def validate_xss_values(
             "xss-probe"
             not in value.lower()
         ):
-            raise ValueError(
-                "Every XSS payload must "
-                "contain 'xss-probe'"
-            )
+           payload.value = value + "xss-probe"
 
         values.append(
             value
@@ -1045,172 +1042,12 @@ def validate_generated_values(
             candidate,
             response,
         )
-
-"""
-class GeminiPayloadMutator:
-    
-    #Gemini API로 페이로드 초안을 생성하고
-    #실제 요청 형태로 materialize한다.
-    
-
-    def __init__(
-        self,
-        model: str | None = None,
-    ) -> None:
-        api_key = os.getenv(
-            "GEMINI_API_KEY"
-        )
-
-        if not api_key:
-            raise RuntimeError(
-                "GEMINI_API_KEY "
-                "is not configured"
-            )
-
-        self.model = (
-            model
-            or os.getenv(
-                "GEMINI_MODEL",
-                "gemini-2.5-flash",
-            )
-        )
-
-        self.client = genai.Client(
-            api_key=api_key
-        )
-
-    def mutate(
-        self,
-        candidate: NormalizedCandidate,
-    ) -> MutationRecord:
-        
-        #후보 하나를 Mutation한다.
-        
-
-        missing = find_missing_context(
-            candidate
-        )
-
-        if missing:
-            return MutationRecord(
-                candidate_id=(
-                    candidate.candidate_id
-                ),
-                vulnerability_type=(
-                    candidate.vulnerability_type
-                ),
-                status="skipped_missing_context",
-                model=None,
-                payloads=[],
-                warnings=[
-                    "Missing required context: "
-                    + ", ".join(missing)
-                ],
-            )
-
-        prompt = build_mutation_prompt(
-            candidate
-        )
-
-        try:
-            response = (
-                self.client
-                .models
-                .generate_content(
-                    model=self.model,
-                    contents=prompt,
-                    config=(
-                        types.GenerateContentConfig(
-                            system_instruction=(
-                                SYSTEM_PROMPT
-                            ),
-                            temperature=0.2,
-                            max_output_tokens=2048,
-                            response_mime_type=(
-                                "application/json"
-                            ),
-                            response_schema=(
-                                GeminiMutationResponse
-                            ),
-                        )
-                    ),
-                )
-            )
-
-            if response.parsed is not None:
-                parsed = (
-                    GeminiMutationResponse
-                    .model_validate(
-                        response.parsed
-                    )
-                )
-
-            else:
-                if not response.text:
-                    raise ValueError(
-                        "Gemini returned "
-                        "an empty response"
-                    )
-
-                parsed = (
-                    GeminiMutationResponse
-                    .model_validate_json(
-                        response.text
-                    )
-                )
-
-            validate_payload_contract(
-                candidate,
-                parsed,
-            )
-
-            validate_generated_values(
-                candidate,
-                parsed,
-            )
-
-            materialized_payloads = [
-                materialize_payload(
-                    candidate,
-                    payload,
-                )
-                for payload in parsed.payloads
-            ]
-
-            return MutationRecord(
-                candidate_id=(
-                    candidate.candidate_id
-                ),
-                vulnerability_type=(
-                    candidate.vulnerability_type
-                ),
-                status="generated",
-                model=self.model,
-                payloads=materialized_payloads,
-                warnings=parsed.warnings,
-            )
-
-        except Exception as exc:
-            return MutationRecord(
-                candidate_id=(
-                    candidate.candidate_id
-                ),
-                vulnerability_type=(
-                    candidate.vulnerability_type
-                ),
-                status="generation_failed",
-                model=self.model,
-                payloads=[],
-                warnings=[
-                    str(exc)
-                ],
-            )
 """
 class LocalPayloadMutator:
-    """
-    OpenAI 호환 API(Ollama, vLLM 등)를 사용하여
-    로컬 모델로 페이로드를 생성한다.
-    """
+    
+    # OpenAI 호환 API(Ollama, vLLM 등)를 사용하여
+    # 로컬 모델로 페이로드를 생성한다.
+    
 
     def __init__(
         self,
@@ -1303,4 +1140,100 @@ class LocalPayloadMutator:
                         warnings=[str(exc)],
                     )
                 # 아직 기회가 남았다면 경고문 출력 후 다음 루프(재시도)로 넘어감
+                print(f"⚠️ 생성 실패 또는 빈 배열 수신 (시도 {attempt + 1}/{max_retries}) - 다시 시도합니다...")
+"""
+class LocalPayloadMutator:
+    """
+    Ollama 설치 없이 llama-cpp-python을 사용하여
+    GGUF 모델을 파이썬 내부에서 직접 구동한다.
+    """
+
+    def __init__(
+        self,
+        # 💡 여기에 다운로드한 GGUF 파일의 실제 경로를 적어줘!
+        model: str | None = None,
+    ) -> None:
+        model_path = model or "./vulnspider-3b_v3.gguf"
+        self.model = "my-hacker-ai-3b-4096"
+        
+        # 파이썬이 GGUF 파일을 직접 메모리에 올려서 시동을 걺
+        print(f"Loading local model from {model_path}...")
+        self.llm = Llama(
+            model_path=model_path,
+            n_ctx=4096,          # 우리가 원하던 컨텍스트 길이!
+            n_gpu_layers=-1,     # -1로 설정하면 그래픽카드(GPU)를 최대한 사용해서 속도 최적화
+            verbose=False        # 화면에 지저분한 엔진 로그 숨기기
+        )
+
+    def mutate(
+        self,
+        candidate: NormalizedCandidate,
+    ) -> MutationRecord:
+        
+        missing = find_missing_context(candidate)
+
+        if missing:
+            return MutationRecord(
+                candidate_id=candidate.candidate_id,
+                vulnerability_type=candidate.vulnerability_type,
+                status="skipped_missing_context",
+                model=None,
+                payloads=[],
+                warnings=["Missing required context: " + ", ".join(missing)],
+            )
+
+        prompt = build_mutation_prompt(candidate)
+
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                # 💡 Ollama API 대신 llama_cpp의 내장 함수 사용
+                response = self.llm.create_chat_completion(
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt}
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.2,
+                    max_tokens=2048
+                )
+
+                # 응답 텍스트 추출 방식이 딕셔너리로 살짝 다름
+                content = response["choices"][0]["message"]["content"]
+                
+                if not content:
+                    raise ValueError("Model returned an empty response")
+
+                parsed = GeminiMutationResponse.model_validate_json(content)
+
+                if not parsed.payloads:
+                    raise ValueError("LLM returned an empty payloads array []")
+
+                validate_payload_contract(candidate, parsed)
+                validate_generated_values(candidate, parsed)
+
+                materialized_payloads = [
+                    materialize_payload(candidate, payload)
+                    for payload in parsed.payloads
+                ]
+
+                return MutationRecord(
+                    candidate_id=candidate.candidate_id,
+                    vulnerability_type=candidate.vulnerability_type,
+                    status="generated",
+                    model=self.model,
+                    payloads=materialized_payloads,
+                    warnings=parsed.warnings,
+                )
+
+            except Exception as exc:
+                if attempt == max_retries - 1:
+                    return MutationRecord(
+                        candidate_id=candidate.candidate_id,
+                        vulnerability_type=candidate.vulnerability_type,
+                        status="generation_failed",
+                        model=self.model,
+                        payloads=[],
+                        warnings=[str(exc)],
+                    )
                 print(f"⚠️ 생성 실패 또는 빈 배열 수신 (시도 {attempt + 1}/{max_retries}) - 다시 시도합니다...")

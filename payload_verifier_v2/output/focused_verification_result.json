@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "source_schema_version": "0.1",
-  "generated_at": "2026-08-11T13:21:27.611453+00:00",
+  "generated_at": "2026-08-11T16:36:05.693569+00:00",
   "records": [
     {
       "verification_id": "verify_eed683b5ec72413a",
@@ -14,14 +14,14 @@
           "kind": "authorization_control",
           "approved": true,
           "value": "42",
-          "operation": "change_auth_context",
+          "operation": "keep_original",
           "target": {
             "location": "query",
             "parameter_name": "id",
             "parameter_occurrence": 0
           },
-          "auth_context_id": null,
-          "rationale": "Baseline access.",
+          "auth_context_id": "user_a",
+          "rationale": "Baseline access. Reads resource '42' as 'user_a'.",
           "expected_signal": "200 OK",
           "baseline_request": {
             "method": "GET",
@@ -33,14 +33,14 @@
           "mutated_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
-            "auth_context_id": null,
+            "auth_context_id": "user_a",
             "credentials_mode": "use_context",
             "has_body": false
           },
           "baseline_observation": {
             "status_code": 200,
             "response_length": 37,
-            "elapsed_ms": 12.479,
+            "elapsed_ms": 10.211,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Product #42</body></html>",
             "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
@@ -50,7 +50,7 @@
           "mutated_observation": {
             "status_code": 200,
             "response_length": 37,
-            "elapsed_ms": 2.379,
+            "elapsed_ms": 2.814,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Product #42</body></html>",
             "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
@@ -61,7 +61,7 @@
             "status_code_changed": false,
             "response_length_diff_ratio": 0.0,
             "body_signature_changed": false,
-            "elapsed_ms_delta": -10.1
+            "elapsed_ms_delta": -7.397
           },
           "error": null
         },
@@ -69,16 +69,16 @@
           "payload_index": 1,
           "kind": "authorization_variant",
           "approved": true,
-          "value": "43",
-          "operation": "substitute_resource",
+          "value": "42",
+          "operation": "change_auth_context",
           "target": {
             "location": "query",
             "parameter_name": "id",
             "parameter_occurrence": 0
           },
-          "auth_context_id": null,
-          "rationale": "Read different resource (user B).",
-          "expected_signal": "403 Forbidden",
+          "auth_context_id": "user_b",
+          "rationale": "Admin access. Reads resource '42' as 'user_b'.",
+          "expected_signal": "200 OK",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
@@ -88,15 +88,15 @@
           },
           "mutated_request": {
             "method": "GET",
-            "url": "http://127.0.0.1:8899/product?id=43",
-            "auth_context_id": null,
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "auth_context_id": "user_b",
             "credentials_mode": "use_context",
             "has_body": false
           },
           "baseline_observation": {
             "status_code": 200,
             "response_length": 37,
-            "elapsed_ms": 4.336,
+            "elapsed_ms": 4.407,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Product #42</body></html>",
             "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
@@ -106,18 +106,18 @@
           "mutated_observation": {
             "status_code": 200,
             "response_length": 37,
-            "elapsed_ms": 2.107,
+            "elapsed_ms": 2.453,
             "content_type": "text/html; charset=utf-8",
-            "response_body": "<html><body>Product #43</body></html>",
-            "normalized_body_sha256": "787424a08a02f16729b485ab0235cec3c49a38f77ff31b41b576c1c79a8f1420",
+            "response_body": "<html><body>Product #42</body></html>",
+            "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
             "truncated": false,
             "error": null
           },
           "comparison": {
             "status_code_changed": false,
             "response_length_diff_ratio": 0.0,
-            "body_signature_changed": true,
-            "elapsed_ms_delta": -2.229
+            "body_signature_changed": false,
+            "elapsed_ms_delta": -1.954
           },
           "error": null
         },
@@ -132,8 +132,64 @@
             "parameter_name": "id",
             "parameter_occurrence": 0
           },
+          "auth_context_id": "admin",
+          "rationale": "User access. Reads resource '42' as 'admin'.",
+          "expected_signal": "200 OK",
+          "baseline_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "auth_context_id": "user_a",
+            "credentials_mode": "use_context",
+            "has_body": false
+          },
+          "mutated_request": {
+            "method": "GET",
+            "url": "http://127.0.0.1:8899/product?id=42",
+            "auth_context_id": "admin",
+            "credentials_mode": "use_context",
+            "has_body": false
+          },
+          "baseline_observation": {
+            "status_code": 200,
+            "response_length": 37,
+            "elapsed_ms": 2.346,
+            "content_type": "text/html; charset=utf-8",
+            "response_body": "<html><body>Product #42</body></html>",
+            "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
+            "truncated": false,
+            "error": null
+          },
+          "mutated_observation": {
+            "status_code": 200,
+            "response_length": 37,
+            "elapsed_ms": 2.31,
+            "content_type": "text/html; charset=utf-8",
+            "response_body": "<html><body>Product #42</body></html>",
+            "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
+            "truncated": false,
+            "error": null
+          },
+          "comparison": {
+            "status_code_changed": false,
+            "response_length_diff_ratio": 0.0,
+            "body_signature_changed": false,
+            "elapsed_ms_delta": -0.036
+          },
+          "error": null
+        },
+        {
+          "payload_index": 3,
+          "kind": "authorization_variant",
+          "approved": true,
+          "value": "42",
+          "operation": "change_auth_context",
+          "target": {
+            "location": "query",
+            "parameter_name": "id",
+            "parameter_occurrence": 0
+          },
           "auth_context_id": null,
-          "rationale": "Read same resource but without auth.",
+          "rationale": "Anonymous access. Reads resource '42' without auth.",
           "expected_signal": "200 OK",
           "baseline_request": {
             "method": "GET",
@@ -152,7 +208,7 @@
           "baseline_observation": {
             "status_code": 200,
             "response_length": 37,
-            "elapsed_ms": 2.229,
+            "elapsed_ms": 2.378,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Product #42</body></html>",
             "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
@@ -162,7 +218,7 @@
           "mutated_observation": {
             "status_code": 200,
             "response_length": 37,
-            "elapsed_ms": 2.403,
+            "elapsed_ms": 1.916,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Product #42</body></html>",
             "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
@@ -173,63 +229,7 @@
             "status_code_changed": false,
             "response_length_diff_ratio": 0.0,
             "body_signature_changed": false,
-            "elapsed_ms_delta": 0.174
-          },
-          "error": null
-        },
-        {
-          "payload_index": 3,
-          "kind": "authorization_variant",
-          "approved": true,
-          "value": "41",
-          "operation": "substitute_resource",
-          "target": {
-            "location": "query",
-            "parameter_name": "id",
-            "parameter_occurrence": 0
-          },
-          "auth_context_id": null,
-          "rationale": "Invalid resource ID (cross-check).",
-          "expected_signal": "404 Not Found",
-          "baseline_request": {
-            "method": "GET",
-            "url": "http://127.0.0.1:8899/product?id=42",
-            "auth_context_id": "user_a",
-            "credentials_mode": "use_context",
-            "has_body": false
-          },
-          "mutated_request": {
-            "method": "GET",
-            "url": "http://127.0.0.1:8899/product?id=41",
-            "auth_context_id": null,
-            "credentials_mode": "use_context",
-            "has_body": false
-          },
-          "baseline_observation": {
-            "status_code": 200,
-            "response_length": 37,
-            "elapsed_ms": 2.27,
-            "content_type": "text/html; charset=utf-8",
-            "response_body": "<html><body>Product #42</body></html>",
-            "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
-            "truncated": false,
-            "error": null
-          },
-          "mutated_observation": {
-            "status_code": 200,
-            "response_length": 37,
-            "elapsed_ms": 2.118,
-            "content_type": "text/html; charset=utf-8",
-            "response_body": "<html><body>Product #41</body></html>",
-            "normalized_body_sha256": "85b97e8f73ab1cf908aabd9a9f5dc5b3a6a3b160c78fec31228931dce77fe6bb",
-            "truncated": false,
-            "error": null
-          },
-          "comparison": {
-            "status_code_changed": false,
-            "response_length_diff_ratio": 0.0,
-            "body_signature_changed": true,
-            "elapsed_ms_delta": -0.152
+            "elapsed_ms_delta": -0.462
           },
           "error": null
         }
@@ -239,8 +239,8 @@
         "variant_results": [
           {
             "payload_index": 1,
-            "operation": "substitute_resource",
-            "auth_context_id": null,
+            "operation": "change_auth_context",
+            "auth_context_id": "user_b",
             "status_code": 200,
             "access_unauthorized_success": true,
             "access_body_similarity_ratio": 1.0,
@@ -250,7 +250,7 @@
           {
             "payload_index": 2,
             "operation": "change_auth_context",
-            "auth_context_id": null,
+            "auth_context_id": "admin",
             "status_code": 200,
             "access_unauthorized_success": true,
             "access_body_similarity_ratio": 1.0,
@@ -259,7 +259,7 @@
           },
           {
             "payload_index": 3,
-            "operation": "substitute_resource",
+            "operation": "change_auth_context",
             "auth_context_id": null,
             "status_code": 200,
             "access_unauthorized_success": true,
@@ -296,8 +296,8 @@
             "parameter_name": null,
             "parameter_occurrence": 0
           },
-          "auth_context_id": null,
-          "rationale": "Baseline access.",
+          "auth_context_id": "authenticated_user",
+          "rationale": "Baseline access. Verify the resource is accessible with the baseline auth context.",
           "expected_signal": "200 OK",
           "baseline_request": {
             "method": "GET",
@@ -316,7 +316,7 @@
           "baseline_observation": {
             "status_code": 200,
             "response_length": 110,
-            "elapsed_ms": 4.99,
+            "elapsed_ms": 4.347,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Account overview: balance $4,821.00, plan: Pro, next billing date hidden for brevity</body></html>",
             "normalized_body_sha256": "3abb06160c49f04608e58f49cc192118da77325d06896bf0a7c2616b3328fb78",
@@ -326,7 +326,7 @@
           "mutated_observation": {
             "status_code": 200,
             "response_length": 110,
-            "elapsed_ms": 2.36,
+            "elapsed_ms": 2.33,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Account overview: balance $4,821.00, plan: Pro, next billing date hidden for brevity</body></html>",
             "normalized_body_sha256": "3abb06160c49f04608e58f49cc192118da77325d06896bf0a7c2616b3328fb78",
@@ -337,7 +337,7 @@
             "status_code_changed": false,
             "response_length_diff_ratio": 0.0,
             "body_signature_changed": false,
-            "elapsed_ms_delta": -2.63
+            "elapsed_ms_delta": -2.017
           },
           "error": null
         },
@@ -353,8 +353,8 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": "anonymous",
-          "rationale": "Anonymous access without auth.",
-          "expected_signal": "401 Unauthorized",
+          "rationale": "Anonymous access. Verify the resource is accessible without credentials.",
+          "expected_signal": "200 OK",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/account?tab=overview",
@@ -372,7 +372,7 @@
           "baseline_observation": {
             "status_code": 200,
             "response_length": 110,
-            "elapsed_ms": 5.471,
+            "elapsed_ms": 4.784,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Account overview: balance $4,821.00, plan: Pro, next billing date hidden for brevity</body></html>",
             "normalized_body_sha256": "3abb06160c49f04608e58f49cc192118da77325d06896bf0a7c2616b3328fb78",
@@ -382,7 +382,7 @@
           "mutated_observation": {
             "status_code": 200,
             "response_length": 110,
-            "elapsed_ms": 2.092,
+            "elapsed_ms": 2.148,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Account overview: balance $4,821.00, plan: Pro, next billing date hidden for brevity</body></html>",
             "normalized_body_sha256": "3abb06160c49f04608e58f49cc192118da77325d06896bf0a7c2616b3328fb78",
@@ -393,7 +393,7 @@
             "status_code_changed": false,
             "response_length_diff_ratio": 0.0,
             "body_signature_changed": false,
-            "elapsed_ms_delta": -3.379
+            "elapsed_ms_delta": -2.636
           },
           "error": null
         },
@@ -409,8 +409,8 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": "admin",
-          "rationale": "Admin access without auth.",
-          "expected_signal": "403 Forbidden",
+          "rationale": "Admin access. Verify the resource is accessible with admin credentials.",
+          "expected_signal": "200 OK",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/account?tab=overview",
@@ -428,7 +428,7 @@
           "baseline_observation": {
             "status_code": 200,
             "response_length": 110,
-            "elapsed_ms": 2.002,
+            "elapsed_ms": 2.251,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Account overview: balance $4,821.00, plan: Pro, next billing date hidden for brevity</body></html>",
             "normalized_body_sha256": "3abb06160c49f04608e58f49cc192118da77325d06896bf0a7c2616b3328fb78",
@@ -438,7 +438,7 @@
           "mutated_observation": {
             "status_code": 200,
             "response_length": 110,
-            "elapsed_ms": 6.93,
+            "elapsed_ms": 2.069,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Account overview: balance $4,821.00, plan: Pro, next billing date hidden for brevity</body></html>",
             "normalized_body_sha256": "3abb06160c49f04608e58f49cc192118da77325d06896bf0a7c2616b3328fb78",
@@ -449,7 +449,7 @@
             "status_code_changed": false,
             "response_length_diff_ratio": 0.0,
             "body_signature_changed": false,
-            "elapsed_ms_delta": 4.928
+            "elapsed_ms_delta": -0.182
           },
           "error": null
         },
@@ -458,14 +458,14 @@
           "kind": "authorization_variant",
           "approved": true,
           "value": "overview",
-          "operation": "change_auth_context",
+          "operation": "remove_credentials",
           "target": {
             "location": "credentials",
             "parameter_name": null,
             "parameter_occurrence": 0
           },
-          "auth_context_id": "authenticated_user",
-          "rationale": "Expected user access with auth.",
+          "auth_context_id": null,
+          "rationale": "Baseline access with modified parameter. Verify the resource is still accessible.",
           "expected_signal": "200 OK",
           "baseline_request": {
             "method": "GET",
@@ -477,14 +477,14 @@
           "mutated_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/account?tab=overview",
-            "auth_context_id": "authenticated_user",
-            "credentials_mode": "use_context",
+            "auth_context_id": null,
+            "credentials_mode": "omit",
             "has_body": false
           },
           "baseline_observation": {
             "status_code": 200,
             "response_length": 110,
-            "elapsed_ms": 7.532,
+            "elapsed_ms": 2.224,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Account overview: balance $4,821.00, plan: Pro, next billing date hidden for brevity</body></html>",
             "normalized_body_sha256": "3abb06160c49f04608e58f49cc192118da77325d06896bf0a7c2616b3328fb78",
@@ -494,7 +494,7 @@
           "mutated_observation": {
             "status_code": 200,
             "response_length": 110,
-            "elapsed_ms": 2.259,
+            "elapsed_ms": 1.914,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Account overview: balance $4,821.00, plan: Pro, next billing date hidden for brevity</body></html>",
             "normalized_body_sha256": "3abb06160c49f04608e58f49cc192118da77325d06896bf0a7c2616b3328fb78",
@@ -505,7 +505,7 @@
             "status_code_changed": false,
             "response_length_diff_ratio": 0.0,
             "body_signature_changed": false,
-            "elapsed_ms_delta": -5.273
+            "elapsed_ms_delta": -0.31
           },
           "error": null
         }
@@ -535,8 +535,8 @@
           },
           {
             "payload_index": 3,
-            "operation": "change_auth_context",
-            "auth_context_id": "authenticated_user",
+            "operation": "remove_credentials",
+            "auth_context_id": null,
             "status_code": 200,
             "access_unauthorized_success": true,
             "access_body_similarity_ratio": 1.0,
@@ -556,7 +556,7 @@
       }
     },
     {
-      "verification_id": "verify_786664496eb8fed8",
+      "verification_id": "verify_9e0df9d32d386ca7",
       "candidate_id": "cand_404bdc9da19de1ee",
       "vulnerability_type": "SQLI",
       "result": "inconclusive",
@@ -592,7 +592,7 @@
           "baseline_observation": {
             "status_code": 200,
             "response_length": 37,
-            "elapsed_ms": 2.928,
+            "elapsed_ms": 2.817,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Product #42</body></html>",
             "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
@@ -602,7 +602,7 @@
           "mutated_observation": {
             "status_code": 200,
             "response_length": 39,
-            "elapsed_ms": 2.53,
+            "elapsed_ms": 2.705,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Product #1000</body></html>",
             "normalized_body_sha256": "5e3be889a5d3b3d0d784e78818546ddc79b33192b76f04f9ba862054718af3d8",
@@ -613,63 +613,7 @@
             "status_code_changed": false,
             "response_length_diff_ratio": 0.051282,
             "body_signature_changed": true,
-            "elapsed_ms_delta": -0.398
-          },
-          "error": null
-        },
-        {
-          "payload_index": 1,
-          "kind": "true_condition",
-          "approved": true,
-          "value": "(42||ASCII('a'))||(SUBSTR('b',1,1))",
-          "operation": "replace_parameter",
-          "target": {
-            "location": "query",
-            "parameter_name": "id",
-            "parameter_occurrence": 0
-          },
-          "auth_context_id": null,
-          "rationale": "COMPLEX_BOOLEAN_LOGIC",
-          "expected_signal": "200 OK",
-          "baseline_request": {
-            "method": "GET",
-            "url": "http://127.0.0.1:8899/product?id=42",
-            "auth_context_id": null,
-            "credentials_mode": "preserve",
-            "has_body": false
-          },
-          "mutated_request": {
-            "method": "GET",
-            "url": "http://127.0.0.1:8899/product?id=%2842%7C%7CASCII%28%27a%27%29%29%7C%7C%28SUBSTR%28%27b%27%2C1%2C1%29%29",
-            "auth_context_id": null,
-            "credentials_mode": "preserve",
-            "has_body": false
-          },
-          "baseline_observation": {
-            "status_code": 200,
-            "response_length": 37,
-            "elapsed_ms": 3.387,
-            "content_type": "text/html; charset=utf-8",
-            "response_body": "<html><body>Product #42</body></html>",
-            "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
-            "truncated": false,
-            "error": null
-          },
-          "mutated_observation": {
-            "status_code": 500,
-            "response_length": 103,
-            "elapsed_ms": 2.282,
-            "content_type": "text/html; charset=utf-8",
-            "response_body": "<html><body>Warning: SQL syntax error near '(42||ASCII('a'))||(SUBSTR('b',1,1))' in query</body></html>",
-            "normalized_body_sha256": "64e17f97cbcb4af684c52bef5da14d0ed9f202f1a4d6a9b9ac19577bc2e0c513",
-            "truncated": false,
-            "error": null
-          },
-          "comparison": {
-            "status_code_changed": true,
-            "response_length_diff_ratio": 0.640777,
-            "body_signature_changed": true,
-            "elapsed_ms_delta": -1.105
+            "elapsed_ms_delta": -0.112
           },
           "error": null
         },
@@ -686,7 +630,7 @@
           },
           "auth_context_id": null,
           "rationale": "REPLACES_ORIGINAL_WITH_INVALID_TEXT",
-          "expected_signal": "404 NOT_FOUND",
+          "expected_signal": "404 NOT FOUND",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
@@ -704,7 +648,7 @@
           "baseline_observation": {
             "status_code": 200,
             "response_length": 37,
-            "elapsed_ms": 2.231,
+            "elapsed_ms": 3.248,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Product #42</body></html>",
             "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
@@ -714,7 +658,7 @@
           "mutated_observation": {
             "status_code": 500,
             "response_length": 85,
-            "elapsed_ms": 2.189,
+            "elapsed_ms": 3.505,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Warning: SQL syntax error near 'invalid_id_string' in query</body></html>",
             "normalized_body_sha256": "e91fc16473f6fb7e126d6bea751f0c6dcb539c5976974768245e65ab32dd850c",
@@ -725,7 +669,7 @@
             "status_code_changed": true,
             "response_length_diff_ratio": 0.564706,
             "body_signature_changed": true,
-            "elapsed_ms_delta": -0.042
+            "elapsed_ms_delta": 0.257
           },
           "error": null
         },
@@ -733,7 +677,7 @@
           "payload_index": 3,
           "kind": "false_condition",
           "approved": true,
-          "value": "42||-(ASCII('x')-65)",
+          "value": "42||IF(ABS(-1)=2,TRUE,FALSE)",
           "operation": "replace_parameter",
           "target": {
             "location": "query",
@@ -741,7 +685,7 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": null,
-          "rationale": "COMPLEX_FALSE_LOGIC",
+          "rationale": "COMPLEX_BENIGN_FALSE_LOGIC",
           "expected_signal": "200 OK",
           "baseline_request": {
             "method": "GET",
@@ -752,7 +696,7 @@
           },
           "mutated_request": {
             "method": "GET",
-            "url": "http://127.0.0.1:8899/product?id=42%7C%7C-%28ASCII%28%27x%27%29-65%29",
+            "url": "http://127.0.0.1:8899/product?id=42%7C%7CIF%28ABS%28-1%29%3D2%2CTRUE%2CFALSE%29",
             "auth_context_id": null,
             "credentials_mode": "preserve",
             "has_body": false
@@ -760,7 +704,7 @@
           "baseline_observation": {
             "status_code": 200,
             "response_length": 37,
-            "elapsed_ms": 2.245,
+            "elapsed_ms": 2.042,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Product #42</body></html>",
             "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
@@ -769,39 +713,39 @@
           },
           "mutated_observation": {
             "status_code": 500,
-            "response_length": 88,
-            "elapsed_ms": 1.832,
+            "response_length": 96,
+            "elapsed_ms": 1.507,
             "content_type": "text/html; charset=utf-8",
-            "response_body": "<html><body>Warning: SQL syntax error near '42||-(ASCII('x')-65)' in query</body></html>",
-            "normalized_body_sha256": "638f7f49b5d2b4464c56d66e1a7eb5b50bb8f41ad3b647bf51b16440e9634687",
+            "response_body": "<html><body>Warning: SQL syntax error near '42||IF(ABS(-1)=2,TRUE,FALSE)' in query</body></html>",
+            "normalized_body_sha256": "e55900fed2000ffe4d6e32f1e15ccc67063cfc3c0f09f9b5a93550b45c24558b",
             "truncated": false,
             "error": null
           },
           "comparison": {
             "status_code_changed": true,
-            "response_length_diff_ratio": 0.579545,
+            "response_length_diff_ratio": 0.614583,
             "body_signature_changed": true,
-            "elapsed_ms_delta": -0.413
+            "elapsed_ms_delta": -0.535
           },
           "error": null
         }
       ],
       "evidence": {
         "verification_mode": "boolean_behavior",
-        "true_condition_count": 2,
+        "true_condition_count": 1,
         "false_condition_count": 2,
         "body_signature_difference": true,
         "status_code_difference": true,
-        "response_length_diff_ratio": 0.174419,
+        "response_length_diff_ratio": 0.566667,
         "sql_error_pattern": true,
-        "true_group_reproducible": false,
+        "true_group_reproducible": true,
         "false_group_reproducible": false,
         "reproducible": false
       },
       "execution_summary": {
-        "executed_payloads": 4,
-        "skipped_payloads": 0,
-        "requests_executed": 8,
+        "executed_payloads": 3,
+        "skipped_payloads": 1,
+        "requests_executed": 6,
         "requests_failed": 0
       }
     },
@@ -815,7 +759,7 @@
           "payload_index": 0,
           "kind": "reflection_control",
           "approved": true,
-          "value": "<x-custom data-val=\"xss-probe\">Hello, world!</x-custom>",
+          "value": "<x-custom data-val='xss-proprobe'></x-custom>xss-probe",
           "operation": "replace_parameter",
           "target": {
             "location": "query",
@@ -823,8 +767,8 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": null,
-          "rationale": "Inject inert custom tag with inert content.",
-          "expected_signal": "Normal response without JavaScript.",
+          "rationale": "Baseline inert reflection control.",
+          "expected_signal": "404 Not Found",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
@@ -834,7 +778,7 @@
           },
           "mutated_request": {
             "method": "GET",
-            "url": "http://127.0.0.1:8899/product?id=%3Cx-custom+data-val%3D%22xss-probe%22%3EHello%2C+world%21%3C%2Fx-custom%3E",
+            "url": "http://127.0.0.1:8899/product?id=%3Cx-custom+data-val%3D%27xss-proprobe%27%3E%3C%2Fx-custom%3Exss-probe",
             "auth_context_id": null,
             "credentials_mode": "preserve",
             "has_body": false
@@ -842,7 +786,7 @@
           "baseline_observation": {
             "status_code": 200,
             "response_length": 37,
-            "elapsed_ms": 2.937,
+            "elapsed_ms": 2.991,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Product #42</body></html>",
             "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
@@ -851,27 +795,27 @@
           },
           "mutated_observation": {
             "status_code": 500,
-            "response_length": 123,
-            "elapsed_ms": 2.783,
+            "response_length": 122,
+            "elapsed_ms": 2.519,
             "content_type": "text/html; charset=utf-8",
-            "response_body": "<html><body>Warning: SQL syntax error near '<x-custom data-val=\"xss-probe\">Hello, world!</x-custom>' in query</body></html>",
-            "normalized_body_sha256": "5e0df344aa9c09f213f31e6a4f31467e76b078fc8074976cf9a5078ea7352306",
+            "response_body": "<html><body>Warning: SQL syntax error near '<x-custom data-val='xss-proprobe'></x-custom>xss-probe' in query</body></html>",
+            "normalized_body_sha256": "4f6213f748e0c57597c537e6503eb3e8c51fb3b28764dc9c711b624330265ccd",
             "truncated": false,
             "error": null
           },
           "comparison": {
             "status_code_changed": true,
-            "response_length_diff_ratio": 0.699187,
+            "response_length_diff_ratio": 0.696721,
             "body_signature_changed": true,
-            "elapsed_ms_delta": -0.154
+            "elapsed_ms_delta": -0.472
           },
           "error": null
         },
         {
           "payload_index": 1,
-          "kind": "reflection_control",
+          "kind": "reflection_marker",
           "approved": true,
-          "value": "&lt;b&gt;<x-tag data-val=\"xss-probe\"&gt;XSS Probe&lt;/x-tag&gt;",
+          "value": "&lt;b&gt;xss-probe&lt;/b&gt;",
           "operation": "replace_parameter",
           "target": {
             "location": "query",
@@ -879,8 +823,8 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": null,
-          "rationale": "Use entity-encoded and inert tags for control.",
-          "expected_signal": "Normal response without JavaScript.",
+          "rationale": "Reflected text marker.",
+          "expected_signal": "Reflected exactly in <b>xss-probe</b>",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
@@ -890,7 +834,7 @@
           },
           "mutated_request": {
             "method": "GET",
-            "url": "http://127.0.0.1:8899/product?id=%26lt%3Bb%26gt%3B%3Cx-tag+data-val%3D%22xss-probe%22%26gt%3BXSS+Probe%26lt%3B%2Fx-tag%26gt%3B",
+            "url": "http://127.0.0.1:8899/product?id=%26lt%3Bb%26gt%3Bxss-probe%26lt%3B%2Fb%26gt%3B",
             "auth_context_id": null,
             "credentials_mode": "preserve",
             "has_body": false
@@ -898,7 +842,7 @@
           "baseline_observation": {
             "status_code": 200,
             "response_length": 37,
-            "elapsed_ms": 3.318,
+            "elapsed_ms": 3.445,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Product #42</body></html>",
             "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
@@ -907,27 +851,27 @@
           },
           "mutated_observation": {
             "status_code": 500,
-            "response_length": 131,
-            "elapsed_ms": 2.867,
+            "response_length": 96,
+            "elapsed_ms": 2.264,
             "content_type": "text/html; charset=utf-8",
-            "response_body": "<html><body>Warning: SQL syntax error near '&lt;b&gt;<x-tag data-val=\"xss-probe\"&gt;XSS Probe&lt;/x-tag&gt;' in query</body></html>",
-            "normalized_body_sha256": "105fce39c170cae44205f354da4e3e5a0e9a18e4ed0100344f6818ce0e959ee7",
+            "response_body": "<html><body>Warning: SQL syntax error near '&lt;b&gt;xss-probe&lt;/b&gt;' in query</body></html>",
+            "normalized_body_sha256": "ffd6972111509865373bc7dacc5de0d0a805d66badc6e2edec9d49a1690cb673",
             "truncated": false,
             "error": null
           },
           "comparison": {
             "status_code_changed": true,
-            "response_length_diff_ratio": 0.717557,
+            "response_length_diff_ratio": 0.614583,
             "body_signature_changed": true,
-            "elapsed_ms_delta": -0.451
+            "elapsed_ms_delta": -1.181
           },
           "error": null
         },
         {
           "payload_index": 2,
-          "kind": "reflection_control",
+          "kind": "reflection_marker",
           "approved": true,
-          "value": "<div style=\"visibility:hidden\"><x-mystery data-val=\"xss-probe\"></div>",
+          "value": "<div title='xss-probe'></div>",
           "operation": "replace_parameter",
           "target": {
             "location": "query",
@@ -935,8 +879,8 @@
             "parameter_occurrence": 0
           },
           "auth_context_id": null,
-          "rationale": "Embed inert marker in complex CSS-injection context.",
-          "expected_signal": "Normal response without JavaScript.",
+          "rationale": "Reflected inert element.",
+          "expected_signal": "Reflected exactly in <div title='xss-probe'></div>",
           "baseline_request": {
             "method": "GET",
             "url": "http://127.0.0.1:8899/product?id=42",
@@ -946,7 +890,7 @@
           },
           "mutated_request": {
             "method": "GET",
-            "url": "http://127.0.0.1:8899/product?id=%3Cdiv+style%3D%22visibility%3Ahidden%22%3E%3Cx-mystery+data-val%3D%22xss-probe%22%3E%3C%2Fdiv%3E",
+            "url": "http://127.0.0.1:8899/product?id=%3Cdiv+title%3D%27xss-probe%27%3E%3C%2Fdiv%3E",
             "auth_context_id": null,
             "credentials_mode": "preserve",
             "has_body": false
@@ -954,7 +898,7 @@
           "baseline_observation": {
             "status_code": 200,
             "response_length": 37,
-            "elapsed_ms": 2.025,
+            "elapsed_ms": 1.643,
             "content_type": "text/html; charset=utf-8",
             "response_body": "<html><body>Product #42</body></html>",
             "normalized_body_sha256": "9db6426fd17c4a7328922167e8aa5929741ec856bc0edcbb559436f8c685fd62",
@@ -963,25 +907,42 @@
           },
           "mutated_observation": {
             "status_code": 500,
-            "response_length": 137,
-            "elapsed_ms": 1.73,
+            "response_length": 97,
+            "elapsed_ms": 1.457,
             "content_type": "text/html; charset=utf-8",
-            "response_body": "<html><body>Warning: SQL syntax error near '<div style=\"visibility:hidden\"><x-mystery data-val=\"xss-probe\"></div>' in query</body></html>",
-            "normalized_body_sha256": "9f13beb5e5bbd574d0806edd3025599ffc391e69ef4ae91a75a032337dfda2c0",
+            "response_body": "<html><body>Warning: SQL syntax error near '<div title='xss-probe'></div>' in query</body></html>",
+            "normalized_body_sha256": "d5e264647b69bb26f61e36581a5a1e6f109cc29265f72dce1c506fb76acc97f7",
             "truncated": false,
             "error": null
           },
           "comparison": {
             "status_code_changed": true,
-            "response_length_diff_ratio": 0.729927,
+            "response_length_diff_ratio": 0.618557,
             "body_signature_changed": true,
-            "elapsed_ms_delta": -0.295
+            "elapsed_ms_delta": -0.186
           },
           "error": null
         }
       ],
       "evidence": {
-        "reason": "reflection_marker가 없습니다."
+        "verification_mode": "reflection_context",
+        "marker_results": [
+          {
+            "payload_index": 1,
+            "marker_reflected": true,
+            "encoded_reflected": false,
+            "reflection_context": "html_text"
+          },
+          {
+            "payload_index": 2,
+            "marker_reflected": true,
+            "encoded_reflected": false,
+            "reflection_context": "html_text"
+          }
+        ],
+        "marker_reflected": true,
+        "encoded_reflection_only": false,
+        "dangerous_context": false
       },
       "execution_summary": {
         "executed_payloads": 3,
@@ -997,9 +958,9 @@
       "supporting": 2,
       "inconclusive": 2
     },
-    "executed_payloads": 15,
-    "skipped_payloads": 0,
-    "requests_executed": 30,
+    "executed_payloads": 14,
+    "skipped_payloads": 1,
+    "requests_executed": 28,
     "requests_failed": 0
   }
 }

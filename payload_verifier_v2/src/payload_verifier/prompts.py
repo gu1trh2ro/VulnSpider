@@ -73,11 +73,13 @@ Required kinds:
 - exactly 2 reflection_marker
 
 Rules:
-- each value must be a complete replacement value for the
-  existing parameter
+- each value must be a complete replacement value for the existing parameter
 - every payload value must contain the text "xss-probe"
-- MAKE PAYLOADS STRUCTURALLY COMPLEX: Embed the marker inside complex, edge-case HTML structures.
-- Use techniques like: custom non-existent tags (e.g., <x-custom data-val="xss-probe">), heavily nested inert tags, mixed case (e.g., <sPaN>), or HTML entity encoding (e.g., &lt;b&gt;xss-probe&lt;/b&gt;).
+- Keep HTML structures simple, safe, and clean to avoid parsing errors.
+- Examples: 
+  1. "<x-custom data-val='xss-probe'>Hello</x-custom>"
+  2. "&lt;b&gt;xss-probe&lt;/b&gt;"
+  3. "<div title='xss-probe'></div>"
 - ALL MARKERS MUST REMAIN STRICTLY INERT AND NON-EXECUTABLE.
 - do not use script elements
 - do not use event-handler attributes

@@ -23,33 +23,23 @@ Gemini API를 이용해 상위 취약점 후보에 맞는
 - Payload Validator
 - Focused Verification
 
+## finetuned model, llama_cpp_python download link
+https://huggingface.co/lsk0228/vulnspider-3b_v3/resolve/main/vulnspider-3b_v3.gguf
+https://huggingface.co/lsk0228/vulnspider-3b_v3/resolve/main/llama_cpp_python-0.3.34-py3-none-win_amd64.whl
+
 ## 설치
 
 가상환경 없이 실행하려면:
 
 ```powershell
 pip install -r requirements.txt
+pip install .\llama_cpp_python-0.3.34-py3-none-win_amd64.whl
 ```
 
 또는 editable install:
 
 ```powershell
 pip install -e .
-```
-
-## 환경 변수 설정
-
-`.env.example`을 `.env`로 복사합니다.
-
-```powershell
-Copy-Item .env.example .env
-```
-
-`.env` 파일:
-
-```env
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-3.1-flash-lite
 ```
 
 ## 실행

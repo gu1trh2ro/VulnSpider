@@ -14,7 +14,7 @@ python -m payload_verifier.cli `
     --context examples\vulnspider-crawl.json `
     --out output\mutation_result.json `
     --top-k 4 `
-    --model my-hacker-ai-3b-4096
+    --model ".\vulnspider-3b_v3.gguf"
 
 if ($LASTEXITCODE -ne 0) {
     throw "Payload mutation failed. Exit code: $LASTEXITCODE"
