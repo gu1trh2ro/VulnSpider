@@ -34,12 +34,6 @@ pip install -r requirements.txt
 pip install .\llama_cpp_python-0.3.34-py3-none-win_amd64.whl
 ```
 
-또는 editable install:
-
-```powershell
-pip install -e .
-```
-
 ## 실행
 
 방법:
