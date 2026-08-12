@@ -580,6 +580,64 @@ DVWA/WebGoat 컨테이너 자동 구동(defer — Docker 의존성과 사용자 
 
 ---
 
+## ADR-026 — Value of Information stays dormant until probing has a real choice
+
+**Status:** Accepted
+
+**Date:** 2026-08-11
+
+**Decision:** `decision/voi.py`는 유지하되 CLI에 배선하지 않는다.
+`--exploration-budget` 플래그를 추가하지 않으며, `run_decision_layer()`의
+`probe_options`/`observe` 인자는 현재 호출자가 채우지 않는다. 경로 A 또는 B
+(아래)가 구현되기 전까지 **순차적(적응적) probing은 구현되지 않은 것으로
+서술한다.**
+
+**Reason:** 측정 결과 현재 파이프라인에는 VoI가 결정할 것이 없다. 네 가지가
+독립적으로 이를 막는다.
+
+1. **probe 1회가 feature를 전부 가져온다.** `extract_minimal_features()`는
+   baseline/probe 쌍 하나에서 4개 feature를 모두 추출한다. "다음에 어떤
+   feature를 측정할까"라는 결정 자체가 존재하지 않는다.
+2. **미관측 feature가 없다.** 현재 코퍼스 146개 candidate 전부 feature가
+   완전히 관측됐다(0/146 결측). 재probe로 밝힐 미지의 값이 없다.
+3. **결정 계층이 실행될 때는 probe가 이미 끝나 있다.** `decide`는
+   `analyze_url()`을 호출하고 그것은 ready context를 전부 probe한다. VoI는
+   probe 예산을 배분하도록 설계됐는데 배분할 probe 예산이 남지 않는다. 남은
+   것은 verification 예산이고 그것은 ADR-023의 greedy가 이미 쓴다.
+4. **모델에서 candidate가 서로 독립이다.** `run_decision_layer()`는 관측된
+   candidate의 posterior만 갱신한다. A를 probe해도 B가 변하지 않으므로 적응적
+   순서가 임의 순서보다 나을 **수학적 근거가 없다.** 정적 feature가 추출되지
+   않아 probe 이전 prior가 전부 동일하므로 첫 선택도 임의다.
+
+따라서 지금 배선하면 실행되지 않거나, 실행돼도 증명 가능하게 아무것도 바꾸지
+않는 코드 경로가 생긴다. 존재하지 않는 순차적 기여가 있는 것처럼 보이게 만드는
+편이 배선하지 않는 것보다 나쁘다.
+
+**Alternatives (VoI를 실제로 의미 있게 만드는 경로):**
+
+- **경로 A — candidate 간 상관 모델링.** 같은 endpoint/코드 경로의 candidate가
+  서로 정보를 주도록 Layer 1에 endpoint별 random effect를 넣는다. 그러면
+  템플릿 라우트 100개 중 5개만 probe해도 나머지를 추론할 수 있고 "어느 5개를
+  고를까"가 VoI의 실제 질문이 된다. 이미 있는 `redundancy_key`를 재사용한다.
+  `analyze_url()`의 "전부 probe" 동작을 예산 제한으로 바꿔야 한다.
+- **경로 B — probe family 복수화.** `ProbeFamily`의 `TYPE_PERTURBATION`,
+  `GENERIC_PERTURBATION`은 정의만 있고 planner는 `REFLECTION_MARKER`만
+  구현한다. 구현하면 비용과 우도가 다른 probe가 여러 개 생겨 "다음에 무엇을
+  실행할까"가 실제 질문이 된다.
+
+둘 다 배선이 아니라 모델링/관측 전략 작업이며 각각 별도 ADR이 필요하다.
+
+**Consequences:**
+
+- `decision/voi.py`와 그 테스트는 유지한다. 구현은 정확하며(전수 열거 대조
+  완료) 경로 A와 B 모두 이 기계장치를 필요로 한다.
+- `probe_options_from_rates()`가 유일한 Layer 1-Layer 2b 연결점이므로 함께
+  휴면한다. `fit_naive_bayes_llr()`의 다른 용도(ablation)는 영향받지 않는다.
+- VoI는 scoring도 selection도 아닌 **관측 계층** 결정이다. `feat/scoring`의
+  완료 조건에 포함하지 않는다.
+
+---
+
 ## New Decision Template
 
 ```text

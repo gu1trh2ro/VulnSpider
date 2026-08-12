@@ -1,10 +1,30 @@
 """Value of information: which probe to spend the next request on.
 
-The pipeline today is one-shot -- one baseline, one probe, score, rank, stop.
-Nothing that comes back from the first probe changes what is asked next, so
-"selective verification" currently selects but does not adapt.
+.. warning::
 
-This module supplies the missing step. For a candidate currently believed
+   **This module is dormant and is deliberately not wired to the CLI
+   (ADR-026). Do not add an ``--exploration-budget`` flag without first
+   reading that ADR.** It is correct and tested, but in the current pipeline
+   there is nothing for it to decide, for four independently sufficient
+   reasons:
+
+   1. One probe pair already yields every feature, so there is no "which
+      feature next" decision to make.
+   2. Nothing is missing: 0 of 146 corpus candidates have an unobserved
+      feature, so no re-probe can reveal anything.
+   3. By the time the decision layer runs, ``analyze_url()`` has already
+      probed every ready context. There is no probe budget left to allocate;
+      the remaining budget is the verification budget, which ``greedy`` spends.
+   4. Candidates are modelled independently here, so probing one never updates
+      another. Adaptive ordering therefore cannot beat arbitrary ordering, and
+      with no static features extracted every pre-probe prior is identical
+      anyway.
+
+   Making it useful needs modelling work, not wiring: correlate candidates
+   sharing a code path (ADR-026 route A) or implement more probe families
+   (route B). The machinery below is what both routes will use.
+
+The design, for when one of those routes lands. For a candidate currently believed
 vulnerable with probability ``p``, and a probe whose outcome has known
 class-conditional rates, the expected reduction in uncertainty is
 

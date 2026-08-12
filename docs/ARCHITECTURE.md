@@ -122,8 +122,13 @@ selection (ADR-022, ADR-023, ADR-024). It consumes the validated
   `½(1 − 1/e)` approximation guarantee (`½` when the redundancy discount is
   1.0). Replaces fixed Top-K.
 - `decision/voi.py` — expected information gain per request, ordering which
-  probe to run next. The likelihood rates come from
-  `fit_naive_bayes_llr()`, which is the concrete join between the two layers.
+  probe to run next. The likelihood rates come from `fit_naive_bayes_llr()`.
+  **Dormant and not wired to the CLI (ADR-026):** one probe pair already
+  yields every feature, no corpus candidate has an unobserved feature,
+  probing is finished before the decision layer runs, and candidates are
+  modelled independently, so there is currently no probing choice for it to
+  make. Correlating candidates that share a code path, or adding probe
+  families, would change that; both are modelling work with their own ADR.
 - `decision/conformal.py` — conformal risk control fixing the selected set
   size from a target recall instead of a chosen `k`.
 - `decision/policy.py` — the explore/cut/commit loop. Performs no I/O; probe
