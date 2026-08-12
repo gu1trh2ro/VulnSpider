@@ -30,6 +30,7 @@ https://huggingface.co/lsk0228/vulnspider-3b_v3/resolve/main/llama_cpp_python-0.
 가상환경 없이 실행하려면:
 
 ```powershell
+pip install -e .
 pip install -r requirements.txt
 pip install .\llama_cpp_python-0.3.34-py3-none-win_amd64.whl
 ```
