@@ -99,10 +99,10 @@ ADR-022 이후 이것은 **제안 기법의 특수 케이스**다: 학습 데이
 
 ### Proposed — Calibrated scoring + budgeted sequential selection
 
-ADR-022/022/023의 3계층:
+ADR-022/023/024의 3계층:
 
 1. 보정 확률(베이지안 로지스틱 회귀, 휴리스틱을 prior로)
-2. 예산 제약 submodular 선택 + VoI 순차 probe
+2. Top-K 제약 submodular 선택, 선택적 요청 예산 (ADR-027)
 3. Conformal recall 보장으로 집합 크기 결정
 
 ### Ablation arms
@@ -110,8 +110,7 @@ ADR-022/022/023의 3계층:
 계층별 기여를 분리하려면 각각을 끈 상태를 측정한다.
 
 - Layer 1만: 보정 확률 + 고정 Top-K
-- Layer 1+2, VoI 없음: 예산 배분만, 순차 probe 없음
-- Layer 1+2 전체: 예산 배분 + VoI
+- Layer 1+2: Top-K 제약 선택 (VoI는 휴면, ADR-026)
 - `discount = 1.0`: 중복성 모델링을 끈 modular 효용
 - Naive Bayes LLR 대 로지스틱 회귀: 조건부 독립 가정 위반의 비용
 
@@ -302,7 +301,7 @@ weight config
 
 ## 8-A. 결정 계층 전용 지표
 
-ADR-022/022/023이 추가한 계층은 ranking 지표만으로 평가할 수 없다.
+ADR-022/023/024가 추가한 계층은 ranking 지표만으로 평가할 수 없다.
 
 ### Calibration quality (Layer 1)
 
@@ -437,29 +436,57 @@ empirical risk 0.0000 <= corrected bound 0.0357 (14 applications)
 재현:
 
 ```text
-PYTHONPATH=src python tools/evaluate_heldout.py --budget 20
+PYTHONPATH=src python tools/evaluate_heldout.py --top-k 5
+PYTHONPATH=src python tools/evaluate_heldout.py --top-k 5 --budget 20
 ```
 
-애플리케이션당 검증 예산 20 요청으로 고정하고, 코퍼스(app 0-13)와 겹치지 않는
-app 100-111에서 측정한다.
+코퍼스(app 0-13)와 겹치지 않는 app 100-111에서 측정한다. **K 제약과 예산
+제약을 반드시 분리해 보고한다(§6-A 규칙 5).** 두 표가 서로 다른 것을 재며
+방법의 순위가 뒤집힐 수 있다.
+
+**Top-K 5 (예산 없음)**
 
 ```text
-configuration                      recall        verified  requests
-heuristic prior, no guarantee      18/33 = 0.55        56       216
-fitted model, no guarantee         27/33 = 0.82        50       216
-fitted model + conformal           31/33 = 0.94        35       174
+                        recall      검증  요청
+휴리스틱 prior          33/33 =1.00    60   294
+학습 모델, 보장 없음     26/33 =0.79    60   312
+학습 모델 + conformal    33/33 =1.00    43   204
 ```
 
-세 가지를 읽을 수 있다.
+**Top-K 5 + 예산 20 요청**
 
-1. **Layer 1만으로 recall 0.55 -> 0.82.** 같은 예산에서 학습된 확률이
-   휴리스틱보다 검증 가치가 높은 후보를 먼저 배치한다.
-2. **Conformal을 더하면 0.94로 올라가면서 검증 후보는 56 -> 35개(-37%),
-   요청은 216 -> 174(-19%)로 줄어든다.** 더 적게 검증하면서 더 많이 찾는
-   것이 효율 주장의 핵심이다. 임계값이 확률이 낮은 후보를 잘라내 예산을
-   유망한 후보에 집중시키기 때문이다.
-3. **실측 recall 0.94가 인증 목표 0.90을 만족한다.** 다만 12개 표본에서의
-   1회 관측이므로 보장의 검증이 아니라 위반이 없었다는 관찰이다.
+```text
+                        recall      검증  요청
+휴리스틱 prior          18/33 =0.55    55   213
+학습 모델, 보장 없음     27/33 =0.82    50   216
+학습 모델 + conformal    31/33 =0.94    35   174
+```
+
+### 두 표가 왜 다른가 — XSS feature 격차 (중요)
+
+K가 넉넉할 때 학습 모델이 prior보다 **나쁘다**(0.79 대 1.00). 숨기지 않고
+원인을 밝힌다. family별로 쪼개면 손실이 전부 XSS다.
+
+```text
+prior   SQLI 25/25   XSS 8/8
+학습    SQLI 25/25   XSS 1/8
+```
+
+학습 모델은 `P(XSS | 반사) ≈ 0.29`를 **정확하게** 학습했다 — 코퍼스에서 반사
+34개 중 진짜 취약은 14개뿐이다. 현재 feature set이 `xss_raw`와 `xss_escaped`를
+구분하지 못하므로, **어떤 보정 모델도 반사하는 XSS를 서로 구분할 수 없다.**
+전부 0.3 근처로 매길 뿐이다.
+
+prior는 반사를 과신해(0.81) XSS를 전부 위로 올린다. K가 넉넉하면 그 과신이
+공짜라 recall이 우연히 좋아지고, 예산이 빠듯해지면 같은 과신이 요청을 낭비해
+0.55로 무너진다. **prior가 맞은 것이 아니라 제약이 느슨해서 틀린 값이 드러나지
+않은 것이다.**
+
+conformal 임계값이 이 격차를 메운다. XSS 음성(≈0.065)은 자르고 양성(≈0.46)은
+남겨 같은 recall을 **검증 28%·요청 31% 적게** 달성한다.
+
+**결론:** 이 코퍼스에서 남은 지배적 오차원은 알고리즘이 아니라 feature다.
+`safe_html_encoding_detected` 구현이 결정 계층 튜닝보다 우선순위가 높다.
 
 주의: 이 수치는 §8-B "알려진 한계"의 합성 애플리케이션에서 나온 것이며 실제
 웹 애플리케이션 성능이 아니다.

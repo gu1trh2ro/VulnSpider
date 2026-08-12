@@ -1,12 +1,15 @@
 # Decision Layer — 개요와 재현 가이드
 
 `feat/scoring` 브랜치가 만든 것을 한 문서로 정리한다. 세부 근거는
-ADR-021~026(`docs/DECISION_LOG.md`)과 `docs/EVALUATION_PROTOCOL.md`에 있고,
+ADR-021~027(`docs/DECISION_LOG.md`)과 `docs/EVALUATION_PROTOCOL.md`에 있고,
 이 문서는 그 위를 걷는 지도다.
 
-**한 줄 요약:** 손으로 정한 가중합을 **보정된 확률**로 바꾸고, 고정 Top-K를
-**근사 보장이 있는 예산 제약 선택**과 **conformal recall 보장**으로 바꿨다.
+**한 줄 요약:** 손으로 정한 가중합을 **보정된 확률**로 바꾸고, Top-K 선택에
+**근사 보장**과 **선택적 요청 예산**과 **conformal recall 보장**을 붙였다.
 그리고 그것이 실제로 나아졌음을 프로토콜이 정한 지표로 측정했다.
+
+Top-K는 여전히 주 파라미터다(ADR-027). 예산은 요청이 실제 제약일 때 켜는
+보조 수단이다.
 
 ---
 
@@ -143,13 +146,15 @@ Var(logit) = Var(intercept) + Σ fi²·Var(wi)
 
 ## 3. Selection Top-K 알고리즘 상세
 
-### 3.1 예산 제약 submodular 최대화 (`decision/greedy.py`)
+### 3.1 제약 조건 하 submodular 최대화 (`decision/greedy.py`)
 
-고정 K 대신 **요청 예산 B**를 입력받는다.
+**Top-K가 주 파라미터**이고 요청 예산은 선택적 보조 제약이다(ADR-027).
+conformal 임계값까지 셋은 **독립적인 정지 조건**으로, 먼저 걸리는 것에서
+멈추고 `binding_constraint`로 어느 것이 걸렸는지 보고한다.
 
 ```text
 U(S) = Σ_그룹 Σ_j  discount^(j-1) · P(취약) · severity
-subject to  Σ cost ≤ B
+subject to  |S| ≤ K   그리고/또는   Σ cost ≤ B
 ```
 
 **중복성 할인이 핵심이다.** 같은 서버 코드 경로(`redundancy_key` =
@@ -157,15 +162,21 @@ endpoint fingerprint)의 candidate는 함께 취약하거나 함께 안전하므
 확인의 가치가 낮다. 감소하는 가중치의 순서 집계는 **단조 submodular**이므로
 수확 체감이 탐색에 붙인 휴리스틱이 아니라 **목적함수의 성질**이다.
 
-**알고리즘:** density greedy와 "예산 내 최선의 단일 후보" 중 나은 쪽.
+**보장이 제약에 따라 달라진다.** 이 부분은 정직하게 분리해야 한다.
 
-```text
-discount < 1 (submodular):  ½(1 − 1/e) ≈ 0.316 보장
-discount = 1 (modular):     ½ 보장
-```
+| 활성 제약 | 알고리즘 | 보장 |
+|---|---|---|
+| Top-K만 | marginal gain greedy | `1 − 1/e ≈ 0.632` |
+| 예산만 | density greedy + 최선 단일 후보 | `½(1 − 1/e) ≈ 0.316` (modular면 `½`) |
+| 둘 다 | density greedy + 최선 단일 후보 | **주장하지 않음** (`None`) |
 
-단일 후보 arm은 장식이 아니다. density greedy만 쓰면 **싼 부스러기로 예산을
-채우고 정작 값비싼 대어를 못 사는** 무한히 나쁜 경우가 생긴다.
+- 비용은 예산이 있을 때만 의미가 있다. Top-K 단독에서 density로 정렬하면
+  `(1 − 1/e)`를 이유 없이 잃으므로 그 체제는 marginal gain으로 정렬한다.
+- 예산 체제의 "최선 단일 후보" arm은 장식이 아니다. density greedy만 쓰면
+  **싼 부스러기로 예산을 채우고 값비싼 대어를 못 사는** 무한히 나쁜 경우가
+  생긴다.
+- 둘 다 걸리면 knapsack ∩ matroid라 방어 가능한 결합 보장이 없다. 없는 정리를
+  적는 것보다 `None`이 낫다.
 
 > 심사에서 **"왜 이 순서인가"에 정리로 답할 수 있다.** rule-based 순위가 줄 수
 > 없는 것이다.
@@ -325,18 +336,47 @@ Precision@5는 0.457 → 0.471로 거의 같다. **예산이 빠듯할수록 이
 **주의:** K=10은 포화 구간이다. 앱당 candidate가 8~14개뿐이라 대부분을
 포함한다. 이 코퍼스에서는 K=1, 3이 정보량 있는 구간이다.
 
-### 5.4 Held-out 성능 (학습에 쓰이지 않은 12개 앱, 앱당 예산 20 요청)
+### 5.4 Held-out 성능 (학습에 쓰이지 않은 12개 앱)
+
+**K와 예산은 서로 다른 것을 재므로 반드시 두 표로 분리한다.**
+
+Top-K 5, 예산 없음:
 
 ```text
-구성                        recall        검증 후보  요청
-휴리스틱 prior, 보장 없음   18/33 = 0.55        56    216
-보정 모델, 보장 없음        27/33 = 0.82        50    216
-보정 모델 + conformal       31/33 = 0.94        35    174
+구성                        recall      검증  요청
+휴리스틱 prior              33/33 =1.00    60   294
+학습 모델, 보장 없음         26/33 =0.79    60   312
+학습 모델 + conformal        33/33 =1.00    43   204
 ```
 
-**더 적게 검증하면서 더 많이 찾는다.** 후보 −37%, 요청 −19%, recall 0.55 →
-0.94. 실측 recall 0.94가 인증 목표 0.90을 만족한다(12개 표본 1회 관측이므로
-보장의 검증이 아니라 위반이 없었다는 관찰).
+Top-K 5 + 예산 20 요청:
+
+```text
+구성                        recall      검증  요청
+휴리스틱 prior              18/33 =0.55    55   213
+학습 모델, 보장 없음         27/33 =0.82    50   216
+학습 모델 + conformal        31/33 =0.94    35   174
+```
+
+**두 표가 왜 다른가 — 숨기지 말아야 할 결과.** K가 넉넉할 때 학습 모델이
+prior보다 **나쁘다**(0.79 대 1.00). family별로 쪼개면 손실이 전부 XSS다.
+
+```text
+prior   SQLI 25/25   XSS 8/8
+학습    SQLI 25/25   XSS 1/8
+```
+
+학습 모델은 `P(XSS | 반사) ≈ 0.29`를 **정확하게** 학습했다 — 반사 34개 중 진짜
+취약이 14개뿐이기 때문이다. 현재 feature set이 `xss_raw`와 `xss_escaped`를
+구분하지 못하므로 **어떤 보정 모델도** 반사하는 XSS를 서로 구분할 수 없다.
+prior는 반사를 과신해(0.81) XSS를 전부 위로 올리는데, K가 넉넉하면 그 과신이
+공짜라 우연히 이득이고 예산이 빠듯해지면 요청을 낭비해 0.55로 무너진다.
+**prior가 옳은 것이 아니라 제약이 느슨해 틀린 값이 드러나지 않은 것이다.**
+
+conformal 임계값이 이 격차를 메운다. XSS 음성(≈0.065)은 자르고 양성(≈0.46)은
+남겨 **같은 recall을 검증 28%·요청 31% 적게** 달성한다.
+
+**결론: 이 코퍼스에 남은 지배적 오차원은 알고리즘이 아니라 feature다.**
 
 ### 5.5 Ablation — 생성 모델 대 판별 모델
 
@@ -410,7 +450,8 @@ PYTHONPATH=src python tools/evaluate_ranking.py --bug-level
 ### 6.4 Held-out 성능 (§5.4 재현)
 
 ```bash
-PYTHONPATH=src python tools/evaluate_heldout.py --budget 20
+PYTHONPATH=src python tools/evaluate_heldout.py --top-k 5
+PYTHONPATH=src python tools/evaluate_heldout.py --top-k 5 --budget 20
 ```
 
 ### 6.5 실제 결정 실행 (스크린샷용)
@@ -424,19 +465,20 @@ PYTHONPATH=src python tools/corpus_target_site.py
 다른 터미널에서 — 휴리스틱 prior:
 
 ```bash
-PYTHONPATH=src python -m vulnspider decide --url http://127.0.0.1:PORT/ --budget 20 -o decision-prior.json
+PYTHONPATH=src python -m vulnspider decide --url http://127.0.0.1:PORT/ --top-k 5 -o decision-prior.json
 ```
 
 학습 모델 + conformal 보장:
 
 ```bash
-PYTHONPATH=src python -m vulnspider decide --url http://127.0.0.1:PORT/ --budget 20 --model data/corpus/model.json --conformal data/corpus/conformal.json -o decision-fitted.json
+PYTHONPATH=src python -m vulnspider decide --url http://127.0.0.1:PORT/ --top-k 5 --budget 20 --model data/corpus/model.json --conformal data/corpus/conformal.json -o decision-fitted.json
 ```
 
 출력 예:
 
 ```text
-vulnspider: decided 3 of 10 candidates (12/20 requests, expected findings 1.85)
+vulnspider: selected 3 of 12 candidates (top-k 5, 12/20 requests,
+            expected findings 1.85, limited by budget)
 vulnspider: decision report: decision-fitted.json
 ```
 
@@ -444,7 +486,36 @@ vulnspider: decision report: decision-fitted.json
 보장 정보(`threshold`, `conformal_set_size`, `budget_covers_conformal_set`)가
 들어 있다.
 
-### 6.6 CLI 전체
+### 6.6 기존 HTML 대시보드 (ADR-011, 변경 없음)
+
+```bash
+PYTHONPATH=src python -m vulnspider analyze --url http://127.0.0.1:PORT/ --top-k 10 --output analysis.json --html-output report.html
+```
+
+`report.html`을 브라우저로 열면 선택된 후보와 실제로 보낸 baseline/probe 요청이
+표시된다. 스크린샷에 가장 잘 나온다.
+
+### 6.7 실제 앱을 쓸 때 (DVWA 등, 향후)
+
+`build_corpus.py`는 합성 앱 전용이다. 실제 앱은 앱별 수동 경로를 쓴다.
+
+```bash
+PYTHONPATH=src python -m vulnspider corpus collect --url http://localhost:8080/ --application-id dvwa --ground-truth gt/dvwa.json -o data/corpus/real.jsonl --append
+```
+
+```bash
+PYTHONPATH=src python -m vulnspider corpus fit --corpus data/corpus/real.jsonl -o model.json --report calibration.json
+```
+
+```bash
+PYTHONPATH=src python -m vulnspider corpus calibrate --corpus data/corpus/real.jsonl --target-recall 0.85 -o conformal.json
+```
+
+빈 ground truth로 `collect`를 먼저 돌리면 발견된 키를 전부 출력하므로, 그 목록이
+곧 라벨링 워크시트가 된다. 앱 7개 기준 인증 가능한 최대 recall은 `n/(n+1)` =
+0.875이므로 목표를 0.85로 잡는다.
+
+### 6.8 CLI 전체
 
 ```bash
 PYTHONPATH=src python -m vulnspider --help
@@ -453,7 +524,8 @@ PYTHONPATH=src python -m vulnspider corpus --help
 ```
 
 ```text
-decide            예산 내에서 검증할 후보를 결정
+decide            Top-K(및 선택적 예산) 내에서 검증할 후보를 결정
+                  --top-k 필수, --budget 선택
 corpus collect    한 앱을 실행해 라벨 샘플 수집
 corpus fit        family별 보정 모델 학습
 corpus calibrate  conformal recall 임계값 보정
@@ -487,7 +559,7 @@ src/vulnspider/
   decision/
     cost.py                검증 비용 / severity 정책
     candidate.py           결정 단위 (selection 계약의 유일한 진입점)
-    greedy.py              Layer 2a 예산 제약 submodular
+    greedy.py              Layer 2a Top-K/예산 제약 submodular
     voi.py                 Layer 2b 정보 이득 (휴면, ADR-026)
     conformal.py           Layer 3  recall 보장
     policy.py              explore/cut/commit 오케스트레이션

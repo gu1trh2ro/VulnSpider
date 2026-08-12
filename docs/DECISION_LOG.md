@@ -638,6 +638,75 @@ DVWA/WebGoat 컨테이너 자동 구동(defer — Docker 의존성과 사용자 
 
 ---
 
+## ADR-027 — Top-K is the primary control and the request budget is optional
+
+**Status:** Accepted
+
+**Date:** 2026-08-12
+
+**Decision:** `decide`의 주 파라미터는 `--top-k`이며 필수다. `--budget`은
+선택적 보조 제약이고 기본값은 없음(무제한)이다. 두 제약과 conformal 임계값은
+**독립적인 정지 조건**으로 함께 동작하며, 먼저 걸리는 것에서 멈추고 어느 것이
+걸렸는지 `binding_constraint`로 보고한다. 이 결정은 ADR-023이 예산만 입력으로
+받던 것을 대체한다.
+
+**Reason:** ADR-023은 고정 K를 예산으로 **대체**했는데 이는 과했다.
+
+- `AGENTS.md`의 미션이 "ranking what should be verified first"이고 랭킹의
+  표준 출력은 Top-K다.
+- 핵심 지표 4개가 전부 `@K`로 정의된다(§6). 제품이 Top-K를 못 내면 출력과
+  평가 언어가 어긋난다.
+- handoff 계약(`MutationHandoff.top_k_requested`)이 이미 K를 싣고 있다.
+- **결정적 근거:** 예산의 의미는 `DEFAULT_FAMILY_COSTS`에 의존하는데 ADR-023
+  스스로 그것을 "정책이지 측정값이 아니다"라고 명시했다. 즉 "예산 20"은
+  검증되지 않은 비용 모델 위에서만 의미를 갖는다. K는 그런 의존성이 없다.
+
+예산도 버리지 않는다. candidate마다 검증 비용이 다르므로 Top-10이 30 요청일
+수도 60 요청일 수도 있고, §6이 request budget 곡선을 주 그래프로 지정한다.
+
+**Consequences — 근사 보장이 제약에 따라 달라진다.** 이것이 이 결정의 실질적
+비용이며 정직하게 분리해 보고한다.
+
+```text
+Top-K만      cardinality(uniform matroid) → marginal gain greedy → (1 − 1/e) ≈ 0.632
+예산만       knapsack → density greedy + best-single → ½(1 − 1/e) ≈ 0.316
+                                        (discount = 1.0이면 modular → ½)
+둘 다        knapsack ∩ matroid → 방어 가능한 결합 보장 없음 → None 보고
+```
+
+- 비용은 예산이 있을 때만 의미가 있으므로, Top-K 단독 체제는 density가 아니라
+  **marginal gain**으로 정렬한다. 그렇게 해야 `(1 − 1/e)`를 얻는다.
+- 둘 다 활성일 때 `approximation_ratio`는 숫자가 아니라 `None`이다. 방어할 수
+  없는 상수를 적는 것보다 낫다.
+- `select_within_budget()`은 `select_candidates(top_k=..., budget=...)`으로
+  대체된다. 제약을 하나도 주지 않으면 거부한다 — 조용히 전부 선택하는 것은
+  호출자의 의도인 적이 없다.
+
+**Consequences — 두 체제가 방법의 순위를 뒤집을 수 있다(측정됨).**
+미학습 12개 앱, `--top-k 5`:
+
+```text
+                        recall      검증  요청
+휴리스틱 prior          33/33 =1.00    60   294
+학습 모델, 보장 없음     26/33 =0.79    60   312
+학습 모델 + conformal    33/33 =1.00    43   204
+```
+
+같은 앱을 `--budget 20`으로 재면 prior가 0.55로 떨어진다. 손실은 전부 XSS이며
+(SQLI는 양쪽 25/25, XSS는 prior 8/8 대 학습 8분의 1) 원인은 학습 모델이
+`P(XSS | 반사) ≈ 0.29`를 **정확히** 학습했기 때문이다. 현재 feature set이
+`xss_raw`와 `xss_escaped`를 구분하지 못하므로 어떤 보정 모델도 반사하는 XSS를
+서로 구분할 수 없고, prior의 과신(0.81)은 K가 넉넉할 때만 우연히 이득이 된다.
+예산이 빠듯해지면 같은 과신이 요청을 낭비해 손해로 바뀐다.
+
+conformal 임계값이 이 격차를 메운다. XSS 음성(≈0.065)은 자르고 양성(≈0.46)은
+남겨, 같은 recall을 검증 28%·요청 31% 적게 달성한다.
+
+이는 §5의 baseline 비교를 K와 예산 두 표로 분리해야 하는 이유이자,
+`safe_html_encoding_detected` 구현이 결정 계층 튜닝보다 우선인 이유다.
+
+---
+
 ## New Decision Template
 
 ```text

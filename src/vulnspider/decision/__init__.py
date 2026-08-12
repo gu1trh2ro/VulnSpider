@@ -37,12 +37,13 @@ from vulnspider.decision.cost import (
 )
 from vulnspider.decision.greedy import (
     BUDGETED_SELECTOR_VERSION,
+    CARDINALITY_APPROXIMATION_RATIO,
     MODULAR_APPROXIMATION_RATIO,
     SUBMODULAR_APPROXIMATION_RATIO,
     BudgetedSelection,
     BudgetedSelectionError,
     marginal_gain,
-    select_within_budget,
+    select_candidates,
     set_utility,
 )
 from vulnspider.decision.policy import (
@@ -65,6 +66,7 @@ from vulnspider.decision.voi import (
 
 __all__ = [
     "BUDGETED_SELECTOR_VERSION",
+    "CARDINALITY_APPROXIMATION_RATIO",
     "CONFORMAL_METHOD_VERSION",
     "DECISION_POLICY_VERSION",
     "DEFAULT_FAMILY_COSTS",
@@ -101,6 +103,6 @@ __all__ = [
     "rank_probes_by_information_density",
     "run_decision_layer",
     "select_by_threshold",
-    "select_within_budget",
+    "select_candidates",
     "set_utility",
 ]

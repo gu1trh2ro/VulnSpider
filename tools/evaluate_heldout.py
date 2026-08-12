@@ -11,7 +11,7 @@ each, and compares three configurations at one fixed budget:
 Recall is measured against the authored ground truth of each held-out
 application, so no configuration has ever seen these labels.
 
-    PYTHONPATH=src python tools/evaluate_heldout.py --budget 20
+    PYTHONPATH=src python tools/evaluate_heldout.py --top-k 5
 """
 
 from __future__ import annotations
@@ -53,7 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="First held-out application index; must not overlap the corpus.",
     )
     parser.add_argument("--applications", type=int, default=12)
-    parser.add_argument("--budget", type=int, default=20)
+    parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--budget", type=int, default=None)
     return parser
 
 
@@ -75,9 +76,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     indices = range(args.first_application, args.first_application + args.applications)
+    limits = f"top-k {args.top_k}"
+    if args.budget is not None:
+        limits += f", budget {args.budget} requests"
     print(
         f"evaluate_heldout: {args.applications} unseen applications, "
-        f"budget {args.budget} requests each"
+        f"{limits} each"
     )
     with tempfile.TemporaryDirectory() as directory:
         observations = _observe(indices, Path(directory))
@@ -91,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         ("fitted model + conformal", fitted, conformal),
     ):
         found, positives, verified, requests = _score(
-            observations, scorers, threshold, budget=args.budget
+            observations, scorers, threshold, top_k=args.top_k, budget=args.budget
         )
         recall = found / positives if positives else 0.0
         print(
@@ -139,13 +143,15 @@ def _score(
     scorers: Mapping[str, CalibratedScorer],
     conformal: ConformalThreshold | None,
     *,
-    budget: int,
+    top_k: int,
+    budget: int | None,
 ) -> tuple[int, int, int, int]:
     found = positives = verified = requests = 0
     for analysis, labels in observations:
         candidates = build_decision_candidates(analysis, scorers)
         outcome = run_decision_layer(
             candidates,
+            top_k=top_k,
             verification_budget=budget,
             conformal=conformal,
         )

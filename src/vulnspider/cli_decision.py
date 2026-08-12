@@ -57,7 +57,7 @@ from vulnspider.selection import (
 
 DECISION_REPORT_VERSION = "decision-report-v1"
 
-DEFAULT_VERIFICATION_BUDGET = 40
+DEFAULT_TOP_K = 10
 DEFAULT_TARGET_RISK = 0.1
 DEFAULT_DISCOUNT = 0.5
 
@@ -152,8 +152,10 @@ def decision_report(
             }
             for family, scorer in sorted(models.items())
         },
-        "budget": {
+        "constraints": {
+            "top_k": outcome.selection.top_k,
             "verification_budget": outcome.selection.budget,
+            "binding_constraint": outcome.selection.binding_constraint,
             "verification_spent": outcome.selection.spent_cost,
             "exploration_spent": outcome.exploration_requests_spent,
             "total_requests": outcome.total_requests_spent,
@@ -270,12 +272,19 @@ def add_decision_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     decide.add_argument("--url", required=True, help="Authorized target root URL.")
     decide.add_argument(
+        "--top-k",
+        required=True,
+        type=int,
+        help="Number of candidates to select. The primary control.",
+    )
+    decide.add_argument(
         "--budget",
         type=int,
-        default=DEFAULT_VERIFICATION_BUDGET,
+        default=None,
         help=(
-            "Verification request budget to allocate "
-            f"(default: {DEFAULT_VERIFICATION_BUDGET})."
+            "Optional verification request budget. Candidates cost different "
+            "amounts, so this caps request spend rather than list length; "
+            "whichever limit binds first stops the selection."
         ),
     )
     decide.add_argument(
@@ -401,7 +410,9 @@ def run_decide_command(
 ) -> int:
     """Handle `vulnspider decide`."""
 
-    if args.budget < 0:
+    if args.top_k < 0:
+        raise DecisionCLIError("--top-k must not be negative")
+    if args.budget is not None and args.budget < 0:
         raise DecisionCLIError("--budget must not be negative")
     if not 0.0 < args.discount <= 1.0:
         raise DecisionCLIError("--discount must lie inside (0, 1]")
@@ -417,6 +428,7 @@ def run_decide_command(
     candidates = build_decision_candidates(analysis, models)
     outcome = run_decision_layer(
         candidates,
+        top_k=args.top_k,
         verification_budget=args.budget,
         conformal=conformal,
         discount=args.discount,
@@ -425,11 +437,17 @@ def run_decide_command(
         decision_report(outcome, target_url=args.url, models=models),
         args.output,
     )
+    spend = (
+        f"{outcome.selection.spent_cost} requests"
+        if args.budget is None
+        else f"{outcome.selection.spent_cost}/{args.budget} requests"
+    )
     print(
-        f"vulnspider: decided {len(outcome.selection.selected)} of "
+        f"vulnspider: selected {len(outcome.selection.selected)} of "
         f"{outcome.initial_candidates} candidates "
-        f"({outcome.selection.spent_cost}/{args.budget} requests, "
-        f"expected findings {outcome.selection.expected_findings:.2f})"
+        f"(top-k {args.top_k}, {spend}, "
+        f"expected findings {outcome.selection.expected_findings:.2f}, "
+        f"limited by {outcome.selection.binding_constraint})"
     )
     if conformal is not None and not outcome.budget_covers_conformal_set:
         print(
@@ -660,7 +678,7 @@ __all__ = [
     "DECISION_REPORT_VERSION",
     "DEFAULT_DISCOUNT",
     "DEFAULT_TARGET_RISK",
-    "DEFAULT_VERIFICATION_BUDGET",
+    "DEFAULT_TOP_K",
     "ConformalError",
     "CorpusError",
     "CorpusFittingError",

@@ -118,9 +118,11 @@ selection (ADR-022, ADR-023, ADR-024). It consumes the validated
   `RankScore` and reproduces the heuristic order exactly.
 - `decision/cost.py` — explicit, versioned verification cost and severity
   policy. Values are documented policy, not measurement.
-- `decision/greedy.py` — budget-constrained submodular maximization with a
-  `½(1 − 1/e)` approximation guarantee (`½` when the redundancy discount is
-  1.0). Replaces fixed Top-K.
+- `decision/greedy.py` — constrained submodular maximization. Top-K is the
+  primary control and the request budget is optional (ADR-027); the bound
+  depends on which is active: `1 − 1/e` for Top-K alone, `½(1 − 1/e)` for
+  budget alone (`½` when the redundancy discount is 1.0), and none is claimed
+  when both bind. `binding_constraint` reports which limit stopped it.
 - `decision/voi.py` — expected information gain per request, ordering which
   probe to run next. The likelihood rates come from `fit_naive_bayes_llr()`.
   **Dormant and not wired to the CLI (ADR-026):** one probe pair already
@@ -152,14 +154,15 @@ guarantee are estimated from (ADR-025).
 because ADR-025 adds commands without changing `analyze`, `-u`, or their flags:
 
 ```text
-vulnspider decide            --url ... --budget N [--model M] [--conformal C] -o R
+vulnspider decide            --url ... --top-k K [--budget N] [--model M] [--conformal C] -o R
 vulnspider corpus collect    --url ... --application-id A --ground-truth G -o C
 vulnspider corpus fit        --corpus C -o M [--report Q]
 vulnspider corpus calibrate  --corpus C --target-recall R -o T
 ```
 
-`decide` ranks every candidate rather than a Top-K, then lets the budget and
-the conformal threshold decide how many to verify. It takes no `--top-k`.
+`decide` ranks every candidate, then applies `--top-k` (required, the primary
+control), an optional `--budget`, and an optional conformal threshold as
+independent stopping conditions, reporting which one bound (ADR-027).
 
 `tools/corpus_target_site.py` generates the loopback labeled applications the
 corpus is collected from, and `tools/build_corpus.py` runs the whole loop.

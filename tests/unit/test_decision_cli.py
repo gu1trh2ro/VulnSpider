@@ -159,7 +159,7 @@ class FrozenSurfaceTests(unittest.TestCase):
         parser = build_parser()
         self.assertEqual(
             parser.parse_args(
-                ["decide", "--url", ROOT_URL, "-o", "d.json"]
+                ["decide", "--url", ROOT_URL, "--top-k", "5", "-o", "d.json"]
             ).command,
             "decide",
         )
@@ -183,27 +183,53 @@ class DecideCommandTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "decision.json"
             self.assertEqual(
-                _run(["decide", "--url", ROOT_URL, "--budget", "12", "-o", str(output)]),
+                _run(["decide", "--url", ROOT_URL, "--top-k", "50", "--budget", "12", "-o", str(output)]),
                 0,
             )
             report = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(report["report_version"], "decision-report-v1")
-        self.assertLessEqual(report["budget"]["verification_spent"], 12)
+        self.assertLessEqual(report["constraints"]["verification_spent"], 12)
         self.assertIsNone(report["guarantee"])
         self.assertGreater(report["selection"]["candidates_scored"], 0)
         orders = [entry["order"] for entry in report["verification_order"]]
         self.assertEqual(orders, sorted(orders))
 
+    def test_a_bigger_top_k_never_finds_less(self) -> None:
+        findings = []
+        with tempfile.TemporaryDirectory() as directory:
+            for top_k in (1, 2, 4, 20):
+                output = Path(directory) / f"k{top_k}.json"
+                _run(
+                    ["decide", "--url", ROOT_URL, "--top-k", str(top_k), "-o", str(output)]
+                )
+                report = json.loads(output.read_text(encoding="utf-8"))
+                self.assertLessEqual(len(report["verification_order"]), top_k)
+                findings.append(report["selection"]["expected_findings"])
+        self.assertEqual(findings, sorted(findings))
+
+    def test_top_k_is_required(self) -> None:
+        with self.assertRaises(SystemExit):
+            _run(["decide", "--url", ROOT_URL, "-o", "x.json"])
+
+    def test_binding_constraint_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "d.json"
+            _run(["decide", "--url", ROOT_URL, "--top-k", "1", "-o", str(output)])
+            report = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(report["constraints"]["top_k"], 1)
+        self.assertIsNone(report["constraints"]["verification_budget"])
+        self.assertEqual(report["constraints"]["binding_constraint"], "top_k")
+
     def test_zero_budget_selects_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "decision.json"
             self.assertEqual(
-                _run(["decide", "--url", ROOT_URL, "--budget", "0", "-o", str(output)]),
+                _run(["decide", "--url", ROOT_URL, "--top-k", "50", "--budget", "0", "-o", str(output)]),
                 0,
             )
             report = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(report["verification_order"], [])
-        self.assertEqual(report["budget"]["verification_spent"], 0)
+        self.assertEqual(report["constraints"]["verification_spent"], 0)
 
     def test_a_bigger_budget_never_finds_less(self) -> None:
         findings = []
@@ -215,6 +241,8 @@ class DecideCommandTests(unittest.TestCase):
                         "decide",
                         "--url",
                         ROOT_URL,
+                        "--top-k",
+                        "50",
                         "--budget",
                         str(budget),
                         "-o",
@@ -230,7 +258,7 @@ class DecideCommandTests(unittest.TestCase):
             output = Path(directory) / "decision.json"
             self.assertEqual(
                 _run(
-                    ["decide", "--url", ROOT_URL, "--budget", "-1", "-o", str(output)]
+                    ["decide", "--url", ROOT_URL, "--top-k", "50", "--budget", "-1", "-o", str(output)]
                 ),
                 1,
             )
@@ -245,6 +273,8 @@ class DecideCommandTests(unittest.TestCase):
                         "decide",
                         "--url",
                         ROOT_URL,
+                        "--top-k",
+                        "50",
                         "--discount",
                         "1.5",
                         "-o",
@@ -263,6 +293,8 @@ class DecideCommandTests(unittest.TestCase):
                         "decide",
                         "--url",
                         ROOT_URL,
+                        "--top-k",
+                        "50",
                         "--model",
                         str(Path(directory) / "absent.json"),
                         "-o",
@@ -322,6 +354,8 @@ class CorpusCommandTests(unittest.TestCase):
                         "decide",
                         "--url",
                         ROOT_URL,
+                        "--top-k",
+                        "50",
                         "--budget",
                         "20",
                         "--model",

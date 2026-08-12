@@ -1,9 +1,10 @@
-"""Budget-constrained candidate selection with a stated approximation bound.
+"""Constrained candidate selection with a stated approximation bound.
 
-This replaces "take the first ``k``" with "spend ``B`` verification requests as
-well as possible", which is the question ``docs/EVALUATION_PROTOCOL.md`` §6
-already says the project is measured on (cumulative findings against request
-budget).
+Top-K is the primary control: the project's contribution is ranking what to
+verify first, its four core metrics are all defined at K
+(``docs/EVALUATION_PROTOCOL.md`` §6), and the downstream handoff contract
+already carries ``top_k_requested``. A request budget is an optional second
+constraint for when requests, not list length, are what actually runs out.
 
 The utility
 -----------
@@ -21,25 +22,34 @@ order. Ordered aggregation with decreasing weights over a modular base is
 monotone and submodular, so the diminishing-returns behaviour is a property of
 the objective rather than a heuristic bolted onto the search.
 
-The guarantee
--------------
-Maximising a monotone submodular ``U`` under a knapsack constraint is NP-hard,
-but taking the better of
+The guarantees, and where they stop
+-----------------------------------
+Which bound applies depends on which constraints are active, and the three
+cases genuinely differ:
 
-* greedy by *marginal gain per request*, and
-* the single best affordable candidate
+* **Top-K only.** A cardinality constraint is a uniform matroid, and greedy by
+  *marginal gain* attains ``1 − 1/e ≈ 0.632`` (Nemhauser, Wolsey & Fisher,
+  1978). Cost is irrelevant here, so ranking by gain-per-request would forfeit
+  the bound for nothing -- this regime therefore switches to plain marginal
+  gain.
+* **Budget only.** A knapsack constraint. The better of greedy by *marginal
+  gain per request* and the single best affordable candidate attains
+  ``½(1 − 1/e) ≈ 0.316``. The second arm is not decoration: density greedy
+  alone is unbounded, because it can fill the budget with cheap crumbs and
+  never afford the one expensive candidate holding most of the value.
+* **Both.** The feasible sets are the intersection of a knapsack and a matroid.
+  Density greedy still behaves sensibly and is what runs, but no combined
+  bound is claimed here, and ``approximation_ratio`` is ``None`` rather than a
+  number that cannot be defended.
 
-is guaranteed to reach ``½(1 − 1/e) ≈ 0.316`` of the optimum. The second arm is
-not decoration: density greedy alone is unbounded, because it can fill the
-budget with cheap crumbs and never afford the one expensive candidate that
-carries most of the value.
+With ``discount = 1.0`` the objective collapses to a modular sum and the
+budget-only case becomes 0/1 knapsack, where the same procedure is a ``½``
+approximation -- the *better* constant. Submodularity buys a more faithful
+model of redundancy, not a tighter guarantee.
 
-With ``discount = 1.0`` the objective collapses to a modular sum, the problem
-becomes 0/1 knapsack, and the same procedure is a ``½``-approximation. Note
-that this is the *better* bound: submodularity buys a more faithful model of
-redundancy, not a tighter guarantee. Both constants are lower bounds proved
-against the exact optimum, and both are routinely loose in practice --
-``tests/unit/test_decision_greedy.py`` checks them against brute force.
+Every bound above is a proved lower bound against the exact optimum and all are
+routinely loose in practice; ``tests/unit/test_decision_greedy.py`` checks them
+against brute force.
 """
 
 from __future__ import annotations
@@ -47,75 +57,88 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from math import e, isfinite
+from typing import Literal
 
 from vulnspider.decision.candidate import DecisionCandidate
 
-BUDGETED_SELECTOR_VERSION = "budgeted-submodular-greedy-v1"
+BUDGETED_SELECTOR_VERSION = "constrained-submodular-greedy-v2"
 
+CARDINALITY_APPROXIMATION_RATIO = 1.0 - 1.0 / e
 MODULAR_APPROXIMATION_RATIO = 0.5
 SUBMODULAR_APPROXIMATION_RATIO = 0.5 * (1.0 - 1.0 / e)
 
+BindingConstraint = Literal["top_k", "budget", "both", "none"]
+
 
 class BudgetedSelectionError(ValueError):
-    """Raised when a budgeted selection cannot be computed deterministically."""
+    """Raised when a selection cannot be computed deterministically."""
 
 
 @dataclass(frozen=True, slots=True, init=False)
 class BudgetedSelection:
-    """The chosen verification set, its cost, and what it is worth.
+    """The chosen verification set, what it cost, and what it is worth.
 
     ``selected`` is in execution order: the order greedy committed the requests
     is the order they should be spent, so an interrupted run still holds the
     most valuable prefix.
+
+    ``approximation_ratio`` is ``None`` when both constraints are active, since
+    no combined bound is claimed. ``binding_constraint`` reports which limit
+    actually stopped the selection, so a caller can tell "the budget ran out"
+    from "the list was long enough".
     """
 
     selector_version: str
-    budget: int
+    top_k: int | None
+    budget: int | None
     spent_cost: int
     discount: float
     utility: float
     expected_findings: float
-    approximation_ratio: float
+    approximation_ratio: float | None
+    binding_constraint: BindingConstraint
     selected: tuple[DecisionCandidate, ...]
     deferred: tuple[DecisionCandidate, ...]
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
-        raise TypeError(
-            "BudgetedSelection is produced only by select_within_budget()"
-        )
+        raise TypeError("BudgetedSelection is produced only by select_candidates()")
 
     @classmethod
     def _from_parts(
         cls,
         *,
-        budget: int,
+        top_k: int | None,
+        budget: int | None,
         spent_cost: int,
         discount: float,
         utility: float,
         expected_findings: float,
-        approximation_ratio: float,
+        approximation_ratio: float | None,
+        binding_constraint: BindingConstraint,
         selected: tuple[DecisionCandidate, ...],
         deferred: tuple[DecisionCandidate, ...],
     ) -> BudgetedSelection:
         instance = object.__new__(cls)
         object.__setattr__(instance, "selector_version", BUDGETED_SELECTOR_VERSION)
+        object.__setattr__(instance, "top_k", top_k)
         object.__setattr__(instance, "budget", budget)
         object.__setattr__(instance, "spent_cost", spent_cost)
         object.__setattr__(instance, "discount", discount)
         object.__setattr__(instance, "utility", utility)
         object.__setattr__(instance, "expected_findings", expected_findings)
         object.__setattr__(instance, "approximation_ratio", approximation_ratio)
+        object.__setattr__(instance, "binding_constraint", binding_constraint)
         object.__setattr__(instance, "selected", selected)
         object.__setattr__(instance, "deferred", deferred)
         instance.validate()
         return instance
 
     def validate(self) -> None:
-        if self.spent_cost > self.budget:
+        if self.budget is not None and self.spent_cost > self.budget:
             raise BudgetedSelectionError("selection cost cannot exceed the budget")
-        if self.spent_cost != sum(
-            item.verification_cost for item in self.selected
-        ):
+        if self.top_k is not None and len(self.selected) > self.top_k:
+            raise BudgetedSelectionError("selection cannot exceed the requested top-k")
+        if self.spent_cost != sum(item.verification_cost for item in self.selected):
             raise BudgetedSelectionError(
                 "spent cost must equal the selected verification costs"
             )
@@ -168,23 +191,33 @@ def marginal_gain(
     return after - before
 
 
-def select_within_budget(
+def select_candidates(
     candidates: Sequence[DecisionCandidate],
     *,
-    budget: int,
+    top_k: int | None = None,
+    budget: int | None = None,
     discount: float = 0.5,
 ) -> BudgetedSelection:
-    """Choose the verification set to spend ``budget`` requests on.
+    """Choose the verification set under a Top-K cap, a request budget, or both.
 
-    Returns the better of density-greedy and the best affordable single
-    candidate, which is what earns the approximation bound documented above.
+    At least one constraint is required; selecting with neither would silently
+    return every candidate, which is never what a caller means.
+
     Ties are broken by ``candidate_id`` so the result is reproducible.
     """
 
-    if isinstance(budget, bool) or not isinstance(budget, int):
-        raise BudgetedSelectionError("budget must be an integer")
-    if budget < 0:
-        raise BudgetedSelectionError("budget must not be negative")
+    if top_k is None and budget is None:
+        raise BudgetedSelectionError("select_candidates needs top_k, budget, or both")
+    if top_k is not None:
+        if isinstance(top_k, bool) or not isinstance(top_k, int):
+            raise BudgetedSelectionError("top_k must be an integer")
+        if top_k < 0:
+            raise BudgetedSelectionError("top_k must not be negative")
+    if budget is not None:
+        if isinstance(budget, bool) or not isinstance(budget, int):
+            raise BudgetedSelectionError("budget must be an integer")
+        if budget < 0:
+            raise BudgetedSelectionError("budget must not be negative")
     _validate_discount(discount)
 
     pool = tuple(candidates)
@@ -197,17 +230,26 @@ def select_within_budget(
     if len(identifiers) != len(set(identifiers)):
         raise BudgetedSelectionError("candidates must be unique by candidate_id")
 
-    greedy = _density_greedy(pool, budget=budget, discount=discount)
-    single = _best_single(pool, budget=budget)
+    # Cost only matters when a budget constrains it. Under a pure cardinality
+    # constraint, ranking by gain-per-request would forfeit the (1 - 1/e) bound
+    # for no reason, so that regime ranks by marginal gain instead.
+    by_density = budget is not None
 
-    greedy_utility = set_utility(greedy, discount=discount)
-    single_utility = set_utility(single, discount=discount)
-    if single_utility > greedy_utility:
-        selected = single
-        utility = single_utility
-    else:
-        selected = greedy
-        utility = greedy_utility
+    greedy, binding = _greedy(
+        pool,
+        top_k=top_k,
+        budget=budget,
+        discount=discount,
+        by_density=by_density,
+    )
+    selected = greedy
+    if by_density:
+        single = _best_single(pool, top_k=top_k, budget=budget)
+        if set_utility(single, discount=discount) > set_utility(
+            greedy, discount=discount
+        ):
+            selected = single
+            binding = "budget" if top_k is None else "both"
 
     selected_ids = {candidate.candidate_id for candidate in selected}
     deferred = tuple(
@@ -221,39 +263,65 @@ def select_within_budget(
         )
     )
     return BudgetedSelection._from_parts(
+        top_k=top_k,
         budget=budget,
         spent_cost=sum(candidate.verification_cost for candidate in selected),
         discount=discount,
-        utility=utility,
-        expected_findings=sum(
-            float(candidate.probability) for candidate in selected
+        utility=set_utility(selected, discount=discount),
+        expected_findings=sum(float(item.probability) for item in selected),
+        approximation_ratio=_approximation_ratio(
+            top_k=top_k,
+            budget=budget,
+            discount=discount,
         ),
-        approximation_ratio=(
-            MODULAR_APPROXIMATION_RATIO
-            if discount == 1.0
-            else SUBMODULAR_APPROXIMATION_RATIO
-        ),
+        binding_constraint=binding if deferred else "none",
         selected=selected,
         deferred=deferred,
     )
 
 
-def _density_greedy(
+def _approximation_ratio(
+    *,
+    top_k: int | None,
+    budget: int | None,
+    discount: float,
+) -> float | None:
+    if budget is None:
+        return CARDINALITY_APPROXIMATION_RATIO
+    if top_k is not None:
+        # Knapsack intersected with a matroid: no combined bound is claimed.
+        return None
+    return (
+        MODULAR_APPROXIMATION_RATIO
+        if discount == 1.0
+        else SUBMODULAR_APPROXIMATION_RATIO
+    )
+
+
+def _greedy(
     pool: Sequence[DecisionCandidate],
     *,
-    budget: int,
+    top_k: int | None,
+    budget: int | None,
     discount: float,
-) -> tuple[DecisionCandidate, ...]:
+    by_density: bool,
+) -> tuple[tuple[DecisionCandidate, ...], BindingConstraint]:
     selected: list[DecisionCandidate] = []
     group_values: dict[str, list[float]] = {}
     remaining = list(pool)
     spent = 0
+    stopped_by_budget = False
 
     while remaining:
+        if top_k is not None and len(selected) >= top_k:
+            return tuple(selected), ("both" if stopped_by_budget else "top_k")
+
         best: DecisionCandidate | None = None
         best_key: tuple[float, str] | None = None
+        blocked_by_budget = False
         for candidate in remaining:
-            if spent + candidate.verification_cost > budget:
+            if budget is not None and spent + candidate.verification_cost > budget:
+                blocked_by_budget = True
                 continue
             gain = marginal_gain(
                 group_values.get(candidate.redundancy_key, []),
@@ -262,40 +330,46 @@ def _density_greedy(
             )
             if gain <= 0.0:
                 continue
-            key = (-gain / candidate.verification_cost, candidate.candidate_id)
+            score = gain / candidate.verification_cost if by_density else gain
+            key = (-score, candidate.candidate_id)
             if best_key is None or key < best_key:
                 best = candidate
                 best_key = key
         if best is None:
-            break
+            return tuple(selected), ("budget" if blocked_by_budget else "none")
+        stopped_by_budget = stopped_by_budget or blocked_by_budget
+
         selected.append(best)
         group_values.setdefault(best.redundancy_key, []).append(best.expected_value)
         spent += best.verification_cost
         remaining.remove(best)
-    return tuple(selected)
+
+    return tuple(selected), "none"
 
 
 def _best_single(
     pool: Sequence[DecisionCandidate],
     *,
-    budget: int,
+    top_k: int | None,
+    budget: int | None,
 ) -> tuple[DecisionCandidate, ...]:
+    if top_k is not None and top_k < 1:
+        return ()
     affordable = [
-        candidate for candidate in pool if candidate.verification_cost <= budget
+        candidate
+        for candidate in pool
+        if budget is None or candidate.verification_cost <= budget
     ]
     if not affordable:
         return ()
-    best = min(
-        affordable,
-        key=lambda item: (-item.expected_value, item.candidate_id),
+    return (
+        min(affordable, key=lambda item: (-item.expected_value, item.candidate_id)),
     )
-    return (best,)
 
 
 def _ordered_sum(sorted_values: Sequence[float], discount: float) -> float:
     return sum(
-        (discount**position) * value
-        for position, value in enumerate(sorted_values)
+        (discount**position) * value for position, value in enumerate(sorted_values)
     )
 
 

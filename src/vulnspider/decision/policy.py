@@ -34,7 +34,7 @@ from vulnspider.decision.conformal import (
 )
 from vulnspider.decision.greedy import (
     BudgetedSelection,
-    select_within_budget,
+    select_candidates,
 )
 from vulnspider.decision.voi import (
     ProbeInformationGain,
@@ -130,7 +130,8 @@ class DecisionOutcome:
 def run_decision_layer(
     candidates: Sequence[DecisionCandidate],
     *,
-    verification_budget: int,
+    top_k: int | None = None,
+    verification_budget: int | None = None,
     exploration_budget: int = 0,
     probe_options: Sequence[ProbeOption] = (),
     observe: ProbeOutcomeSource | None = None,
@@ -148,10 +149,17 @@ def run_decision_layer(
     identifiers = [candidate.candidate_id for candidate in pool]
     if len(identifiers) != len(set(identifiers)):
         raise DecisionPolicyRunError("candidates must be unique by candidate_id")
+    if top_k is None and verification_budget is None:
+        raise DecisionPolicyRunError(
+            "run_decision_layer needs top_k, verification_budget, or both"
+        )
     for name, value in (
+        ("top_k", top_k),
         ("verification_budget", verification_budget),
         ("exploration_budget", exploration_budget),
     ):
+        if value is None:
+            continue
         if isinstance(value, bool) or not isinstance(value, int):
             raise DecisionPolicyRunError(f"{name} must be an integer")
         if value < 0:
@@ -187,8 +195,9 @@ def run_decision_layer(
         else updated
     )
     conformal_cost = sum(candidate.verification_cost for candidate in eligible)
-    selection = select_within_budget(
+    selection = select_candidates(
         eligible,
+        top_k=top_k,
         budget=verification_budget,
         discount=discount,
     )
@@ -204,7 +213,9 @@ def run_decision_layer(
         ),
         conformal=conformal,
         conformal_set_size=len(eligible),
-        budget_covers_conformal_set=conformal_cost <= verification_budget,
+        budget_covers_conformal_set=(
+            verification_budget is None or conformal_cost <= verification_budget
+        ),
         selection=selection,
     )
 
