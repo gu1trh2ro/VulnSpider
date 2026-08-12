@@ -361,6 +361,222 @@ of assuming one run per vector. A combined feature value can come from a
 different probe run than its sibling feature, so a combined vector is not the
 replay of one request pair; `selected_probe_run_id` keeps that explainable.
 Single-context analyses are unchanged and keep their previous vector ids.
+## ADR-021 — BAC joins the combined Top-K and selection produces the mutation handoff
+
+**Status:** Accepted
+
+**Date:** 2026-08-11
+
+**Decision:** SQLi/Reflected XSS injection 후보와 BAC `AccessCandidate`를 하나의
+combined Top-K로 합칠 때 ADR-010의 `selection_priority`(raw_rank_score / exact
+scorer maximum)를 그대로 사용한다. BAC의 exact scorer maximum은
+`ACCESS_MAX_RANK_SCORE`(=75.0, `access-control-weighted-v1`)이고 candidate id로
+동률을 결정한다. Scorer는 기존 것을 재사용한다(`scoring.engine`의 SQLi/XSS,
+`access.scoring`의 BAC). `selection.combined.select_combined_top_k()`는 이미
+검증된 두 category 선택 결과만 병합하며 어떤 점수도 재계산하지 않는다.
+`selection` 모듈은 이 combined Top-K를 mutation 모듈(LLM-assisted Payload
+Mutation, owner 석현)로 넘기기 위한 handoff `RankedCandidateContext`
+(ADR-017, `docs/TEAM_INTERFACES_V0_2.md` §2)를 `selection.handoff`에서 생성한다.
+
+**Reason:** 검증 우선순위를 세 family에 걸쳐 하나의 순서로 제시하고 mutation
+모듈에 단일 handoff로 전달하기 위함이다. `docs/TEAM_INTERFACES_V0_2.md` §2가
+열어둔 "BAC가 SQLi/XSS global Top-K에 참여하는지" open decision을 이 ADR로
+확정한다. 이는 ADR-010을 BAC family(ADR-014)까지 확장한다.
+
+**Consequences:**
+
+- `selection_priority`는 여전히 selection 전용 비교 key이며 확률이나
+  Confidence가 아니다(ADR-010, ADR-016). 세 family의 raw scale이 다르므로 raw
+  score를 직접 비교하지 않는다.
+- handoff는 selection이 authoritative하게 소유한 필드만 채운다. scope/verification
+  envelope(`target_scope_id`, `allowed_verification_policy`)는 selection이 소유하지
+  않으므로 fabricate하지 않고 각 owner가 downstream에서 부여한다
+  (`docs/TEAM_INTERFACES_V0_2.md` §2 forbidden reconstruction 준수).
+- BAC observation pipeline(planner/executor)은 이 결정 범위 밖이며
+  discovery/observation owner가 소유한다. `feat/selection-top-k`는 재사용한 BAC
+  scorer·features·within-family selector만 가져온다.
+- `docs/TEAM_INTERFACES_V0_2.md` §2 "BAC ranking and global selection boundary"와
+  "Open contract decisions"의 해당 항목은 이 ADR을 참조하도록 갱신한다.
+
+---
+
+## ADR-022 — Calibrated probability replaces raw/max as the comparison key
+
+**Status:** Accepted
+
+**Date:** 2026-08-11
+
+**Decision:** 후보 비교의 기준을 `raw_rank_score / exact_scorer_maximum`에서
+보정된 확률 `P(vulnerable | observed evidence)`로 옮긴다. 확률은
+`scoring/calibration.py`의 베이지안 로지스틱 회귀가 생성한다. 기존 휴리스틱
+가중치(`SQLI_TERMS`, `XSS_TERMS`, `ACCESS_TERMS`)는 폐기하지 않고 logit
+공간으로 rescale하여 Gaussian prior의 평균으로 사용한다.
+
+이 결정은 ADR-003과 ADR-016의 "RankScore를 취약 확률로 해석하지 않는다"를
+**decision layer 한정으로** 대체한다. `RankScore`, `selection_priority`,
+`select_top_k()`, `select_combined_top_k()`의 의미와 동작은 바뀌지 않는다.
+
+**Reason:** ADR-010과 ADR-021은 SQLi(0..75), Reflected XSS(0..45),
+BAC(0..75)를 각자의 최댓값으로 나눠 비교했다. 이 몫이 왜 family 간에
+비교 가능한지에 대한 근거는 없으며 ADR-010 본문도 "확률이 아니라 selection
+전용 key"라고만 명시했다. 예산 배분은 서로 다른 family의 기대 효용을 실제로
+더해야 하므로, 임의 스케일이 아닌 공통 단위가 필요하다. 확률은 그 단위다.
+
+**Alternatives considered:** 가중치 Grid Search(reject — 탐색 대상이 가중치일
+뿐이고 feature가 적어 이득이 없다); Learning-to-Rank(reject — 현재 feature
+수와 코퍼스 규모에서 과적합하며, 비교군으로만 남긴다); 현행 유지(reject —
+family 간 비교를 정당화할 수 없다).
+
+**Consequences:**
+
+- 학습 데이터가 없으면 `CalibratedScorer.from_prior()`의 `logit_mean`은
+  `logit(base_rate) + RankScore / prior_scale`로 휴리스틱 순서를 정확히
+  재현한다. 코퍼스 확보 전에도 안전하게 채택할 수 있다.
+- `probability`는 `logit_mean`의 단조 함수가 아니다. weight posterior를
+  적분하므로, 코퍼스가 정밀하게 고정한 가중치에 기댄 점수는 damping을 덜
+  받고 거의 관측되지 않은 가중치에 기댄 점수는 base rate 쪽으로 당겨진다.
+  휴리스틱 순서가 필요한 소비자는 `logit_mean`을 읽는다.
+- ADR-016의 취지는 유지된다. 이 확률은 **검증 전 우선순위 확률**이고
+  `VerificationConfidence`는 focused verification 이후의 별개 값이다. 둘을
+  합산하거나 서로 대체하지 않는다.
+- missing feature는 logit 합에서 제외된다. 관측된 `0.0`과 미관측이 점수상
+  구분되지 않는다는 한계는 `CalibrationEvidence.observed`와
+  `observed_feature_count`로 노출하고 `FEATURE_SCHEMA.md` §9에 기록한다.
+
+---
+
+## ADR-023 — Budget-constrained sequential selection is the decision layer
+
+**Status:** Accepted
+
+**Date:** 2026-08-11
+
+**Decision:** 고정 Top-K 대신 요청 예산 `B`를 입력으로 받는 결정 계층을
+`vulnspider.decision`에 둔다. 세 부분으로 구성한다.
+
+1. 명시적 cost/severity 정책(`decision/cost.py`).
+2. 예산 제약 하 submodular 최대화(`decision/greedy.py`). 효용은
+   `U(S) = Σ_families Σ_j discount^(j-1) · P · severity`이며, 같은
+   `redundancy_key`(동일 서버 코드 경로) 내에서 수확 체감을 적용한다.
+   density greedy와 "가장 좋은 단일 후보" 중 나은 쪽을 취해
+   `½(1 − 1/e)` 근사를 보장한다. `discount = 1.0`이면 modular가 되고 같은
+   절차가 `½` 근사다.
+3. Value of Information 기반 순차 probe 선택(`decision/voi.py`).
+   `EIG / cost`가 가장 큰 probe부터 실행하고 결과로 posterior를 갱신한다.
+
+**Reason:** 졸업과제의 주장은 "적은 요청으로 검증 가치가 높은 후보를 먼저
+검증한다"이고 `EVALUATION_PROTOCOL.md` §6의 주 지표도 request budget 대비
+누적 발견이다. 그런데 알고리즘은 budget을 입력으로 받지 않았고 cost 모델도
+없었다. 또한 파이프라인이 one-shot이라 첫 probe 결과가 다음 probe를 바꾸지
+못해 "선택검증"이 선택에서 멈춰 있었다. 근사 보장이 있는 목적함수 최대화로
+바꾸면 "왜 이 순서인가"에 정리로 답할 수 있으며, 이는 rule-based 순위가 줄
+수 없는 것이다.
+
+**Alternatives considered:** modular 효용 + 정확한 knapsack DP(reject — 같은
+코드 경로의 중복성을 모델링하지 못해 템플릿 라우트 하나가 예산을 독점한다);
+MDP/강화학습(reject — 필요한 데이터 규모가 졸업과제 범위를 넘는다);
+Thompson Sampling(defer — 온라인 탐색-활용은 후속 작업으로 남긴다).
+
+**Consequences:**
+
+- `decision`은 `selection`의 검증된 출력만 소비하고 어떤 점수도 재계산하지
+  않는다(ADR-017, ADR-021). `RankedCandidateContext`가 유일한 진입점이다.
+- `decision/policy.py`는 I/O를 하지 않는다. probe 결과는 주입된
+  `ProbeOutcomeSource`로 들어오며 transport는 인터페이스 뒤에 남는다.
+- cost와 severity 기본값은 측정값이 아니라 문서화된 정책이다. 평가 harness가
+  실측 요청 수로 대체해야 한다.
+- 예산은 오늘의 고정 Top-K 대비 요청 수를 늘리지 않는다. 안전 경계는 변하지
+  않는다.
+
+---
+
+## ADR-024 — Conformal risk control determines the selected set size
+
+**Status:** Accepted
+
+**Date:** 2026-08-11
+
+**Decision:** 선택 집합의 크기를 사람이 고르는 `k` 대신 conformal risk
+control로 정한다. 보정 그룹에서 `R̂_n(λ) ≤ α − (1 − α)/n`을 만족하는 가장 큰
+확률 임계값 `λ̂`을 선택하고, 그 임계값 이상인 후보를 모두 취한다. 보장은
+`E[1 − Recall] ≤ α`다. 손실은 `1 − Recall`이고 positive가 없는 그룹의 손실은
+0으로 정의한다. 그룹은 application 단위이며 이는 `EVALUATION_PROTOCOL.md`
+§4의 leakage 방지 단위와 같다.
+
+**Reason:** `k`는 지금까지 근거 없는 하이퍼파라미터였고 얼마나 많은 실제
+positive가 잘려나가는지와 연결되어 있지 않았다. 과제 제목의 "선택검증"에
+대응하려면 "몇 개를 뽑는가"가 알고리즘 안에서 답해져야 한다.
+
+**Consequences:**
+
+- 보장은 `α ≥ 1/(n+1)`일 때만 달성 가능하다. recall 90% 보장에는 보정
+  application이 최소 9개 필요하다. 미달이면
+  `ConformalThreshold.guarantee_attainable`이 `False`가 되고 임계값은 0.0으로
+  떨어져 전부 선택한다. 보장되지 않은 수치를 보장된 것처럼 반환하지 않는다.
+- exchangeability 가정은 웹 애플리케이션 간에 약하다. leave-one-app-out 보정과
+  실측 위반율 보고를 필수로 하며, 명목 대비 실제 coverage 차이 자체를 결과로
+  기록한다. `EVALUATION_PROTOCOL.md` §10에 명시한다.
+- 예산이 보장 집합을 감당하지 못할 수 있다.
+  `DecisionOutcome.budget_covers_conformal_set`이 이를 보고하며, 이 경우
+  보장은 성립하지 않는다.
+
+---
+
+## ADR-025 — Decision layer reaches the CLI through new commands and a corpus
+
+**Status:** Accepted
+
+**Date:** 2026-08-11
+
+**Decision:** 결정 계층을 CLI에서 도달 가능하게 만들되, frozen v0.1 명령 표면은
+건드리지 않는다. `analyze`, `-u/--url` simple mode, 그리고 그 플래그들은 그대로
+두고 **새 subcommand만 추가**한다.
+
+```text
+vulnspider decide            --url ... --budget N [--model M] [--conformal C] -o R
+vulnspider corpus collect    --url ... --application-id A --ground-truth G -o C
+vulnspider corpus fit        --corpus C -o M [--report Q]
+vulnspider corpus calibrate  --corpus C --target-recall R -o T
+```
+
+새 패키지 `vulnspider.corpus`가 라벨 코퍼스를 소유한다. Ground truth key는
+`docs/EVALUATION_PROTOCOL.md` §3의 6-튜플이며, 코퍼스는 authoritative
+`Endpoint`/`InputPoint`에서 키를 만든다. 리포트나 표시 문자열에서 복원하지
+않는다.
+
+코퍼스 수집원은 `tools/corpus_target_site.py`가 생성하는 loopback 전용 라벨
+애플리케이션이다. `AGENTS.md`의 안전 규칙이 허용하는 유일한 데이터 출처이며,
+정답을 아는 이유는 동작을 이 파일에서 직접 작성했기 때문이다 — DVWA/WebGoat가
+라벨 코퍼스로 쓰이는 것과 같은 근거다.
+
+**Reason:** 결정 계층이 프로그램적으로만 도달 가능하면 실제로 쓸 수 없고,
+Layer 1의 가중치와 Layer 3의 보장은 라벨 데이터 없이는 의미가 없다. 두 결핍은
+같은 작업으로 해소된다.
+
+**Alternatives considered:** `analyze`에 `--budget`/`--target-recall` 플래그
+추가(reject — frozen 표면 변경이며 `analyze`의 계약이 "Top-K 리포트"라는 의미가
+흐려진다); 인터넷 스캔으로 코퍼스 수집(reject — 안전 규칙 위반);
+DVWA/WebGoat 컨테이너 자동 구동(defer — Docker 의존성과 사용자 환경 개입이
+필요하므로 별도 결정 사항).
+
+**Consequences:**
+
+- 미라벨 후보는 negative가 아니라 **skip**이다. 없는 키는
+  `GroundTruthStore.label_for()`가 `None`을 반환하고 수집기가 보고한다. 미라벨을
+  안전으로 취급하면 precision이 조작되며, 이는 feature schema가 이미 금지한
+  "missing은 관측된 0이 아니다"와 같은 오류다.
+- Conformal 보정은 **leave-one-application-out out-of-fold 확률**로 수행한다.
+  모델이 이미 라벨을 본 확률로 보정하면 보장이 낙관적으로 부풀려진다.
+- `decide`는 Top-K가 아니라 전체 후보를 랭킹한 뒤 예산으로 자른다. 몇 개를
+  검증할지는 결정 계층이 계산하는 값이지 입력받는 값이 아니므로 `--top-k`를
+  받지 않는다.
+- `redundancy_key`는 endpoint fingerprint다. 이는 ADR-023 시점의 한계
+  (input point 참조를 기본값으로 사용)를 해소한다.
+- 코퍼스 파일은 정규 순서로 기록한다. discovery 순회 순서가 실행마다
+  달라지므로, 정렬하지 않으면 동일 `--seed`가 줄 순서만 다른 파일을 만들어
+  §8의 재현성 요구를 무력화한다.
+- 생성된 코퍼스 산출물(`data/corpus/`)은 저장소에 포함한다. 심사에서 수치의
+  출처를 확인할 수 있어야 하고, 크기는 약 129KB로 부담되지 않는다.
 
 ---
 

@@ -103,8 +103,82 @@ independent SQLi and Reflected XSS candidates and explainable
 `ScoreEvidence`. `selection/` preserves raw RankScore and uses the exact scorer
 maximum to derive deterministic cross-type `selection_priority`.
 
-There is no implemented BAC feature/scorer, feature cache, ground-truth store,
-or automated evaluation runner.
+There is no implemented feature cache, ground-truth store, or automated
+evaluation runner.
+
+#### Decision layer
+
+`scoring/calibration.py` and `decision/` add a budget-aware layer *above*
+selection (ADR-022, ADR-023, ADR-024). It consumes the validated
+`RankedCandidateContext` handoff and recomputes nothing.
+
+- `scoring/calibration.py` — Bayesian logistic regression producing a
+  calibrated `P(vulnerable | evidence)`. The existing heuristic weights are the
+  prior mean, so the zero-data `logit_mean` is an affine transform of
+  `RankScore` and reproduces the heuristic order exactly.
+- `decision/cost.py` — explicit, versioned verification cost and severity
+  policy. Values are documented policy, not measurement.
+- `decision/greedy.py` — budget-constrained submodular maximization with a
+  `½(1 − 1/e)` approximation guarantee (`½` when the redundancy discount is
+  1.0). Replaces fixed Top-K.
+- `decision/voi.py` — expected information gain per request, ordering which
+  probe to run next. The likelihood rates come from
+  `fit_naive_bayes_llr()`, which is the concrete join between the two layers.
+- `decision/conformal.py` — conformal risk control fixing the selected set
+  size from a target recall instead of a chosen `k`.
+- `decision/policy.py` — the explore/cut/commit loop. Performs no I/O; probe
+  outcomes arrive through an injected `ProbeOutcomeSource`.
+
+#### Corpus and decision-layer CLI
+
+`corpus/` owns the labeled corpus the calibrated scorer and the conformal
+guarantee are estimated from (ADR-025).
+
+- `corpus/ground_truth.py` — the `EVALUATION_PROTOCOL.md` §3 key and its store.
+  An absent key is unlabeled, never negative.
+- `corpus/collection.py` — joins a real `AnalysisResult`'s observed features to
+  ground truth. Writes JSON Lines in canonical order so an identical seed
+  produces an identical file.
+- `corpus/fitting.py` — per-family fitting, leave-one-application-out
+  out-of-fold prediction, conformal calibration, and calibration quality
+  (Brier, ECE) against the heuristic baseline.
+
+`cli_decision.py` owns the new subcommands. It is separate from `cli.py`
+because ADR-025 adds commands without changing `analyze`, `-u`, or their flags:
+
+```text
+vulnspider decide            --url ... --budget N [--model M] [--conformal C] -o R
+vulnspider corpus collect    --url ... --application-id A --ground-truth G -o C
+vulnspider corpus fit        --corpus C -o M [--report Q]
+vulnspider corpus calibrate  --corpus C --target-recall R -o T
+```
+
+`decide` ranks every candidate rather than a Top-K, then lets the budget and
+the conformal threshold decide how many to verify. It takes no `--top-k`.
+
+`tools/corpus_target_site.py` generates the loopback labeled applications the
+corpus is collected from, and `tools/build_corpus.py` runs the whole loop.
+Collected artifacts live in `data/corpus/`.
+
+#### Ranking evaluation
+
+`evaluation/` implements `EVALUATION_PROTOCOL.md` §6 and the §6-A judgment
+rules.
+
+- `evaluation/metrics.py` — Recall@K, Precision@K, MAP@K, NDCG@K. Pure: a
+  ranking and labels in, numbers out, with no knowledge of candidates or
+  scorers, so every arm is measured by identical code. Ties are reported as the
+  expected value under uniformly random within-group order rather than
+  inheriting `selection`'s arbitrary `candidate_id` tie-break.
+- `evaluation/baselines.py` — Baselines A/B/C/D and the proposed ranking, plus
+  bug-level route aggregation. The proposed arm is scored strictly out-of-fold.
+
+`tools/evaluate_ranking.py` prints the comparison table.
+
+Baseline B scores every candidate identically, so it is one tie group; the
+metric machinery then yields the exact random expectation in closed form, and
+its Precision@K must equal the prevalence. That identity is the implementation's
+own correctness check.
 
 #### Reporting
 
@@ -141,9 +215,13 @@ browser code.
 ### 1.5 Implemented dependency direction
 
 ```text
-cli -> pipeline + reporting
+cli -> pipeline + reporting + cli_decision
+cli_decision -> pipeline + decision + corpus
 pipeline -> discovery producers/adapter + observation + features + scoring + selection
 reporting -> selection -> scoring -> features -> domain
+evaluation -> corpus + decision + scoring + features
+corpus -> decision + scoring + domain
+decision -> selection -> scoring -> features -> domain
 selection -> scoring -> features -> domain
 observation -> domain
 discovery adapter -> domain
@@ -155,6 +233,16 @@ Rules:
 - `features` does not perform HTTP transport.
 - `scoring` does not parse raw response bodies.
 - `reporting` does not reconstruct scores or evidence.
+- `decision` does not perform HTTP transport and does not recompute scores,
+  evidence, or identifiers owned by `scoring`/`selection`.
+- `decision` is a consumer, never a producer, of the selection contract. Only
+  `corpus` and `cli_decision` depend on it.
+- `corpus` builds ground truth keys from authoritative `Endpoint`/`InputPoint`
+  objects, never from a report or display text.
+- `cli_decision` adds commands. It does not modify the frozen `analyze` or
+  simple-URL surfaces.
+- `evaluation.metrics` depends on nothing but the standard library, so no
+  comparison arm can be measured by code specialised to it.
 
 ## 2. Target Prototype v0.2
 

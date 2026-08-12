@@ -1,5 +1,22 @@
 """Candidate generation and type-specific deterministic scoring."""
 
+from vulnspider.scoring.calibration import (
+    CALIBRATION_MODEL_VERSION,
+    HEURISTIC_TERMS,
+    NAIVE_BAYES_MODEL_VERSION,
+    CalibratedProbability,
+    CalibratedScorer,
+    CalibrationError,
+    CalibrationEvidence,
+    CalibrationFeatureSpace,
+    LogisticPrior,
+    NaiveBayesRates,
+    TrainingSample,
+    fit_calibrated_scorer,
+    fit_naive_bayes_llr,
+    heuristic_prior_for,
+    heuristic_prior_for_family,
+)
 from vulnspider.scoring.engine import (
     SQLI_MAX_RANK_SCORE,
     SQLI_SCORER_VERSION,
@@ -17,17 +34,32 @@ from vulnspider.scoring.engine import (
 )
 
 __all__ = [
+    "CALIBRATION_MODEL_VERSION",
+    "HEURISTIC_TERMS",
+    "NAIVE_BAYES_MODEL_VERSION",
     "SQLI_MAX_RANK_SCORE",
     "SQLI_SCORER_VERSION",
     "SQLI_TERMS",
     "XSS_MAX_RANK_SCORE",
     "XSS_SCORER_VERSION",
     "XSS_TERMS",
+    "CalibratedProbability",
+    "CalibratedScorer",
+    "CalibrationError",
+    "CalibrationEvidence",
+    "CalibrationFeatureSpace",
     "CandidateGenerator",
+    "LogisticPrior",
+    "NaiveBayesRates",
     "ScoringError",
     "ScoringResult",
     "ScoringTerm",
     "SQLiScorer",
+    "TrainingSample",
     "XSSScorer",
+    "fit_calibrated_scorer",
+    "fit_naive_bayes_llr",
     "generate_candidates",
+    "heuristic_prior_for",
+    "heuristic_prior_for_family",
 ]

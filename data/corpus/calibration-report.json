@@ -1,0 +1,103 @@
+{
+  "fitted_out_of_fold": {
+    "samples": 146,
+    "positives": 36,
+    "brier_score": 0.11335221261709297,
+    "expected_calibration_error": 0.11458139202449023,
+    "reliability_bins": [
+      {
+        "bin_lower": 0.0,
+        "mean_predicted": 0.04378493510482322,
+        "observed_frequency": 0.0,
+        "count": 52
+      },
+      {
+        "bin_lower": 0.1,
+        "mean_predicted": 0.18317218628125895,
+        "observed_frequency": 0.0,
+        "count": 7
+      },
+      {
+        "bin_lower": 0.2,
+        "mean_predicted": 0.21100975889293236,
+        "observed_frequency": 0.0,
+        "count": 17
+      },
+      {
+        "bin_lower": 0.3,
+        "mean_predicted": 0.3961380063403589,
+        "observed_frequency": 0.0,
+        "count": 4
+      },
+      {
+        "bin_lower": 0.4,
+        "mean_predicted": 0.4386368303795148,
+        "observed_frequency": 0.5357142857142857,
+        "count": 56
+      },
+      {
+        "bin_lower": 0.5,
+        "mean_predicted": 0.5122320860424378,
+        "observed_frequency": 0.0,
+        "count": 4
+      },
+      {
+        "bin_lower": 0.9,
+        "mean_predicted": 0.9145204105503755,
+        "observed_frequency": 1.0,
+        "count": 6
+      }
+    ]
+  },
+  "heuristic_baseline": {
+    "samples": 146,
+    "positives": 36,
+    "brier_score": 0.21497305458558894,
+    "expected_calibration_error": 0.2861759069771133,
+    "reliability_bins": [
+      {
+        "bin_lower": 0.2,
+        "mean_predicted": 0.22030542316763238,
+        "observed_frequency": 0.0,
+        "count": 26
+      },
+      {
+        "bin_lower": 0.3,
+        "mean_predicted": 0.35576056881981677,
+        "observed_frequency": 0.0,
+        "count": 40
+      },
+      {
+        "bin_lower": 0.4,
+        "mean_predicted": 0.4829855235718086,
+        "observed_frequency": 0.5333333333333333,
+        "count": 30
+      },
+      {
+        "bin_lower": 0.6,
+        "mean_predicted": 0.6809405677488606,
+        "observed_frequency": 0.0,
+        "count": 10
+      },
+      {
+        "bin_lower": 0.7,
+        "mean_predicted": 0.7888727784782714,
+        "observed_frequency": 0.0,
+        "count": 14
+      },
+      {
+        "bin_lower": 0.8,
+        "mean_predicted": 0.8042039922954693,
+        "observed_frequency": 0.7,
+        "count": 20
+      },
+      {
+        "bin_lower": 0.9,
+        "mean_predicted": 0.9374700085720175,
+        "observed_frequency": 1.0,
+        "count": 6
+      }
+    ]
+  },
+  "base_rate_brier_score": 0.18577594295364983
+}

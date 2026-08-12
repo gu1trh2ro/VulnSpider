@@ -12,6 +12,17 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from vulnspider import __version__
+from vulnspider.cli_decision import (
+    CalibrationError,
+    ConformalError,
+    CorpusError,
+    CorpusFittingError,
+    DecisionCLIError,
+    GroundTruthError,
+    add_decision_subcommands,
+    run_corpus_command,
+    run_decide_command,
+)
 from vulnspider.discovery import (
     CombinedDiscoveryResult,
     CrawlPolicy,
@@ -49,6 +60,12 @@ _SIMPLE_DEFAULT_CRAWL_OUTPUT = Path("vulnspider-crawl.json")
 _SIMPLE_DEFAULT_ANALYSIS_OUTPUT = Path("vulnspider-analysis.json")
 _SIMPLE_DEFAULT_TOP_K = 10
 _SIMPLE_DEFAULT_DYNAMIC_MAX_DEPTH = 2
+
+# ADR-025 adds commands; it never changes `analyze`, `-u`, or their flags.
+_DECISION_COMMANDS = {
+    "decide": run_decide_command,
+    "corpus": run_corpus_command,
+}
 
 
 class CLIError(ValueError):
@@ -260,6 +277,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Maximum browser request-authority decisions.",
     )
+    add_decision_subcommands(subparsers)
     return parser
 
 
@@ -280,6 +298,28 @@ def main(
             parser.error("simple scan options require -u/--url")
         parser.print_help()
         return 0
+    if args.command in _DECISION_COMMANDS:
+        handler = _DECISION_COMMANDS[args.command]
+        try:
+            return handler(
+                args,
+                transport=transport,
+                crawler=crawler,
+                crawler_transport=crawler_transport,
+            )
+        except (
+            DecisionCLIError,
+            CorpusError,
+            CorpusFittingError,
+            GroundTruthError,
+            CalibrationError,
+            ConformalError,
+        ) as exc:
+            print(f"vulnspider: error: {exc}", file=sys.stderr)
+            return 1
+        except OSError as exc:
+            print(f"vulnspider: error: {exc}", file=sys.stderr)
+            return 1
     if args.command != "analyze":
         if not simple_mode:
             parser.error(f"unsupported command: {args.command}")
