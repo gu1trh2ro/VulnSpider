@@ -54,7 +54,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--applications", type=int, default=12)
     parser.add_argument("--top-k", type=int, default=5)
-    parser.add_argument("--budget", type=int, default=None)
     return parser
 
 
@@ -76,31 +75,25 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     indices = range(args.first_application, args.first_application + args.applications)
-    limits = f"top-k {args.top_k}"
-    if args.budget is not None:
-        limits += f", budget {args.budget} requests"
     print(
         f"evaluate_heldout: {args.applications} unseen applications, "
-        f"{limits} each"
+        f"top-k {args.top_k} each"
     )
     with tempfile.TemporaryDirectory() as directory:
         observations = _observe(indices, Path(directory))
 
-    print(
-        f"{'configuration':34s} {'recall':>12s} {'verified':>9s} {'requests':>9s}"
-    )
+    print(f"{'configuration':34s} {'recall':>12s} {'verified':>9s}")
     for label, scorers, threshold in (
         ("heuristic prior, no guarantee", prior, None),
         ("fitted model, no guarantee", fitted, None),
         ("fitted model + conformal", fitted, conformal),
     ):
-        found, positives, verified, requests = _score(
-            observations, scorers, threshold, top_k=args.top_k, budget=args.budget
+        found, positives, verified = _score(
+            observations, scorers, threshold, top_k=args.top_k
         )
         recall = found / positives if positives else 0.0
         print(
-            f"{label:34s} {found:3d}/{positives:<3d}={recall:4.2f} "
-            f"{verified:9d} {requests:9d}"
+            f"{label:34s} {found:3d}/{positives:<3d}={recall:4.2f} {verified:9d}"
         )
     return 0
 
@@ -144,18 +137,16 @@ def _score(
     conformal: ConformalThreshold | None,
     *,
     top_k: int,
-    budget: int | None,
-) -> tuple[int, int, int, int]:
-    found = positives = verified = requests = 0
+) -> tuple[int, int, int]:
+    found = positives = verified = 0
     for analysis, labels in observations:
         candidates, _probabilities = build_decision_candidates(analysis, scorers)
         outcome = run_decision_layer(
             candidates,
             top_k=top_k,
-            verification_budget=budget,
             conformal=conformal,
         )
-        chosen = {item.candidate_id for item in outcome.selection.selected}
+        chosen = {item.candidate_id for item in outcome.selected}
         positives += sum(1 for label in labels.values() if label)
         found += sum(
             1
@@ -163,8 +154,7 @@ def _score(
             if label and candidate_id in chosen
         )
         verified += len(chosen)
-        requests += outcome.selection.spent_cost
-    return found, positives, verified, requests
+    return found, positives, verified
 
 
 if __name__ == "__main__":

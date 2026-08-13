@@ -29,7 +29,6 @@ from vulnspider.corpus.fitting import (
     out_of_fold_predictions,
     sample_observations,
 )
-from vulnspider.decision.cost import VerificationCostPolicy
 from vulnspider.evaluation.metrics import RankedItem, RankingQuery
 from vulnspider.features import MARKER_REFLECTED
 from vulnspider.scoring.calibration import HEURISTIC_TERMS
@@ -247,18 +246,27 @@ class FullVerificationReference:
         }
 
 
+# Per-family request count used only to price the full-verification baseline in
+# the evaluation harness. It is not a decision input: the shipped algorithm ranks
+# by probability alone and knows nothing about verification cost.
+_EVAL_FAMILY_REQUEST_COST: dict[str, int] = {
+    "SQLI": 6,
+    "REFLECTED_XSS": 3,
+    "BROKEN_ACCESS_CONTROL": 4,
+}
+_DEFAULT_EVAL_REQUEST_COST = 4
+
+
 def full_verification_reference(
     dataset: CorpusDataset,
-    *,
-    cost_policy: VerificationCostPolicy | None = None,
 ) -> FullVerificationReference:
-    """Price verifying every discovered candidate."""
+    """Price verifying every discovered candidate (evaluation harness only)."""
 
-    costs = cost_policy or VerificationCostPolicy()
     return FullVerificationReference(
         candidates=len(dataset.samples),
         relevant=sum(1 for sample in dataset.samples if sample.label),
         total_requests=sum(
-            costs.cost_for(sample.family) for sample in dataset.samples
+            _EVAL_FAMILY_REQUEST_COST.get(sample.family, _DEFAULT_EVAL_REQUEST_COST)
+            for sample in dataset.samples
         ),
     )

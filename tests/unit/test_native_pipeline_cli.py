@@ -333,13 +333,13 @@ class NativeCliTests(unittest.TestCase):
             {request.method for request in probe_transport.requests},
             {HttpMethod.GET},
         )
-        self.assertEqual(report["summary"]["total_scoring_results"], 2)
-        self.assertEqual(report["summary"]["selected_results"], 2)
-        self.assertTrue(report["candidates"])
-        self.assertIn("VulnSpider report", html)
-        for candidate in report["candidates"]:
+        self.assertEqual(report["selection"]["candidates_scored"], 2)
+        self.assertEqual(report["selection"]["selected"], 2)
+        self.assertTrue(report["verification_order"])
+        self.assertIn("VulnSpider", html)
+        self.assertIn("검증 순서", html)
+        for candidate in report["verification_order"]:
             self.assertIn(candidate["candidate_id"], html)
-            self.assertIn(candidate["feature_vector_id"], html)
         self.assertTrue(
             any("executes GET request contexts only" in item for item in report["warnings"])
         )
@@ -357,8 +357,8 @@ class NativeCliTests(unittest.TestCase):
             report = json.loads(output.read_text(encoding="utf-8"))
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(report["candidates"], [])
-        self.assertEqual(report["summary"]["total_scoring_results"], 0)
+        self.assertEqual(report["verification_order"], [])
+        self.assertEqual(report["selection"]["candidates_scored"], 0)
         self.assertTrue(
             any("TRANSPORT_TIMEOUT" in item for item in report["warnings"])
         )

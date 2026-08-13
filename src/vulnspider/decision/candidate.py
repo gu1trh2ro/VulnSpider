@@ -1,27 +1,37 @@
-"""The unit the decision layer allocates budget over.
+"""The unit the decision layer ranks: a candidate with a calibrated probability.
 
 A :class:`DecisionCandidate` is what one already-selected, already-validated
-candidate looks like once a calibrated probability, a severity and a cost have
-been attached to it. It is deliberately a *projection*, in the same sense as
-``selection/handoff.py``: nothing here recomputes a RankScore, re-derives
-evidence, or invents an identifier. The selection layer stays the authority on
-which candidates exist and what they are called (ADR-017, ADR-021); the
-decision layer only decides which of them are worth spending requests on.
+candidate looks like once a calibrated probability has been attached to it. It is
+deliberately a *projection*, in the same sense as ``selection/handoff.py``:
+nothing here recomputes a RankScore, re-derives evidence, or invents an
+identifier. The selection layer stays the authority on which candidates exist and
+what they are called (ADR-017, ADR-021); the decision layer only ranks them by
+probability and takes the Top-K.
+
+Budget, verification cost, and severity used to live here. They were removed when
+the submodular/knapsack budget selector was dropped: "취약도" is the probability
+of being vulnerable, Top-K is a plain argmax over that probability, and neither
+cost nor severity enters the ranking. Family order remains only as a
+reproducibility device for exact probability ties.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from math import isfinite
 
-from vulnspider.decision.cost import (
-    DEFAULT_FAMILY_PRIORITY,
-    FAMILY_PRIORITY,
-    SeverityPolicy,
-    VerificationCostPolicy,
-)
 from vulnspider.scoring.calibration import CalibratedProbability
 from vulnspider.selection.handoff import RankedCandidateContext
+
+# Tie-break order when two candidates share an identical probability. This is a
+# determinism device, not a severity ranking: probability alone decides the
+# order, and this only settles exact ties before candidate_id does.
+FAMILY_PRIORITY: dict[str, int] = {
+    "SQLI": 0,
+    "REFLECTED_XSS": 1,
+    "BROKEN_ACCESS_CONTROL": 2,
+}
+DEFAULT_FAMILY_PRIORITY = 99
 
 
 class DecisionCandidateError(ValueError):
@@ -30,24 +40,11 @@ class DecisionCandidateError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class DecisionCandidate:
-    """One candidate with everything a budget allocator needs to rank it.
-
-    ``redundancy_key`` groups candidates whose outcomes are correlated -- in
-    practice those reachable through the same server-side code path. The
-    budgeted selector applies diminishing returns within a group, so a hundred
-    input points on one templated route cannot monopolize the budget. Callers
-    that know the endpoint identity should pass its fingerprint; the default
-    built from a handoff context is the request context reference, which at
-    least keeps the SQLi and XSS readings of one input point together.
-    """
+    """One candidate carrying the calibrated probability it is ranked by."""
 
     candidate_id: str
     family: str
     probability: float
-    severity: float
-    verification_cost: int
-    redundancy_key: str
-    logit_variance: float = 0.0
     selection_rank: int | None = None
     subject_ref: str = ""
     """The InputPoint or AccessProbePlan this candidate was derived from."""
@@ -66,27 +63,15 @@ class DecisionCandidate:
             raise DecisionCandidateError("candidate_id must not be empty")
         if not self.family:
             raise DecisionCandidateError("family must not be empty")
-        if not self.redundancy_key:
-            raise DecisionCandidateError("redundancy_key must not be empty")
         if isinstance(self.probability, bool) or not isinstance(
             self.probability, int | float
         ):
             raise DecisionCandidateError("probability must be numeric")
+        if not isfinite(float(self.probability)):
+            raise DecisionCandidateError("probability must be finite")
         if not 0.0 < float(self.probability) < 1.0:
             raise DecisionCandidateError(
                 "probability must lie strictly inside (0, 1)"
-            )
-        if not isfinite(self.severity) or self.severity <= 0.0:
-            raise DecisionCandidateError("severity must be positive and finite")
-        if isinstance(self.verification_cost, bool) or not isinstance(
-            self.verification_cost, int
-        ):
-            raise DecisionCandidateError("verification_cost must be an integer")
-        if self.verification_cost <= 0:
-            raise DecisionCandidateError("verification_cost must be positive")
-        if not isfinite(self.logit_variance) or self.logit_variance < 0.0:
-            raise DecisionCandidateError(
-                "logit_variance must be finite and non-negative"
             )
         if self.selection_rank is not None:
             if isinstance(self.selection_rank, bool) or not isinstance(
@@ -100,11 +85,10 @@ class DecisionCandidate:
     def expected_value(self) -> float:
         """Expected findings from verifying this candidate: its probability.
 
-        Severity deliberately does **not** multiply in. "취약도" is the
-        probability of being vulnerable; severity only breaks ties, and it does
-        that through :attr:`family_priority`. Multiplying would let a 0.5 SQLi
-        outrank a 0.7 XSS, which is not what "the K most vulnerable input
-        points" means.
+        Because a candidate is either vulnerable or not, the expected number of
+        true findings in a selected set is the sum of these values. That is what
+        makes Top-K by probability the exact optimum for a cardinality
+        constraint (linearity of expectation).
         """
 
         return float(self.probability)
@@ -115,43 +99,17 @@ class DecisionCandidate:
 
         return FAMILY_PRIORITY.get(self.family, DEFAULT_FAMILY_PRIORITY)
 
-    @property
-    def value_density(self) -> float:
-        """Expected worth per verification request."""
-
-        return self.expected_value / self.verification_cost
-
-    def with_probability(
-        self,
-        probability: float,
-        *,
-        logit_variance: float | None = None,
-    ) -> DecisionCandidate:
-        """Return the same candidate after a posterior update."""
-
-        return replace(
-            self,
-            probability=probability,
-            logit_variance=(
-                self.logit_variance if logit_variance is None else logit_variance
-            ),
-        )
-
 
 def decision_candidate_from_context(
     context: RankedCandidateContext,
     calibrated: CalibratedProbability,
-    *,
-    cost_policy: VerificationCostPolicy | None = None,
-    severity_policy: SeverityPolicy | None = None,
-    redundancy_key: str | None = None,
 ) -> DecisionCandidate:
-    """Attach a calibrated probability, cost and severity to one handoff entry.
+    """Attach a calibrated probability to one handoff entry.
 
     This is the decision layer's only entry point from the selection contract.
     ``calibrated`` must have been produced for the same family the handoff
-    reports, which stops a SQLi probability from being spent against an XSS
-    candidate's cost.
+    reports, which stops a SQLi probability from being attached to an XSS
+    candidate.
     """
 
     if not isinstance(context, RankedCandidateContext):
@@ -163,16 +121,10 @@ def decision_candidate_from_context(
             "calibrated probability family does not match the handoff family"
         )
 
-    costs = cost_policy or VerificationCostPolicy()
-    severities = severity_policy or SeverityPolicy()
     return DecisionCandidate(
         candidate_id=context.candidate_id,
         family=context.family,
         probability=calibrated.probability,
-        severity=severities.severity_for(context.family),
-        verification_cost=costs.cost_for(context.family),
-        redundancy_key=redundancy_key or context.request_context_ref,
-        logit_variance=calibrated.logit_variance,
         selection_rank=context.rank,
         subject_ref=context.candidate_subject_ref,
         feature_vector_ref=context.feature_vector_id or "",

@@ -1,16 +1,14 @@
 """결정 계층 대시보드 — 차트 기반 최종 스캔 리포트.
 
-`analyze --html-output`이 만드는 것과 같은 완전한 스캔 리포트지만, 순위와 선택을
-휴리스틱 `selection_priority`가 아니라 **보정된 확률 + 제약 조건 하 선택**으로
+`analyze --html-output`이 만드는 완전한 스캔 리포트로, 순위와 선택을 휴리스틱
+`selection_priority`가 아니라 **보정된 확률 + Top-K argmax**(선택적 recall 컷)로
 수행한 결과를 렌더링한다.
 
-차트는 `reporting/charts.py`의 인라인 SVG/CSS를 쓴다(f6a70f0에서 이식). 외부
-스크립트·폰트·이미지를 전혀 참조하지 않으므로 리포트는 **파일 하나로 오프라인에서
-열리고 아무 외부 요청도 하지 않는다.** 스캔 디렉터리에서 바로 열리는 파일에는
-그게 중요하다.
+차트는 `reporting/charts.py`의 인라인 SVG/CSS를 쓴다. 외부 스크립트·폰트·이미지를
+전혀 참조하지 않으므로 리포트는 **파일 하나로 오프라인에서 열리고 아무 외부 요청도
+하지 않는다.**
 
-본문 설명은 한국어다. 이 리포트를 읽는 사람과 `docs/`의 나머지가 한국어이기
-때문이다. feature 이름, 식별자, HTTP 값 같은 기계 값은 원문 그대로 둔다.
+본문 설명은 한국어다. feature 이름, 식별자, HTTP 값 같은 기계 값은 원문 그대로 둔다.
 
 **아무것도 재계산하지 않는다**(`docs/ARCHITECTURE.md`). 모든 차트는 이미 검증된
 ``DecisionOutcome``에 들어 있는 숫자를 두 번째 방식으로 보여주는 것뿐이다.
@@ -48,7 +46,7 @@ from vulnspider.reporting.html_report import (
 )
 from vulnspider.scoring.calibration import CalibratedProbability, CalibratedScorer
 
-DECISION_HTML_REPORT_VERSION = "decision-html-v2"
+DECISION_HTML_REPORT_VERSION = "decision-html-v3"
 
 _EMPTY_INPUT_POINTS: Mapping[str, InputPoint] = {}
 _EMPTY_ENDPOINTS: Mapping[str, Endpoint] = {}
@@ -59,12 +57,6 @@ _EMPTY_MODELS: Mapping[str, CalibratedScorer] = {}
 _BAND_LABEL = {"high": "높음", "medium": "중간", "low": "낮음"}
 _FAMILY_TONE = {"SQLI": "sqli", "REFLECTED_XSS": "xss", "BROKEN_ACCESS_CONTROL": "bac"}
 _FAMILY_LABEL_KO = {"SQLI": "SQL Injection", "REFLECTED_XSS": "Reflected XSS"}
-_CONSTRAINT_KO = {
-    "top_k": "Top-K 상한에 도달",
-    "budget": "요청 예산 소진",
-    "both": "Top-K와 예산 모두 도달",
-    "none": "모든 후보가 제약 안에 들어감",
-}
 
 
 def render_decision_html_report(
@@ -87,7 +79,7 @@ def render_decision_html_report(
         raise TypeError("outcome must be a DecisionOutcome")
     outcome.validate()
 
-    selected = outcome.selection.selected
+    selected = outcome.selected
     sections = [
         _render_header(target, outcome, models),
         _render_stats(outcome),
@@ -99,7 +91,7 @@ def render_decision_html_report(
         _render_guarantee(outcome),
         _render_warnings(list(warnings)),
         '<h2 class="section">검증 순서 <span class="ko-en">Verification order</span></h2>',
-        _render_intro(outcome),
+        _render_intro(),
         _render_candidates(
             selected,
             input_points=input_points,
@@ -172,9 +164,9 @@ def _render_header(
         "    <h1>VulnSpider</h1>"
         f'<span class="ver">결정 리포트 &middot; {_esc(outcome.policy_version)}</span>\n'
         "  </div>\n"
-        '  <div class="tagline">보정된 확률로 후보 순위를 매기고 명시적 제약 안에서 '
-        "검증 대상을 선택한 결과입니다. <b>검증 우선순위이며 확정된 취약점이 "
-        "아닙니다.</b></div>\n"
+        '  <div class="tagline">보정된 확률로 후보 순위를 매기고 확률이 가장 높은 '
+        "Top-K를 검증 대상으로 선택한 결과입니다. <b>검증 우선순위이며 확정된 "
+        "취약점이 아닙니다.</b></div>\n"
         f"  {target_line}\n"
         f'  <div class="target">모델 &rarr; {_esc(model_line)}</div>\n'
         "</header>"
@@ -182,36 +174,24 @@ def _render_header(
 
 
 def _render_stats(outcome: DecisionOutcome) -> str:
-    selection = outcome.selection
-    cells = (
+    cells = [
         (_fmt_number(outcome.initial_candidates), "채점된 후보"),
-        (_fmt_number(len(selection.selected)), "선택됨"),
-        ("—" if selection.top_k is None else _fmt_number(selection.top_k), "Top-K"),
-        (
-            "—" if selection.budget is None else _fmt_number(selection.budget),
-            "요청 예산",
-        ),
-        (_fmt_number(selection.spent_cost), "확정 요청 수"),
-        (f"{selection.expected_findings:.2f}", "기대 발견 수"),
-    )
+        (_fmt_number(len(outcome.selected)), "선택됨"),
+        (_fmt_number(outcome.top_k), "Top-K"),
+        (f"{outcome.expected_findings:.2f}", "기대 발견 수"),
+    ]
+    if outcome.conformal is not None:
+        cells.append((_fmt_number(outcome.conformal_set_size), "보장 집합"))
     items = "\n".join(
         f'  <div class="stat"><div class="n">{_esc(value)}</div>'
         f'<div class="l">{_esc(label)}</div></div>'
         for value, label in cells
     )
-    ratio = (
-        "제약이 둘 다 걸려 결합 보장은 주장하지 않습니다"
-        if selection.approximation_ratio is None
-        else f"이 목적함수 최적값의 최소 "
-        f"{_fmt_percent(selection.approximation_ratio)}%를 보장합니다"
-    )
-    limit = _CONSTRAINT_KO.get(
-        selection.binding_constraint, selection.binding_constraint
-    )
     return (
         f'<section class="stats">\n{items}\n</section>\n'
-        f'<div class="notice small">선택이 멈춘 이유: {_esc(limit)}. 근사 보장: '
-        f"{_esc(ratio)}.</div>"
+        '<div class="notice small">Top-K는 확률이 가장 높은 K개를 그대로 고른 '
+        "것입니다. 후보가 취약할 확률의 합이 곧 기대 발견 수이므로, 확률순 정렬이 "
+        "곧 기대 발견 수를 최대로 만드는 최적 선택입니다.</div>"
     )
 
 
@@ -221,8 +201,7 @@ def _render_charts(
     endpoint_count: int,
     input_point_count: int,
 ) -> str:
-    selection = outcome.selection
-    selected = selection.selected
+    selected = outcome.selected
 
     bands = {"high": 0, "medium": 0, "low": 0}
     for candidate in selected:
@@ -282,10 +261,7 @@ def _render_charts(
                 ratio=float(candidate.probability),
                 value_label=f"{_fmt_percent(float(candidate.probability))}%",
                 tone=_priority_band(float(candidate.probability)),
-                caption=(
-                    f"기대값 {candidate.expected_value:.2f} · "
-                    f"{candidate.verification_cost} 요청"
-                ),
+                caption=f"기대값 {candidate.expected_value:.2f}",
             )
             for order, candidate in enumerate(selected, start=1)
         ],
@@ -305,8 +281,8 @@ def _render_charts(
             "유형별 선택 건수",
             family_bars,
             english="selected by family",
-            note="유형마다 검증 비용과 심각도가 다르므로 건수만으로 위험도를 "
-            "비교할 수는 없습니다.",
+            note="확률은 유형과 무관하게 같은 척도이므로 유형 간에도 그대로 "
+            "비교할 수 있습니다.",
         )
         + chart_card(
             "파이프라인 축소",
@@ -331,7 +307,7 @@ def _render_guarantee(outcome: DecisionOutcome) -> str:
     if conformal is None:
         return (
             '<div class="notice"><div class="lab">Recall 보장</div>'
-            "요청하지 않았습니다. 선택 개수는 Top-K와 요청 예산만으로 정해집니다."
+            "요청하지 않았습니다. 선택 개수는 Top-K로만 정해집니다."
             "</div>"
         )
     if not conformal.guarantee_attainable:
@@ -344,10 +320,10 @@ def _render_guarantee(outcome: DecisionOutcome) -> str:
             "</div>"
         )
     covered = (
-        "예산이 이 집합을 감당합니다"
-        if outcome.budget_covers_conformal_set
-        else "<b>예산이 이 집합을 감당하지 못하므로 이번 실행에서는 보장이 "
-        "성립하지 않습니다</b>"
+        "Top-K가 이 집합을 모두 포함합니다"
+        if outcome.top_k >= outcome.conformal_set_size
+        else f"<b>Top-K가 {_fmt_number(outcome.top_k)}개로 제한되어 보장 집합을 "
+        "다 담지 못하므로, 이번 선택에서는 보장이 부분적으로만 성립합니다</b>"
     )
     return (
         '<div class="notice"><div class="lab">Recall 보장</div>'
@@ -360,7 +336,7 @@ def _render_guarantee(outcome: DecisionOutcome) -> str:
     )
 
 
-def _render_intro(outcome: DecisionOutcome) -> str:
+def _render_intro() -> str:
     return (
         '<div class="notice small">아래 순서대로 검증하십시오. 각 항목의 '
         "<b>순위 근거</b>는 어떤 신호가 확률을 얼마나 올리거나 내렸는지, "
@@ -427,7 +403,7 @@ def _render_candidate(
         <div class="prio {band}">{percent}%</div>
         <div class="meter"><i class="{band}" style="width:{percent}%"></i></div>
         <div class="pcaption">취약 확률 &middot; 기대값 \
-{candidate.expected_value:.2f} &middot; {candidate.verification_cost} 요청</div>
+{candidate.expected_value:.2f}</div>
       </div>
     </div>
 
@@ -566,21 +542,21 @@ def _render_unselected(
 ) -> str:
     """선택되지 않은 후보를 사유와 함께 전부 보여준다.
 
-    임계값에 잘린 후보는 선택기에 도달조차 하지 않으므로 `deferred`만 보여주면
-    "채점 12개, 선택 3개"의 차이를 읽는 사람이 설명할 수 없다.
+    임계값에 잘린 후보는 Top-K에 도달조차 하지 않으므로, `deferred`(컷 아래)와
+    임계값 미만을 나눠 "채점 12개, 선택 3개"의 차이를 읽는 사람이 설명할 수 있게 한다.
     """
 
-    selected = {item.candidate_id for item in outcome.selection.selected}
-    deferred = {item.candidate_id for item in outcome.selection.deferred}
+    selected = {item.candidate_id for item in outcome.selected}
+    deferred = {item.candidate_id for item in outcome.deferred}
     threshold = None if outcome.conformal is None else outcome.conformal.threshold
     rows = []
     for candidate in outcome.scored:
         if candidate.candidate_id in selected:
             continue
-        if candidate.candidate_id in deferred:
-            reason = "순위가 컷 아래"
-        elif threshold is not None:
+        if threshold is not None and float(candidate.probability) < threshold:
             reason = f"recall 임계값 {threshold:.4f} 미만"
+        elif candidate.candidate_id in deferred:
+            reason = "순위가 Top-K 아래"
         else:
             reason = "선택되지 않음"
         input_point = input_points.get(candidate.subject_ref)
@@ -606,7 +582,6 @@ def _render_unselected(
         f'<tr><td class="pl">{_esc(location)}</td>'
         f'<td class="role">{_esc(_family_label(candidate.family))}</td>'
         f'<td class="status">{probability:.4f}</td>'
-        f'<td class="status">{_fmt_number(candidate.verification_cost)}</td>'
         f"<td>{_esc(reason)}</td></tr>"
         for probability, location, candidate, reason in rows
     )
@@ -614,8 +589,7 @@ def _render_unselected(
         f'<h2 class="section">선택되지 않은 후보 ({len(rows)})'
         '<span class="ko-en">not selected</span></h2>\n'
         '<div class="notice"><table class="rec">\n'
-        "  <tr><th>위치</th><th>유형</th><th>확률</th><th>요청 수</th>"
-        "<th>사유</th></tr>\n"
+        "  <tr><th>위치</th><th>유형</th><th>확률</th><th>사유</th></tr>\n"
         f"{body}\n</table>\n"
         "<i>컷 아래라는 뜻이며, 안전하다고 판정한 것이 아닙니다.</i></div>"
     )
@@ -625,7 +599,7 @@ def _render_footer(outcome: DecisionOutcome, elapsed_seconds: float) -> str:
     return (
         "<footer>"
         f"{_esc(DECISION_HTML_REPORT_VERSION)} &middot; "
-        f"{_esc(outcome.selection.selector_version)} &middot; "
+        f"{_esc(outcome.policy_version)} &middot; "
         f"{elapsed_seconds:.2f}s<br>"
         '<span class="warn">여기의 확률은 검증 이전의 우선순위입니다(ADR-016). '
         "확정된 취약점이 아닙니다.</span>"

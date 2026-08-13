@@ -1,70 +1,62 @@
-"""The decision-layer policy: explore, cut, then commit.
+"""The decision-layer policy: an optional conformal cut, then Top-K by probability.
 
-One pass over the three layers:
+One pass over two steps:
 
-1. **Explore.** While an exploration budget remains, run the probe with the
-   highest expected information gain per request, update that candidate's
-   posterior with the outcome, and re-rank. This is the step that makes the
-   pipeline sequential -- what the first probe returns changes what the second
-   one asks.
-2. **Cut.** Apply the conformal threshold, if one has been calibrated, to get
-   the smallest candidate set carrying the target recall guarantee.
-3. **Commit.** Spend the verification budget over that set with the budgeted
-   submodular selector.
+1. **Cut (optional).** If a conformal threshold has been calibrated, keep the
+   smallest candidate set carrying the target recall guarantee. Without one,
+   every candidate stays eligible.
+2. **Commit.** Rank the eligible candidates by calibrated probability and take
+   the Top-K.
 
-The policy performs no I/O. Probe outcomes arrive through an injected
-``ProbeOutcomeSource``, which keeps network transport behind an interface as
-``AGENTS.md`` requires and lets the tests drive the whole loop deterministically
-with a fake.
+Top-K by probability is not an approximation. The quantity we maximise is the
+expected number of truly vulnerable candidates in the selected set, which by
+linearity of expectation is the sum of their probabilities; maximising a sum
+under a cardinality constraint is achieved exactly by taking the K largest. So
+there is no submodular search, no budget knapsack, and no approximation ratio to
+report -- a sort is the optimum.
 
-It also never invents a candidate. Everything it returns traces back to a
-``DecisionCandidate`` the caller supplied, which the selection layer
-authoritatively produced.
+The policy performs no I/O and never invents a candidate: everything it returns
+traces back to a ``DecisionCandidate`` the caller supplied, which the selection
+layer authoritatively produced.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from vulnspider.decision.candidate import DecisionCandidate
-from vulnspider.decision.conformal import (
-    ConformalThreshold,
-    select_by_threshold,
-)
-from vulnspider.decision.greedy import (
-    BudgetedSelection,
-    select_candidates,
-)
-from vulnspider.decision.voi import (
-    ProbeInformationGain,
-    ProbeOption,
-    posterior_after_observation,
-    rank_probes_by_information_density,
-)
+from vulnspider.decision.conformal import ConformalThreshold, select_by_threshold
 
-DECISION_POLICY_VERSION = "explore-cut-commit-v1"
-
-ProbeOutcomeSource = Callable[[ProbeOption], bool]
+DECISION_POLICY_VERSION = "top-k-argmax-v1"
 
 
 class DecisionPolicyRunError(ValueError):
     """Raised when the decision policy cannot run as configured."""
 
 
+def _ranking_key(candidate: DecisionCandidate) -> tuple[float, int, str]:
+    # Probability decides the order; family order and candidate_id only settle
+    # exact ties so the result is reproducible.
+    return (
+        -float(candidate.probability),
+        candidate.family_priority,
+        candidate.candidate_id,
+    )
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class DecisionOutcome:
-    """Everything the decision layer decided, and what it spent deciding it."""
+    """Everything the decision layer decided, and the pool it decided over."""
 
     policy_version: str
     initial_candidates: int
-    exploration_requests_spent: int
-    information_gains: tuple[ProbeInformationGain, ...]
+    top_k: int
     scored: tuple[DecisionCandidate, ...]
     conformal: ConformalThreshold | None
     conformal_set_size: int
-    budget_covers_conformal_set: bool
-    selection: BudgetedSelection
+    selected: tuple[DecisionCandidate, ...]
+    deferred: tuple[DecisionCandidate, ...]
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         raise TypeError("DecisionOutcome is produced only by run_decision_layer()")
@@ -74,53 +66,48 @@ class DecisionOutcome:
         cls,
         *,
         initial_candidates: int,
-        exploration_requests_spent: int,
-        information_gains: tuple[ProbeInformationGain, ...],
+        top_k: int,
         scored: tuple[DecisionCandidate, ...],
         conformal: ConformalThreshold | None,
         conformal_set_size: int,
-        budget_covers_conformal_set: bool,
-        selection: BudgetedSelection,
+        selected: tuple[DecisionCandidate, ...],
+        deferred: tuple[DecisionCandidate, ...],
     ) -> DecisionOutcome:
         instance = object.__new__(cls)
         object.__setattr__(instance, "policy_version", DECISION_POLICY_VERSION)
         object.__setattr__(instance, "initial_candidates", initial_candidates)
-        object.__setattr__(
-            instance, "exploration_requests_spent", exploration_requests_spent
-        )
-        object.__setattr__(instance, "information_gains", information_gains)
+        object.__setattr__(instance, "top_k", top_k)
         object.__setattr__(instance, "scored", scored)
         object.__setattr__(instance, "conformal", conformal)
         object.__setattr__(instance, "conformal_set_size", conformal_set_size)
-        object.__setattr__(
-            instance, "budget_covers_conformal_set", budget_covers_conformal_set
-        )
-        object.__setattr__(instance, "selection", selection)
+        object.__setattr__(instance, "selected", selected)
+        object.__setattr__(instance, "deferred", deferred)
         instance.validate()
         return instance
 
     @property
-    def total_requests_spent(self) -> int:
-        """Exploration plus verification requests this decision commits to."""
+    def expected_findings(self) -> float:
+        """Expected number of true findings among the selected candidates."""
 
-        return self.exploration_requests_spent + self.selection.spent_cost
+        return sum(candidate.expected_value for candidate in self.selected)
 
     def validate(self) -> None:
         if self.initial_candidates != len(self.scored):
             raise DecisionPolicyRunError(
                 "scored candidates must account for every input candidate"
             )
-        if self.exploration_requests_spent < 0:
-            raise DecisionPolicyRunError(
-                "exploration requests spent must not be negative"
-            )
+        if self.top_k < 0:
+            raise DecisionPolicyRunError("top_k must not be negative")
         if self.conformal_set_size > len(self.scored):
             raise DecisionPolicyRunError(
                 "conformal set cannot exceed the scored candidates"
             )
-        self.selection.validate()
+        if len(self.selected) > self.top_k:
+            raise DecisionPolicyRunError(
+                "selection cannot exceed top_k candidates"
+            )
         scored_ids = {item.candidate_id for item in self.scored}
-        for item in self.selection.selected:
+        for item in self.selected:
             if item.candidate_id not in scored_ids:
                 raise DecisionPolicyRunError(
                     "selection must not introduce an unscored candidate"
@@ -130,15 +117,10 @@ class DecisionOutcome:
 def run_decision_layer(
     candidates: Sequence[DecisionCandidate],
     *,
-    top_k: int | None = None,
-    verification_budget: int | None = None,
-    exploration_budget: int = 0,
-    probe_options: Sequence[ProbeOption] = (),
-    observe: ProbeOutcomeSource | None = None,
+    top_k: int,
     conformal: ConformalThreshold | None = None,
-    discount: float = 1.0,
 ) -> DecisionOutcome:
-    """Run explore-cut-commit over one already-selected candidate pool."""
+    """Run cut-then-commit over one already-selected candidate pool."""
 
     pool = tuple(candidates)
     for candidate in pool:
@@ -149,134 +131,33 @@ def run_decision_layer(
     identifiers = [candidate.candidate_id for candidate in pool]
     if len(identifiers) != len(set(identifiers)):
         raise DecisionPolicyRunError("candidates must be unique by candidate_id")
-    if top_k is None and verification_budget is None:
-        raise DecisionPolicyRunError(
-            "run_decision_layer needs top_k, verification_budget, or both"
-        )
-    for name, value in (
-        ("top_k", top_k),
-        ("verification_budget", verification_budget),
-        ("exploration_budget", exploration_budget),
-    ):
-        if value is None:
-            continue
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise DecisionPolicyRunError(f"{name} must be an integer")
-        if value < 0:
-            raise DecisionPolicyRunError(f"{name} must not be negative")
+    if isinstance(top_k, bool) or not isinstance(top_k, int):
+        raise DecisionPolicyRunError("top_k must be an integer")
+    if top_k < 0:
+        raise DecisionPolicyRunError("top_k must not be negative")
     if conformal is not None and not isinstance(conformal, ConformalThreshold):
         raise DecisionPolicyRunError("conformal must be a ConformalThreshold")
 
-    options = tuple(probe_options)
-    for option in options:
-        if not isinstance(option, ProbeOption):
-            raise DecisionPolicyRunError(
-                "probe_options must contain ProbeOption objects"
-            )
-        if option.candidate_id not in set(identifiers):
-            raise DecisionPolicyRunError(
-                f"probe targets unknown candidate {option.candidate_id!r}"
-            )
-    if options and exploration_budget > 0 and observe is None:
-        raise DecisionPolicyRunError(
-            "exploration requires an observe callable to supply probe outcomes"
-        )
-
-    updated, spent, gains = _explore(
-        pool,
-        options=options,
-        exploration_budget=exploration_budget,
-        observe=observe,
-    )
-
     eligible = (
-        select_by_threshold(updated, conformal.threshold)
+        select_by_threshold(pool, conformal.threshold)
         if conformal is not None
-        else updated
+        else pool
     )
-    conformal_cost = sum(candidate.verification_cost for candidate in eligible)
-    selection = select_candidates(
-        eligible,
-        top_k=top_k,
-        budget=verification_budget,
-        discount=discount,
+    ranked_all = tuple(sorted(pool, key=_ranking_key))
+    ranked_eligible = sorted(eligible, key=_ranking_key)
+    selected = tuple(ranked_eligible[:top_k])
+    selected_ids = {candidate.candidate_id for candidate in selected}
+    deferred = tuple(
+        candidate
+        for candidate in ranked_all
+        if candidate.candidate_id not in selected_ids
     )
     return DecisionOutcome._from_parts(
         initial_candidates=len(pool),
-        exploration_requests_spent=spent,
-        information_gains=gains,
-        scored=tuple(
-            sorted(
-                updated,
-                key=lambda item: (-float(item.probability), item.candidate_id),
-            )
-        ),
+        top_k=top_k,
+        scored=ranked_all,
         conformal=conformal,
         conformal_set_size=len(eligible),
-        budget_covers_conformal_set=(
-            verification_budget is None or conformal_cost <= verification_budget
-        ),
-        selection=selection,
+        selected=selected,
+        deferred=deferred,
     )
-
-
-def _explore(
-    pool: Sequence[DecisionCandidate],
-    *,
-    options: Sequence[ProbeOption],
-    exploration_budget: int,
-    observe: ProbeOutcomeSource | None,
-) -> tuple[
-    tuple[DecisionCandidate, ...],
-    int,
-    tuple[ProbeInformationGain, ...],
-]:
-    by_id = {candidate.candidate_id: candidate for candidate in pool}
-    if not options or exploration_budget <= 0 or observe is None:
-        return tuple(pool), 0, ()
-
-    remaining = {option.probe_id: option for option in options}
-    if len(remaining) != len(options):
-        raise DecisionPolicyRunError("probe options must be unique by probe_id")
-
-    gains: list[ProbeInformationGain] = []
-    spent = 0
-    while remaining and spent < exploration_budget:
-        priors = {
-            candidate_id: float(candidate.probability)
-            for candidate_id, candidate in by_id.items()
-        }
-        ranked = rank_probes_by_information_density(
-            priors,
-            tuple(remaining.values()),
-        )
-        chosen = next(
-            (
-                item
-                for item in ranked
-                if item.request_cost <= exploration_budget - spent
-                and item.expected_information_gain > 0.0
-            ),
-            None,
-        )
-        if chosen is None:
-            break
-
-        option = remaining.pop(chosen.probe_id)
-        outcome = observe(option)
-        if not isinstance(outcome, bool):
-            raise DecisionPolicyRunError("observe must return a bool outcome")
-
-        candidate = by_id[option.candidate_id]
-        posterior = posterior_after_observation(
-            float(candidate.probability),
-            true_positive_rate=option.true_positive_rate,
-            false_positive_rate=option.false_positive_rate,
-            observed=outcome,
-        )
-        by_id[option.candidate_id] = candidate.with_probability(posterior)
-        gains.append(chosen)
-        spent += option.request_cost
-
-    ordered = tuple(by_id[candidate.candidate_id] for candidate in pool)
-    return ordered, spent, tuple(gains)

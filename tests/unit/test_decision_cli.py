@@ -131,7 +131,7 @@ def _ground_truth_file(directory: Path) -> Path:
 
 
 class FrozenSurfaceTests(unittest.TestCase):
-    """ADR-025 adds commands; it must not disturb the frozen ones."""
+    """`analyze` and simple `-u` mode keep their flags; `decide` is gone."""
 
     def test_analyze_and_simple_mode_still_parse(self) -> None:
         from vulnspider.cli import build_parser
@@ -153,46 +153,79 @@ class FrozenSurfaceTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             build_parser().parse_args(["analyze", "--url", ROOT_URL])
 
-    def test_new_commands_are_registered(self) -> None:
+    def test_decide_command_is_gone(self) -> None:
         from vulnspider.cli import build_parser
 
-        parser = build_parser()
-        self.assertEqual(
-            parser.parse_args(
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args(
                 ["decide", "--url", ROOT_URL, "--top-k", "5", "-o", "d.json"]
-            ).command,
-            "decide",
+            )
+
+    def test_analyze_accepts_the_model_and_conformal_options(self) -> None:
+        from vulnspider.cli import build_parser
+
+        args = build_parser().parse_args(
+            [
+                "analyze",
+                "--url",
+                ROOT_URL,
+                "--top-k",
+                "5",
+                "--output",
+                "x.json",
+                "--model",
+                "m.json",
+                "--conformal",
+                "c.json",
+            ]
         )
+        self.assertEqual(args.model, Path("m.json"))
+        self.assertEqual(args.conformal, Path("c.json"))
+
+    def test_corpus_command_is_registered(self) -> None:
+        from vulnspider.cli import build_parser
+
         self.assertEqual(
-            parser.parse_args(
-                [
-                    "corpus",
-                    "fit",
-                    "--corpus",
-                    "c.jsonl",
-                    "-o",
-                    "m.json",
-                ]
-            ).corpus_command,
+            build_parser()
+            .parse_args(["corpus", "fit", "--corpus", "c.jsonl", "-o", "m.json"])
+            .corpus_command,
             "fit",
         )
 
 
-class DecideCommandTests(unittest.TestCase):
-    def test_decide_writes_a_report_within_budget(self) -> None:
+class AnalyzeAlgorithmTests(unittest.TestCase):
+    """`analyze` now runs the calibrated-probability Top-K algorithm."""
+
+    def test_analyze_writes_a_calibrated_report(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "decision.json"
             self.assertEqual(
-                _run(["decide", "--url", ROOT_URL, "--top-k", "50", "--budget", "12", "-o", str(output)]),
+                _run(
+                    [
+                        "analyze",
+                        "--url",
+                        ROOT_URL,
+                        "--top-k",
+                        "50",
+                        "--output",
+                        str(output),
+                    ]
+                ),
                 0,
             )
             report = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(report["report_version"], "decision-report-v1")
-        self.assertLessEqual(report["constraints"]["verification_spent"], 12)
+        self.assertEqual(report["policy_version"], "top-k-argmax-v1")
         self.assertIsNone(report["guarantee"])
+        self.assertEqual(report["selection"]["top_k"], 50)
         self.assertGreater(report["selection"]["candidates_scored"], 0)
         orders = [entry["order"] for entry in report["verification_order"]]
         self.assertEqual(orders, sorted(orders))
+        # The order carries the probability it ranked on, not cost or severity.
+        for entry in report["verification_order"]:
+            self.assertIn("probability", entry)
+            self.assertNotIn("verification_cost", entry)
+            self.assertNotIn("severity", entry)
 
     def test_a_bigger_top_k_never_finds_less(self) -> None:
         findings = []
@@ -200,7 +233,15 @@ class DecideCommandTests(unittest.TestCase):
             for top_k in (1, 2, 4, 20):
                 output = Path(directory) / f"k{top_k}.json"
                 _run(
-                    ["decide", "--url", ROOT_URL, "--top-k", str(top_k), "-o", str(output)]
+                    [
+                        "analyze",
+                        "--url",
+                        ROOT_URL,
+                        "--top-k",
+                        str(top_k),
+                        "--output",
+                        str(output),
+                    ]
                 )
                 report = json.loads(output.read_text(encoding="utf-8"))
                 self.assertLessEqual(len(report["verification_order"]), top_k)
@@ -214,12 +255,12 @@ class DecideCommandTests(unittest.TestCase):
             self.assertEqual(
                 _run(
                     [
-                        "decide",
+                        "analyze",
                         "--url",
                         ROOT_URL,
                         "--top-k",
                         "5",
-                        "-o",
+                        "--output",
                         str(output),
                         "--html-output",
                         str(html),
@@ -252,12 +293,12 @@ class DecideCommandTests(unittest.TestCase):
             html = Path(directory) / "d.html"
             _run(
                 [
-                    "decide",
+                    "analyze",
                     "--url",
                     ROOT_URL,
                     "--top-k",
                     "5",
-                    "-o",
+                    "--output",
                     str(Path(directory) / "d.json"),
                     "--html-output",
                     str(html),
@@ -273,20 +314,19 @@ class DecideCommandTests(unittest.TestCase):
 
     def test_html_report_accounts_for_every_scored_candidate(self) -> None:
         """A reader must be able to explain the gap between scored and
-        selected. Candidates cut by a threshold never reach the selector, so
-        reporting only `deferred` would silently lose them."""
+        selected. Reporting only the selected set would silently lose the rest."""
 
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "d.json"
             html = Path(directory) / "d.html"
             _run(
                 [
-                    "decide",
+                    "analyze",
                     "--url",
                     ROOT_URL,
                     "--top-k",
                     "1",
-                    "-o",
+                    "--output",
                     str(output),
                     "--html-output",
                     str(html),
@@ -298,7 +338,7 @@ class DecideCommandTests(unittest.TestCase):
         selected = report["selection"]["selected"]
         self.assertIn(f"선택되지 않은 후보 ({scored - selected})", rendered)
         self.assertIn("사유", rendered)
-        self.assertIn("순위가 컷 아래", rendered)
+        self.assertIn("순위가 Top-K 아래", rendered)
         self.assertIn("안전하다고 판정한 것이 아닙니다", rendered)
 
     def test_html_report_reports_the_guarantee_state(self) -> None:
@@ -306,12 +346,12 @@ class DecideCommandTests(unittest.TestCase):
             html = Path(directory) / "d.html"
             _run(
                 [
-                    "decide",
+                    "analyze",
                     "--url",
                     ROOT_URL,
                     "--top-k",
                     "5",
-                    "-o",
+                    "--output",
                     str(Path(directory) / "d.json"),
                     "--html-output",
                     str(html),
@@ -324,123 +364,50 @@ class DecideCommandTests(unittest.TestCase):
     def test_html_and_json_destinations_must_differ(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             shared = Path(directory) / "same.json"
-            self.assertEqual(
+            self.assertNotEqual(
                 _run(
                     [
-                        "decide",
+                        "analyze",
                         "--url",
                         ROOT_URL,
                         "--top-k",
                         "5",
-                        "-o",
+                        "--output",
                         str(shared),
                         "--html-output",
                         str(shared),
                     ]
                 ),
-                1,
+                0,
             )
 
     def test_top_k_is_required(self) -> None:
         with self.assertRaises(SystemExit):
-            _run(["decide", "--url", ROOT_URL, "-o", "x.json"])
-
-    def test_binding_constraint_is_reported(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "d.json"
-            _run(["decide", "--url", ROOT_URL, "--top-k", "1", "-o", str(output)])
-            report = json.loads(output.read_text(encoding="utf-8"))
-        self.assertEqual(report["constraints"]["top_k"], 1)
-        self.assertIsNone(report["constraints"]["verification_budget"])
-        self.assertEqual(report["constraints"]["binding_constraint"], "top_k")
-
-    def test_zero_budget_selects_nothing(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "decision.json"
-            self.assertEqual(
-                _run(["decide", "--url", ROOT_URL, "--top-k", "50", "--budget", "0", "-o", str(output)]),
-                0,
-            )
-            report = json.loads(output.read_text(encoding="utf-8"))
-        self.assertEqual(report["verification_order"], [])
-        self.assertEqual(report["constraints"]["verification_spent"], 0)
-
-    def test_a_bigger_budget_never_finds_less(self) -> None:
-        findings = []
-        with tempfile.TemporaryDirectory() as directory:
-            for budget in (3, 6, 12, 30):
-                output = Path(directory) / f"d{budget}.json"
-                _run(
-                    [
-                        "decide",
-                        "--url",
-                        ROOT_URL,
-                        "--top-k",
-                        "50",
-                        "--budget",
-                        str(budget),
-                        "-o",
-                        str(output),
-                    ]
-                )
-                report = json.loads(output.read_text(encoding="utf-8"))
-                findings.append(report["selection"]["expected_findings"])
-        self.assertEqual(findings, sorted(findings))
-
-    def test_negative_budget_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "decision.json"
-            self.assertEqual(
-                _run(
-                    ["decide", "--url", ROOT_URL, "--top-k", "50", "--budget", "-1", "-o", str(output)]
-                ),
-                1,
-            )
-            self.assertFalse(output.exists())
-
-    def test_discount_outside_range_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "decision.json"
-            self.assertEqual(
-                _run(
-                    [
-                        "decide",
-                        "--url",
-                        ROOT_URL,
-                        "--top-k",
-                        "50",
-                        "--discount",
-                        "1.5",
-                        "-o",
-                        str(output),
-                    ]
-                ),
-                1,
-            )
+            _run(["analyze", "--url", ROOT_URL, "--output", "x.json"])
 
     def test_missing_model_file_reports_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "decision.json"
-            self.assertEqual(
+            self.assertNotEqual(
                 _run(
                     [
-                        "decide",
+                        "analyze",
                         "--url",
                         ROOT_URL,
                         "--top-k",
                         "50",
                         "--model",
                         str(Path(directory) / "absent.json"),
-                        "-o",
+                        "--output",
                         str(output),
                     ]
                 ),
-                1,
+                0,
             )
 
 
 class CorpusCommandTests(unittest.TestCase):
-    def test_collect_fit_calibrate_decide_round_trip(self) -> None:
+    def test_collect_fit_analyze_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             ground_truth = _ground_truth_file(workspace)
@@ -485,16 +452,14 @@ class CorpusCommandTests(unittest.TestCase):
             self.assertEqual(
                 _run(
                     [
-                        "decide",
+                        "analyze",
                         "--url",
                         ROOT_URL,
                         "--top-k",
                         "50",
-                        "--budget",
-                        "20",
                         "--model",
                         str(model),
-                        "-o",
+                        "--output",
                         str(decision),
                     ]
                 ),
@@ -655,7 +620,7 @@ class CorpusCommandTests(unittest.TestCase):
 
 
 class CandidateProjectionTests(unittest.TestCase):
-    def test_redundancy_key_groups_by_endpoint(self) -> None:
+    def test_candidates_carry_a_probability_for_each_family(self) -> None:
         from vulnspider.corpus.fitting import prior_family_scorers
         from vulnspider.discovery import CrawlPolicy
         from vulnspider.pipeline import analyze_url
@@ -670,16 +635,19 @@ class CandidateProjectionTests(unittest.TestCase):
         candidates, probabilities = build_decision_candidates(
             analysis, prior_family_scorers(("SQLI", "REFLECTED_XSS"))
         )
+        self.assertTrue(candidates)
         self.assertEqual(
             {item.candidate_id for item in candidates}, set(probabilities)
         )
-        self.assertTrue(candidates)
-        by_key: dict[str, set[str]] = {}
+        # One input point yields both a SQLi and a Reflected XSS candidate.
+        by_subject: dict[str, set[str]] = {}
         for candidate in candidates:
-            by_key.setdefault(candidate.redundancy_key, set()).add(candidate.family)
-        # Both readings of one input point share that endpoint's fingerprint.
+            by_subject.setdefault(candidate.subject_ref, set()).add(candidate.family)
         self.assertTrue(
-            any(families == {"SQLI", "REFLECTED_XSS"} for families in by_key.values())
+            any(
+                families == {"SQLI", "REFLECTED_XSS"}
+                for families in by_subject.values()
+            )
         )
 
     def test_missing_family_model_is_rejected(self) -> None:

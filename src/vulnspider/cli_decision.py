@@ -44,7 +44,6 @@ from vulnspider.decision.candidate import (
     decision_candidate_from_context,
 )
 from vulnspider.decision.conformal import ConformalError, ConformalThreshold
-from vulnspider.decision.cost import SeverityPolicy, VerificationCostPolicy
 from vulnspider.decision.policy import DecisionOutcome, run_decision_layer
 from vulnspider.domain import stable_fingerprint
 from vulnspider.pipeline import AnalysisResult
@@ -64,7 +63,6 @@ DECISION_REPORT_VERSION = "decision-report-v1"
 
 DEFAULT_TOP_K = 10
 DEFAULT_TARGET_RISK = 0.1
-DEFAULT_DISCOUNT = 0.5
 
 # Families the injection pipeline can currently produce candidates for. BAC
 # has a scorer but no observation pipeline yet (ADR-014), so it never appears
@@ -79,20 +77,12 @@ class DecisionCLIError(ValueError):
 def build_decision_candidates(
     analysis: AnalysisResult,
     scorers: Mapping[str, CalibratedScorer],
-    *,
-    cost_policy: VerificationCostPolicy | None = None,
-    severity_policy: SeverityPolicy | None = None,
 ) -> tuple[tuple[DecisionCandidate, ...], dict[str, CalibratedProbability]]:
     """Project one analysis into decision-layer candidates.
 
     Every candidate the scoring layer produced is ranked -- not just a Top-K --
-    because choosing how many to verify is the decision layer's job, not a
-    parameter it inherits. Candidates with no observed evidence stay unrankable
-    and get no budget, which is the same rule ``select_top_k`` already applies.
-
-    ``redundancy_key`` is the endpoint fingerprint, so diminishing returns apply
-    across input points that share a route rather than only across the two
-    readings of one input point.
+    so the report can show what was scored below the cut. Candidates with no
+    observed evidence stay unrankable, the same rule ``select_top_k`` applies.
     """
 
     results = analysis.scoring_results
@@ -109,10 +99,6 @@ def build_decision_candidates(
     )
 
     vectors = {vector.id or "": vector for vector in analysis.feature_vectors}
-    endpoint_by_point = {
-        point.id or "": point.endpoint_fingerprint
-        for point in analysis.input_points
-    }
 
     candidates: list[DecisionCandidate] = []
     scored: dict[str, CalibratedProbability] = {}
@@ -130,13 +116,7 @@ def build_decision_candidates(
         calibrated = scorer.probability(vector.features)
         scored[context.candidate_id] = calibrated
         candidates.append(
-            decision_candidate_from_context(
-                context,
-                calibrated,
-                cost_policy=cost_policy,
-                severity_policy=severity_policy,
-                redundancy_key=endpoint_by_point.get(context.candidate_subject_ref),
-            )
+            decision_candidate_from_context(context, calibrated)
         )
     return tuple(candidates), scored
 
@@ -146,6 +126,7 @@ def decision_report(
     *,
     target_url: str,
     models: Mapping[str, CalibratedScorer],
+    warnings: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Serialize a decision outcome without recomputing any of it."""
 
@@ -153,6 +134,7 @@ def decision_report(
         "report_version": DECISION_REPORT_VERSION,
         "target": target_url,
         "policy_version": outcome.policy_version,
+        "warnings": list(warnings),
         "models": {
             family: {
                 "model_version": scorer.model_version,
@@ -160,13 +142,12 @@ def decision_report(
             }
             for family, scorer in sorted(models.items())
         },
-        "constraints": {
-            "top_k": outcome.selection.top_k,
-            "verification_budget": outcome.selection.budget,
-            "binding_constraint": outcome.selection.binding_constraint,
-            "verification_spent": outcome.selection.spent_cost,
-            "exploration_spent": outcome.exploration_requests_spent,
-            "total_requests": outcome.total_requests_spent,
+        "selection": {
+            "top_k": outcome.top_k,
+            "candidates_scored": outcome.initial_candidates,
+            "selected": len(outcome.selected),
+            "deferred": len(outcome.deferred),
+            "expected_findings": outcome.expected_findings,
         },
         "guarantee": (
             None
@@ -174,43 +155,20 @@ def decision_report(
             else {
                 **outcome.conformal.as_mapping(),
                 "conformal_set_size": outcome.conformal_set_size,
-                "budget_covers_conformal_set": outcome.budget_covers_conformal_set,
+                "top_k_covers_conformal_set": (
+                    outcome.top_k >= outcome.conformal_set_size
+                ),
             }
         ),
-        "selection": {
-            "selector_version": outcome.selection.selector_version,
-            "candidates_scored": outcome.initial_candidates,
-            "selected": len(outcome.selection.selected),
-            "deferred": len(outcome.selection.deferred),
-            "utility": outcome.selection.utility,
-            "expected_findings": outcome.selection.expected_findings,
-            "approximation_ratio": outcome.selection.approximation_ratio,
-            "discount": outcome.selection.discount,
-        },
         "verification_order": [
             {
                 "order": position,
                 "candidate_id": candidate.candidate_id,
                 "family": candidate.family,
                 "probability": candidate.probability,
-                "severity": candidate.severity,
-                "verification_cost": candidate.verification_cost,
                 "selection_rank": candidate.selection_rank,
             }
-            for position, candidate in enumerate(
-                outcome.selection.selected, start=1
-            )
-        ],
-        "information_gains": [
-            {
-                "probe_id": gain.probe_id,
-                "candidate_id": gain.candidate_id,
-                "prior_probability": gain.prior_probability,
-                "expected_information_gain_bits": gain.expected_information_gain,
-                "information_density": gain.information_density,
-                "request_cost": gain.request_cost,
-            }
-            for gain in outcome.information_gains
+            for position, candidate in enumerate(outcome.selected, start=1)
         ],
     }
 
@@ -267,72 +225,12 @@ def load_conformal(path: Path | None) -> ConformalThreshold | None:
 
 
 def add_decision_subcommands(subparsers: argparse._SubParsersAction) -> None:
-    """Register `decide` and `corpus` on the existing parser."""
+    """Register the `corpus` subcommands on the existing parser.
 
-    decide = subparsers.add_parser(
-        "decide",
-        help="Rank, budget, and cut candidates for an authorized target.",
-        description=(
-            "Run the analysis pipeline for an authorized localhost or loopback "
-            "target, then allocate a verification request budget across the "
-            "resulting candidates using the calibrated decision layer."
-        ),
-    )
-    decide.add_argument("--url", required=True, help="Authorized target root URL.")
-    decide.add_argument(
-        "--top-k",
-        required=True,
-        type=int,
-        help="Number of candidates to select. The primary control.",
-    )
-    decide.add_argument(
-        "--budget",
-        type=int,
-        default=None,
-        help=(
-            "Optional verification request budget. Candidates cost different "
-            "amounts, so this caps request spend rather than list length; "
-            "whichever limit binds first stops the selection."
-        ),
-    )
-    decide.add_argument(
-        "--discount",
-        type=float,
-        default=DEFAULT_DISCOUNT,
-        help=(
-            "Per-endpoint diminishing-returns factor in (0, 1]; 1.0 disables "
-            f"redundancy modelling (default: {DEFAULT_DISCOUNT})."
-        ),
-    )
-    decide.add_argument(
-        "--model",
-        type=Path,
-        default=None,
-        help="Fitted model JSON from 'corpus fit' (default: heuristic prior).",
-    )
-    decide.add_argument(
-        "--conformal",
-        type=Path,
-        default=None,
-        help="Calibrated threshold JSON from 'corpus calibrate'.",
-    )
-    decide.add_argument(
-        "-o",
-        "--output",
-        type=Path,
-        required=True,
-        help="Decision report JSON destination.",
-    )
-    decide.add_argument(
-        "--html-output",
-        type=Path,
-        default=None,
-        help=(
-            "Optional destination for a browsable HTML report rendering the "
-            "same decision as --output."
-        ),
-    )
-    _add_crawl_bounds(decide)
+    The calibrated Top-K algorithm is not a separate command anymore: `analyze`
+    (and simple `-u` mode) run it directly. This registers only the corpus
+    tooling that builds the model and the recall threshold `analyze` consumes.
+    """
 
     corpus = subparsers.add_parser(
         "corpus",
@@ -418,45 +316,61 @@ def add_decision_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
 
 
-def run_decide_command(
-    args: argparse.Namespace,
+def add_algorithm_options(parser: argparse.ArgumentParser) -> None:
+    """Attach the calibrated-model options to a parser that already has --top-k.
+
+    ``analyze`` and simple ``-u`` mode share these: the fitted model to score
+    with (default: the heuristic prior, which reproduces the old ordering) and
+    the optional conformal recall threshold.
+    """
+
+    parser.add_argument(
+        "--model",
+        type=Path,
+        default=None,
+        help="Fitted model JSON from 'corpus fit' (default: heuristic prior).",
+    )
+    parser.add_argument(
+        "--conformal",
+        type=Path,
+        default=None,
+        help="Calibrated recall-threshold JSON from 'corpus calibrate'.",
+    )
+
+
+def analyze_and_report(
+    analysis: AnalysisResult,
     *,
-    transport: Any = None,
-    crawler: Any = None,
-    crawler_transport: Any = None,
-) -> int:
-    """Handle `vulnspider decide`."""
+    target_url: str,
+    top_k: int,
+    model_path: Path | None,
+    conformal_path: Path | None,
+    output: Path,
+    html_output: Path | None = None,
+) -> DecisionOutcome:
+    """Score one analysis with the calibrated model, take the Top-K, and report.
 
-    if args.top_k < 0:
+    This is the single entry point the ``analyze`` command and simple ``-u``
+    mode both run: crawl and feature extraction already happened, and this turns
+    the resulting ``AnalysisResult`` into a calibrated-probability Top-K report.
+    """
+
+    if top_k < 0:
         raise DecisionCLIError("--top-k must not be negative")
-    if args.budget is not None and args.budget < 0:
-        raise DecisionCLIError("--budget must not be negative")
-    if not 0.0 < args.discount <= 1.0:
-        raise DecisionCLIError("--discount must lie inside (0, 1]")
-
-    analysis = _analyze(
-        args,
-        transport=transport,
-        crawler=crawler,
-        crawler_transport=crawler_transport,
-    )
-    if args.html_output is not None and args.html_output == args.output:
-        raise DecisionCLIError("--output and --html-output must differ")
-    models = load_models(args.model, _FAMILIES)
-    conformal = load_conformal(args.conformal)
+    models = load_models(model_path, _FAMILIES)
+    conformal = load_conformal(conformal_path)
     candidates, probabilities = build_decision_candidates(analysis, models)
-    outcome = run_decision_layer(
-        candidates,
-        top_k=args.top_k,
-        verification_budget=args.budget,
-        conformal=conformal,
-        discount=args.discount,
-    )
+    outcome = run_decision_layer(candidates, top_k=top_k, conformal=conformal)
     write_json(
-        decision_report(outcome, target_url=args.url, models=models),
-        args.output,
+        decision_report(
+            outcome,
+            target_url=target_url,
+            models=models,
+            warnings=analysis.warnings,
+        ),
+        output,
     )
-    if args.html_output is not None:
+    if html_output is not None:
         probe_runs: dict[str, Any] = {}
         for observation in sorted(
             analysis.probe_observations,
@@ -474,8 +388,8 @@ def run_decide_command(
             )
         write_decision_html_report(
             outcome,
-            args.html_output,
-            target=args.url,
+            html_output,
+            target=target_url,
             input_points={
                 point.id or "": point for point in analysis.input_points
             },
@@ -490,27 +404,7 @@ def run_decide_command(
             endpoint_count=len(analysis.endpoints),
             input_point_count=len(analysis.input_points),
         )
-    spend = (
-        f"{outcome.selection.spent_cost} requests"
-        if args.budget is None
-        else f"{outcome.selection.spent_cost}/{args.budget} requests"
-    )
-    print(
-        f"vulnspider: selected {len(outcome.selection.selected)} of "
-        f"{outcome.initial_candidates} candidates "
-        f"(top-k {args.top_k}, {spend}, "
-        f"expected findings {outcome.selection.expected_findings:.2f}, "
-        f"limited by {outcome.selection.binding_constraint})"
-    )
-    if conformal is not None and not outcome.budget_covers_conformal_set:
-        print(
-            "vulnspider: warning: budget does not cover the conformal set of "
-            f"{outcome.conformal_set_size}; the recall guarantee does not hold",
-        )
-    print(f"vulnspider: decision report: {args.output}")
-    if args.html_output is not None:
-        print(f"vulnspider: html report: {args.html_output}")
-    return 0
+    return outcome
 
 
 def run_corpus_command(
@@ -731,7 +625,6 @@ def write_json(payload: Mapping[str, Any], path: Path) -> None:
 
 __all__ = [
     "DECISION_REPORT_VERSION",
-    "DEFAULT_DISCOUNT",
     "DEFAULT_TARGET_RISK",
     "DEFAULT_TOP_K",
     "ConformalError",
@@ -740,7 +633,9 @@ __all__ = [
     "DecisionCLIError",
     "GroundTruthError",
     "CalibrationError",
+    "add_algorithm_options",
     "add_decision_subcommands",
+    "analyze_and_report",
     "build_decision_candidates",
     "calibrate_from_corpus",
     "collect_from_analysis",

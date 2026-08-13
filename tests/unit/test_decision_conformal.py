@@ -167,9 +167,6 @@ class CoverageTests(unittest.TestCase):
                 candidate_id=f"c{index}",
                 family="SQLI",
                 probability=0.05 + index * 0.03,
-                severity=9.8,
-                verification_cost=2,
-                redundancy_key=f"g{index}",
             )
             for index in range(30)
         )
@@ -188,9 +185,6 @@ class SelectionTests(unittest.TestCase):
                 candidate_id=f"c{index}",
                 family="SQLI",
                 probability=probability,
-                severity=9.8,
-                verification_cost=2,
-                redundancy_key=f"g{index}",
             )
             for index, probability in enumerate((0.9, 0.5, 0.2))
         )
