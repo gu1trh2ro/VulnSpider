@@ -29,6 +29,29 @@ cleanly separate them:
   what ``safe_html_encoding_detected`` exists to fix, and leaving it in the
   corpus is what makes the fitted XSS probability honest rather than flattering.
 
+``response_length_diff_ratio`` must not be a perfect label lookup
+-----------------------------------------------------------------
+An earlier version rendered one fixed-length template per behaviour, so every
+route sharing a behaviour produced the *identical* length-diff ratio and that
+one feature separated the labels perfectly within each family. Real applications
+are not like that: a benign search page returns a different-length response for
+a different query, and page size varies from route to route regardless of
+vulnerability. Two reproducible, per-route sources of variation restore that:
+
+* **Chrome.** Each route carries a static boilerplate block of a reproducible
+  random size, served identically on every response. It changes the ratio's
+  denominator without creating a baseline/probe difference, so the same
+  behaviour lands on different ratios on different routes.
+* **Benign dynamic content.** Every response includes a value-dependent number
+  of generic result rows. A safe page therefore *also* changes length between
+  the baseline and probe requests, so a length change is no longer by itself
+  evidence of a vulnerability.
+
+The discriminative signal accordingly lives in the other features -- a SQL error
+string, a status-code change, a reflected marker -- while ``SQLI_BLIND``, whose
+only tell is length, stays genuinely hard to detect, exactly as blind injection
+is in reality.
+
 Run standalone to inspect one application:
 
     PYTHONPATH=src python tools/corpus_target_site.py
@@ -38,6 +61,7 @@ from __future__ import annotations
 
 import random
 import threading
+import zlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -106,12 +130,20 @@ _ROUTE_NAMES = (
 
 @dataclass(frozen=True, slots=True)
 class RouteSpec:
-    """One GET route with one query parameter and one authored behaviour."""
+    """One GET route with one query parameter and one authored behaviour.
+
+    ``chrome_bytes``, ``result_scale`` and ``blind_rows`` are reproducible
+    per-route sizes that make ``response_length_diff_ratio`` a noisy, weak
+    feature instead of a perfect per-behaviour lookup (see the module docstring).
+    """
 
     path: str
     parameter: str
     behaviour: str
     error_template: str
+    chrome_bytes: int = 0
+    result_scale: int = 0
+    blind_rows: int = 6
 
     def labels(self) -> tuple[bool, bool]:
         """``(sqli_vulnerable, reflected_xss_vulnerable)``."""
@@ -174,6 +206,12 @@ def build_application(index: int, *, seed: int = 20260811) -> ApplicationSpec:
             parameter=parameter,
             behaviour=behaviour,
             error_template=generator.choice(_SQL_ERRORS),
+            # Wide, independent per-route sizes so the same behaviour lands on
+            # different length-diff ratios across routes, and so vulnerable and
+            # safe ratio ranges overlap rather than separating cleanly.
+            chrome_bytes=generator.randint(0, 3200),
+            result_scale=generator.randint(0, 18),
+            blind_rows=generator.randint(3, 14),
         )
         for (path, parameter), behaviour in zip(chosen, behaviours, strict=True)
     )
@@ -202,52 +240,98 @@ def _index_page(spec: ApplicationSpec) -> bytes:
     ).encode("utf-8")
 
 
+# Neutral boilerplate for the per-route chrome block. It carries no probe
+# marker and none of the SQL-error phrasing, so padding a response with it moves
+# only the length-diff denominator, never the other features.
+_CHROME_SENTENCE = "This catalog page lists entries available for browsing. "
+
+
+def _chrome(route: RouteSpec) -> str:
+    """A static per-route boilerplate block of a reproducible size.
+
+    Served identically on every response for the route, so it varies the
+    length-diff denominator without ever creating a baseline/probe difference.
+    """
+
+    if route.chrome_bytes <= 0:
+        return ""
+    repeats = route.chrome_bytes // len(_CHROME_SENTENCE) + 1
+    filler = (_CHROME_SENTENCE * repeats)[: route.chrome_bytes]
+    return f'<div class="chrome">{filler}</div>'
+
+
+def _benign_rows(route: RouteSpec, value: str) -> str:
+    """Value-dependent generic result rows shared by every behaviour.
+
+    A benign search page legitimately returns a different-length response for a
+    different query, so the baseline and probe values yield different lengths.
+    The rows echo neither the value nor the marker, so this adds length noise
+    without touching ``marker_reflected``. ``crc32`` keeps it reproducible
+    across interpreter runs, which ``hash()`` would not.
+    """
+
+    if route.result_scale <= 0:
+        return ""
+    count = zlib.crc32(value.encode("utf-8")) % (route.result_scale + 1)
+    return "".join(f"<tr><td>result {index}</td></tr>" for index in range(count))
+
+
+def _page(route: RouteSpec, value: str, inner: str) -> bytes:
+    """Wrap one behaviour's ``inner`` markup in the shared chrome and rows."""
+
+    return (
+        f"<html><body>{_chrome(route)}{inner}"
+        f'<table class="catalog">{_benign_rows(route, value)}</table>'
+        "</body></html>"
+    ).encode("utf-8")
+
+
 def _route_body(route: RouteSpec, value: str) -> tuple[int, bytes]:
     numeric = value.isdigit()
 
     if route.behaviour == SQLI_ERROR:
         if numeric:
-            body = f"<html><body><p>Record {escape(value)} loaded.</p></body></html>"
-            return 200, body.encode("utf-8")
+            inner = f"<p>Record {escape(value)} loaded.</p>"
+            return 200, _page(route, value, inner)
         message = route.error_template.format(value=escape(value))
-        body = f"<html><body><p>Database error: {message}</p></body></html>"
-        return 500, body.encode("utf-8")
+        inner = f"<p>Database error: {message}</p>"
+        return 500, _page(route, value, inner)
 
     if route.behaviour == SQLI_BLIND:
         # No error text and no status change. A real injection is present but
-        # only the response size betrays it.
+        # only the response size betrays it -- and the benign rows below muddy
+        # even that, which is what makes blind injection hard to detect.
         if numeric:
-            rows = "".join(
+            leaked = "".join(
                 f"<tr><td>row {index}</td><td>value {index}</td></tr>"
-                for index in range(6)
+                for index in range(route.blind_rows)
             )
-            body = f"<html><body><table>{rows}</table></body></html>"
+            inner = f"<table>{leaked}</table>"
         else:
-            body = "<html><body><table></table></body></html>"
-        return 200, body.encode("utf-8")
+            inner = "<table></table>"
+        return 200, _page(route, value, inner)
 
     if route.behaviour == XSS_RAW:
-        body = (
-            f"<html><head><title>{value}</title></head>"
-            f"<body><h2>Results for {value}</h2>"
-            f"<p>No matches for {value}.</p></body></html>"
+        inner = (
+            f"<h2>Results for {value}</h2>"
+            f"<p>No matches for {value}.</p>"
         )
-        return 200, body.encode("utf-8")
+        return 200, _page(route, value, inner)
 
     if route.behaviour == XSS_ESCAPED:
         safe = escape(value, quote=True)
-        body = f"<html><body><p>No matches for {safe}.</p></body></html>"
-        return 200, body.encode("utf-8")
+        inner = f"<p>No matches for {safe}.</p>"
+        return 200, _page(route, value, inner)
 
     if route.behaviour == SAFE_VALIDATION:
         if numeric:
-            body = f"<html><body><p>Item {escape(value)}.</p></body></html>"
-            return 200, body.encode("utf-8")
-        body = "<html><body><p>Invalid identifier supplied.</p></body></html>"
-        return 400, body.encode("utf-8")
+            inner = f"<p>Item {escape(value)}.</p>"
+            return 200, _page(route, value, inner)
+        inner = "<p>Invalid identifier supplied.</p>"
+        return 400, _page(route, value, inner)
 
-    body = "<html><body><p>Item unavailable.</p></body></html>"
-    return 200, body.encode("utf-8")
+    inner = "<p>Catalog item.</p>"
+    return 200, _page(route, value, inner)
 
 
 def make_handler(spec: ApplicationSpec) -> type[BaseHTTPRequestHandler]:
