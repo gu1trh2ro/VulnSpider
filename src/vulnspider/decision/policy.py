@@ -136,7 +136,7 @@ def run_decision_layer(
     probe_options: Sequence[ProbeOption] = (),
     observe: ProbeOutcomeSource | None = None,
     conformal: ConformalThreshold | None = None,
-    discount: float = 0.5,
+    discount: float = 1.0,
 ) -> DecisionOutcome:
     """Run explore-cut-commit over one already-selected candidate pool."""
 

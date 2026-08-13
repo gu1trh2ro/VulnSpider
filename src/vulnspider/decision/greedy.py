@@ -1,55 +1,65 @@
-"""Constrained candidate selection with a stated approximation bound.
+"""Selecting the K most vulnerable input points, with optional budget mode.
 
-Top-K is the primary control: the project's contribution is ranking what to
-verify first, its four core metrics are all defined at K
-(``docs/EVALUATION_PROTOCOL.md`` §6), and the downstream handoff contract
-already carries ``top_k_requested``. A request budget is an optional second
-constraint for when requests, not list length, are what actually runs out.
+The product goal is: *given a website, surface the K input points most likely
+to be vulnerable, so someone who is not a security expert can study them.*
+"취약도" is the **probability of being vulnerable**. Severity does not multiply
+into it; it only breaks ties, and it does that through family order
+(SQLi, then Reflected XSS, then BAC).
 
-The utility
------------
-Writing ``v(c) = P(vulnerable | evidence) * severity(family)``, the value of a
-selected set is *not* the plain sum of ``v``. Input points reachable through
-one server-side code path -- a templated route with a hundred product ids --
-succeed and fail together, so the second confirmation on that path is worth
-much less than the first. Candidates sharing a ``redundancy_key`` are therefore
-aggregated with geometrically decreasing weights:
+Default mode — exactly what that goal asks for
+----------------------------------------------
+With a Top-K and no budget (``discount = 1.0``), the objective is the plain sum
+of probabilities under a cardinality constraint. Taking the K largest **is the
+exact optimum**, so nothing is approximated and ``approximation_ratio`` is
+``1.0``. Ties break by family order, then by ``candidate_id`` for
+reproducibility.
 
-``U(S) = Σ over groups r  Σ over j  discount^(j-1) · v_(j)``
+This is deliberately simple. A selector for this goal should not be cleverer
+than a sort, and measuring showed that being cleverer actively hurt: on twelve
+unseen applications at K=5, ranking by probability recovered 32 of 33 true
+findings while the redundancy-discounted objective recovered 26.
 
-where ``v_(1) ≥ v_(2) ≥ …`` are the group's selected values in decreasing
-order. Ordered aggregation with decreasing weights over a modular base is
-monotone and submodular, so the diminishing-returns behaviour is a property of
-the objective rather than a heuristic bolted onto the search.
+Budget mode — a different question, opt in
+------------------------------------------
+``EVALUATION_PROTOCOL.md`` §6 also asks how many findings a *request budget*
+buys, which is not the same question: candidates cost different numbers of
+requests, so the best K and the best spend differ. Passing a budget switches to
+that objective, and a ``discount`` below 1.0 additionally models redundancy --
+input points on one templated route succeed and fail together, so the second
+confirmation there is worth less.
 
-The guarantees, and where they stop
------------------------------------
-Which bound applies depends on which constraints are active, and the three
-cases genuinely differ:
+**Do not enable the discount for the default goal.** It deliberately spreads
+the selection across routes, which is right when saving requests and wrong when
+the user asked to see the most vulnerable input points on their own site: if
+three of them sit on one route, all three should be shown.
 
-* **Top-K only.** A cardinality constraint is a uniform matroid, and greedy by
-  *marginal gain* attains ``1 − 1/e ≈ 0.632`` (Nemhauser, Wolsey & Fisher,
-  1978). Cost is irrelevant here, so ranking by gain-per-request would forfeit
-  the bound for nothing -- this regime therefore switches to plain marginal
-  gain.
-* **Budget only.** A knapsack constraint. The better of greedy by *marginal
-  gain per request* and the single best affordable candidate attains
-  ``½(1 − 1/e) ≈ 0.316``. The second arm is not decoration: density greedy
-  alone is unbounded, because it can fill the budget with cheap crumbs and
-  never afford the one expensive candidate holding most of the value.
-* **Both.** The feasible sets are the intersection of a knapsack and a matroid.
-  Density greedy still behaves sensibly and is what runs, but no combined
-  bound is claimed here, and ``approximation_ratio`` is ``None`` rather than a
-  number that cannot be defended.
+``U(S) = Σ over groups r  Σ over j  discount^(j-1) · p_(j)``
 
-With ``discount = 1.0`` the objective collapses to a modular sum and the
-budget-only case becomes 0/1 knapsack, where the same procedure is a ``½``
-approximation -- the *better* constant. Submodularity buys a more faithful
-model of redundancy, not a tighter guarantee.
+Ordered aggregation with decreasing weights over a modular base is monotone and
+submodular, so diminishing returns is a property of the objective rather than a
+heuristic bolted onto the search.
 
-Every bound above is a proved lower bound against the exact optimum and all are
-routinely loose in practice; ``tests/unit/test_decision_greedy.py`` checks them
-against brute force.
+Which bound applies
+-------------------
+* **Top-K only, discount 1.0** — modular under a cardinality constraint. The
+  greedy *is* the optimum. Ratio ``1.0``.
+* **Top-K only, discount < 1.0** — monotone submodular under a cardinality
+  constraint; greedy by marginal gain attains ``1 − 1/e ≈ 0.632`` (Nemhauser,
+  Wolsey & Fisher, 1978). Cost is irrelevant here, so this regime ranks by
+  marginal gain rather than gain-per-request, which would forfeit the bound for
+  nothing.
+* **Budget only** — a knapsack. The better of greedy by gain-per-request and
+  the single best affordable candidate attains ``½(1 − 1/e) ≈ 0.316``, or ``½``
+  when the discount is 1.0. The second arm is not decoration: density greedy
+  alone is unbounded, since it can fill the budget with cheap crumbs and never
+  afford the one expensive candidate holding most of the value.
+* **Both** — a knapsack intersected with a matroid. Density greedy is what
+  runs, but no combined bound is claimed and ``approximation_ratio`` is
+  ``None`` rather than a number that cannot be defended.
+
+The bounds above are proved lower bounds against the exact optimum and are
+routinely loose; ``tests/unit/test_decision_greedy.py`` checks them against
+brute force.
 """
 
 from __future__ import annotations
@@ -63,6 +73,7 @@ from vulnspider.decision.candidate import DecisionCandidate
 
 BUDGETED_SELECTOR_VERSION = "constrained-submodular-greedy-v2"
 
+EXACT_RATIO = 1.0
 CARDINALITY_APPROXIMATION_RATIO = 1.0 - 1.0 / e
 MODULAR_APPROXIMATION_RATIO = 0.5
 SUBMODULAR_APPROXIMATION_RATIO = 0.5 * (1.0 - 1.0 / e)
@@ -196,7 +207,7 @@ def select_candidates(
     *,
     top_k: int | None = None,
     budget: int | None = None,
-    discount: float = 0.5,
+    discount: float = 1.0,
 ) -> BudgetedSelection:
     """Choose the verification set under a Top-K cap, a request budget, or both.
 
@@ -287,6 +298,11 @@ def _approximation_ratio(
     discount: float,
 ) -> float | None:
     if budget is None:
+        if discount == 1.0:
+            # No budget and no redundancy discount: the objective is modular
+            # under a cardinality constraint, so taking the K largest is the
+            # exact optimum. Nothing is approximated.
+            return EXACT_RATIO
         return CARDINALITY_APPROXIMATION_RATIO
     if top_k is not None:
         # Knapsack intersected with a matroid: no combined bound is claimed.
@@ -331,7 +347,7 @@ def _greedy(
             if gain <= 0.0:
                 continue
             score = gain / candidate.verification_cost if by_density else gain
-            key = (-score, candidate.candidate_id)
+            key = (-score, candidate.family_priority, candidate.candidate_id)
             if best_key is None or key < best_key:
                 best = candidate
                 best_key = key

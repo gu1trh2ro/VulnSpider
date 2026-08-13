@@ -118,11 +118,15 @@ selection (ADR-022, ADR-023, ADR-024). It consumes the validated
   `RankScore` and reproduces the heuristic order exactly.
 - `decision/cost.py` — explicit, versioned verification cost and severity
   policy. Values are documented policy, not measurement.
-- `decision/greedy.py` — constrained submodular maximization. Top-K is the
-  primary control and the request budget is optional (ADR-027); the bound
-  depends on which is active: `1 − 1/e` for Top-K alone, `½(1 − 1/e)` for
-  budget alone (`½` when the redundancy discount is 1.0), and none is claimed
-  when both bind. `binding_constraint` reports which limit stopped it.
+- `decision/greedy.py` — selects the K most vulnerable input points.
+  "Vulnerability" is the calibrated probability; severity does not multiply in
+  and only breaks ties through family order, SQLi then Reflected XSS then BAC
+  (ADR-028). The default mode is a plain sort, which is the exact optimum, so
+  `approximation_ratio` is 1.0. A request budget and a redundancy discount are
+  opt-in for the different question of what a fixed number of requests buys;
+  those regimes carry `½(1 − 1/e)` and `1 − 1/e` respectively, and no combined
+  bound is claimed when both constraints bind. `binding_constraint` reports
+  which limit stopped the selection.
 - `decision/voi.py` — expected information gain per request, ordering which
   probe to run next. The likelihood rates come from `fit_naive_bayes_llr()`.
   **Dormant and not wired to the CLI (ADR-026):** one probe pair already

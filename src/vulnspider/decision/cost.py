@@ -39,10 +39,23 @@ DEFAULT_FAMILY_COSTS: dict[str, int] = {
     FAMILY_BROKEN_ACCESS_CONTROL: 4,
 }
 
-# Relative worth of confirming one finding. The defaults track CVSS v3.1 base
-# scores for the archetypal instance of each class. They are deliberately not
-# equal: spending six requests on a SQLi lead and three on an XSS lead is only
-# a rational trade if the two outcomes are valued differently.
+# Family order used to break ties between candidates of equal probability:
+# SQLi first, then Reflected XSS, then BAC. Lower sorts first.
+FAMILY_PRIORITY: dict[str, int] = {
+    FAMILY_SQLI: 0,
+    FAMILY_REFLECTED_XSS: 1,
+    FAMILY_BROKEN_ACCESS_CONTROL: 2,
+}
+DEFAULT_FAMILY_PRIORITY = 99
+
+# Relative severity of each class, tracking CVSS v3.1 base scores for the
+# archetypal instance.
+#
+# This is **display metadata only**. It does not enter the ranking: "취약도"
+# is the probability of being vulnerable, and severity only breaks ties -- and
+# it breaks them through FAMILY_PRIORITY above, not by multiplication.
+# Multiplying probability by severity would let a 0.5 SQLi outrank a 0.7 XSS,
+# which is not what "the K most vulnerable input points" means.
 DEFAULT_FAMILY_SEVERITY: dict[str, float] = {
     FAMILY_SQLI: 9.8,
     FAMILY_REFLECTED_XSS: 6.1,

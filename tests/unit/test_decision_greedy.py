@@ -7,6 +7,7 @@ from itertools import combinations
 from vulnspider.decision.candidate import DecisionCandidate, DecisionCandidateError
 from vulnspider.decision.greedy import (
     CARDINALITY_APPROXIMATION_RATIO,
+    EXACT_RATIO,
     MODULAR_APPROXIMATION_RATIO,
     SUBMODULAR_APPROXIMATION_RATIO,
     BudgetedSelectionError,
@@ -55,14 +56,14 @@ class UtilityTests(unittest.TestCase):
             _candidate("a", probability=0.5, group="g1"),
             _candidate("b", probability=0.5, group="g2"),
         )
-        self.assertAlmostEqual(set_utility(pool, discount=0.5), 10.0)
+        self.assertAlmostEqual(set_utility(pool, discount=0.5), 1.0)
 
     def test_same_group_second_item_is_discounted(self) -> None:
         pool = (
             _candidate("a", probability=0.5, group="g1"),
             _candidate("b", probability=0.5, group="g1"),
         )
-        self.assertAlmostEqual(set_utility(pool, discount=0.5), 7.5)
+        self.assertAlmostEqual(set_utility(pool, discount=0.5), 0.75)
 
     def test_discount_applies_in_decreasing_value_order(self) -> None:
         """Utility is a set function: insertion order must not change it."""
@@ -73,7 +74,7 @@ class UtilityTests(unittest.TestCase):
             set_utility((low, high), discount=0.5),
             set_utility((high, low), discount=0.5),
         )
-        self.assertAlmostEqual(set_utility((low, high), discount=0.5), 10.0)
+        self.assertAlmostEqual(set_utility((low, high), discount=0.5), 1.0)
 
     def test_marginal_gain_shrinks_as_a_group_fills(self) -> None:
         gains = [
@@ -88,7 +89,7 @@ class UtilityTests(unittest.TestCase):
             _candidate(f"c{index}", probability=0.5, group="g1")
             for index in range(4)
         )
-        self.assertAlmostEqual(set_utility(pool, discount=1.0), 20.0)
+        self.assertAlmostEqual(set_utility(pool, discount=1.0), 2.0)
 
 
 class BudgetTests(unittest.TestCase):
@@ -326,8 +327,14 @@ class TopKRegimeTests(unittest.TestCase):
         self.assertEqual(
             [item.candidate_id for item in selection.selected], ["pricey"]
         )
+        # Modular objective under a cardinality constraint: the greedy is the
+        # optimum, so nothing is approximated.
+        self.assertAlmostEqual(selection.approximation_ratio, EXACT_RATIO)
         self.assertAlmostEqual(
-            selection.approximation_ratio, CARDINALITY_APPROXIMATION_RATIO
+            select_candidates(
+                (cheap, pricey), top_k=1, discount=0.5
+            ).approximation_ratio,
+            CARDINALITY_APPROXIMATION_RATIO,
         )
 
     def test_the_two_regimes_order_differently(self) -> None:
@@ -400,6 +407,85 @@ class TopKRegimeTests(unittest.TestCase):
         )
         self.assertEqual(
             select_candidates(pool, top_k=10, budget=100).binding_constraint, "none"
+        )
+
+    def test_probability_is_the_ranking_criterion_not_severity(self) -> None:
+        """취약도 = 취약할 확률. Severity must not multiply in, or a 0.5 SQLi
+        would outrank a 0.7 XSS."""
+
+        weak_but_severe = DecisionCandidate(
+            candidate_id="sqli",
+            family="SQLI",
+            probability=0.5,
+            severity=9.8,
+            verification_cost=1,
+            redundancy_key="g1",
+        )
+        strong_but_milder = DecisionCandidate(
+            candidate_id="xss",
+            family="REFLECTED_XSS",
+            probability=0.7,
+            severity=6.1,
+            verification_cost=1,
+            redundancy_key="g2",
+        )
+        selection = select_candidates(
+            (weak_but_severe, strong_but_milder), top_k=1
+        )
+        self.assertEqual(
+            [item.candidate_id for item in selection.selected], ["xss"]
+        )
+
+    def test_equal_probability_breaks_by_family_order(self) -> None:
+        """동률이면 SQLi > XSS > BAC."""
+
+        candidates = tuple(
+            DecisionCandidate(
+                candidate_id=family.lower(),
+                family=family,
+                probability=0.6,
+                severity=5.0,
+                verification_cost=1,
+                redundancy_key=f"g-{family}",
+            )
+            for family in ("REFLECTED_XSS", "BROKEN_ACCESS_CONTROL", "SQLI")
+        )
+        selection = select_candidates(candidates, top_k=3)
+        self.assertEqual(
+            [item.family for item in selection.selected],
+            ["SQLI", "REFLECTED_XSS", "BROKEN_ACCESS_CONTROL"],
+        )
+
+    def test_default_selection_is_the_exact_top_k(self) -> None:
+        """The default mode must return exactly the K most probable."""
+
+        pool = tuple(
+            _candidate(
+                f"c{index}",
+                probability=0.10 + index * 0.05,
+                cost=index + 1,
+                group=f"g{index}",
+            )
+            for index in range(10)
+        )
+        selected = select_candidates(pool, top_k=4).selected
+        expected = sorted(pool, key=lambda item: -float(item.probability))[:4]
+        self.assertEqual(
+            [item.candidate_id for item in selected],
+            [item.candidate_id for item in expected],
+        )
+
+    def test_same_route_candidates_are_all_kept_by_default(self) -> None:
+        """The user asked for the most vulnerable input points on their site.
+        Three on one route means all three must be shown."""
+
+        pool = tuple(
+            _candidate(f"c{index}", probability=0.9 - index * 0.01, group="shared")
+            for index in range(3)
+        ) + (_candidate("other", probability=0.5, group="elsewhere"),)
+        selected = select_candidates(pool, top_k=3).selected
+        self.assertEqual(
+            {item.candidate_id for item in selected}, {"c0", "c1", "c2"}
         )
 
     def test_at_least_one_constraint_is_required(self) -> None:

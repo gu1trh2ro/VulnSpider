@@ -38,6 +38,7 @@ from vulnspider.decision.cost import (
 from vulnspider.decision.greedy import (
     BUDGETED_SELECTOR_VERSION,
     CARDINALITY_APPROXIMATION_RATIO,
+    EXACT_RATIO,
     MODULAR_APPROXIMATION_RATIO,
     SUBMODULAR_APPROXIMATION_RATIO,
     BudgetedSelection,
@@ -67,6 +68,7 @@ from vulnspider.decision.voi import (
 __all__ = [
     "BUDGETED_SELECTOR_VERSION",
     "CARDINALITY_APPROXIMATION_RATIO",
+    "EXACT_RATIO",
     "CONFORMAL_METHOD_VERSION",
     "DECISION_POLICY_VERSION",
     "DEFAULT_FAMILY_COSTS",

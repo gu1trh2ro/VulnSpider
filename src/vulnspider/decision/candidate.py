@@ -14,7 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from math import isfinite
 
-from vulnspider.decision.cost import SeverityPolicy, VerificationCostPolicy
+from vulnspider.decision.cost import (
+    DEFAULT_FAMILY_PRIORITY,
+    FAMILY_PRIORITY,
+    SeverityPolicy,
+    VerificationCostPolicy,
+)
 from vulnspider.scoring.calibration import CalibratedProbability
 from vulnspider.selection.handoff import RankedCandidateContext
 
@@ -93,9 +98,22 @@ class DecisionCandidate:
 
     @property
     def expected_value(self) -> float:
-        """Expected worth of verifying this candidate, before redundancy."""
+        """Expected findings from verifying this candidate: its probability.
 
-        return float(self.probability) * self.severity
+        Severity deliberately does **not** multiply in. "취약도" is the
+        probability of being vulnerable; severity only breaks ties, and it does
+        that through :attr:`family_priority`. Multiplying would let a 0.5 SQLi
+        outrank a 0.7 XSS, which is not what "the K most vulnerable input
+        points" means.
+        """
+
+        return float(self.probability)
+
+    @property
+    def family_priority(self) -> int:
+        """Tie-break rank when two candidates share a probability."""
+
+        return FAMILY_PRIORITY.get(self.family, DEFAULT_FAMILY_PRIORITY)
 
     @property
     def value_density(self) -> float:
