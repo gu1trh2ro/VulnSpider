@@ -447,7 +447,11 @@ family 간 비교를 정당화할 수 없다).
 
 ## ADR-023 — Budget-constrained sequential selection is the decision layer
 
-**Status:** Accepted
+**Status:** Superseded by ADR-029
+
+**Update (2026-08-14):** ADR-028이 기본을 확률 Top-K로 되돌렸고, ADR-029가 여기서
+서술한 예산 selector·cost/severity·VoI 계층을 코드에서 제거했다. 본문은 역사
+기록으로 보존한다.
 
 **Date:** 2026-08-11
 
@@ -492,7 +496,11 @@ Thompson Sampling(defer — 온라인 탐색-활용은 후속 작업으로 남�
 
 ## ADR-024 — Conformal risk control determines the selected set size
 
-**Status:** Accepted
+**Status:** Accepted (amended by ADR-029)
+
+**Update (2026-08-14):** 핵심(conformal이 선택 집합 크기를 정한다)은 유효하나, 이제
+`analyze --conformal`로만 켜지는 **선택적 컷**이다. 마지막 consequence의
+`budget_covers_conformal_set`은 예산 계층과 함께 제거됐다(ADR-029).
 
 **Date:** 2026-08-11
 
@@ -524,7 +532,11 @@ positive가 잘려나가는지와 연결되어 있지 않았다. 과제 제목�
 
 ## ADR-025 — Decision layer reaches the CLI through new commands and a corpus
 
-**Status:** Accepted
+**Status:** Superseded in part by ADR-029
+
+**Update (2026-08-14):** 코퍼스·ground-truth 결정은 유효하다. 다만 "frozen v0.1
+표면을 건드리지 않고 새 `decide` 명령만 추가한다"는 방식은 뒤집혔다 — ADR-029가
+`decide`를 제거하고 `analyze`/`-u`가 알고리즘을 직접 수행하도록 통합했다.
 
 **Date:** 2026-08-11
 
@@ -582,7 +594,11 @@ DVWA/WebGoat 컨테이너 자동 구동(defer — Docker 의존성과 사용자 
 
 ## ADR-026 — Value of Information stays dormant until probing has a real choice
 
-**Status:** Accepted
+**Status:** Superseded by ADR-029
+
+**Update (2026-08-14):** dormant 유지 대신 ADR-029가 `decision/voi.py`를 삭제했다.
+근거는 동일하다 — 배선해도 아무것도 바꾸지 않으므로, 없는 기여가 있는 것처럼 보일
+위험만 남는 코드였다. 되살리려면 이 본문의 경로 A/B가 먼저 필요하다.
 
 **Date:** 2026-08-11
 
@@ -640,7 +656,12 @@ DVWA/WebGoat 컨테이너 자동 구동(defer — Docker 의존성과 사용자 
 
 ## ADR-027 — Top-K is the primary control and the request budget is optional
 
-**Status:** Accepted
+**Status:** Superseded by ADR-029
+
+**Update (2026-08-14):** "Top-K가 주 파라미터"는 유효하며 이제 **유일한** 제어다.
+`--budget`과 제약별 근사 보장 체제(`1−1/e` 등), `binding_constraint`는 예산 계층과
+함께 제거됐다(ADR-029). 본문의 held-out 표는 결함 코퍼스 기준이라 더 이상 재현되지
+않는다(ADR-030).
 
 **Date:** 2026-08-12
 
@@ -709,7 +730,12 @@ conformal 임계값이 이 격차를 메운다. XSS 음성(≈0.065)은 자르�
 
 ## ADR-028 — 취약도는 확률이며 severity는 동률 시 tie-break일 뿐이다
 
-**Status:** Accepted
+**Status:** Accepted (amended by ADR-029)
+
+**Update (2026-08-14):** 이 방향(확률 상위 K, severity는 표시용)은 유지된다. 다만 이
+ADR이 opt-in·표시용으로 남겨둔 `--discount`/예산 모드, `SeverityPolicy`,
+`approximation_ratio`는 ADR-029가 코드에서 제거했다. 본문의 held-out 표는 결함
+코퍼스 기준이라 재현되지 않는다(ADR-030).
 
 **Date:** 2026-08-13
 
@@ -764,6 +790,93 @@ severity 곱셈도 같은 이유로 뺀다. `P × severity`는 확률 0.5의 SQL
 - Layer 3(conformal)은 "몇 개를 뽑을지"라는 다른 질문에 답한다. K가 고정된
   기본 모드에서는 필수가 아니지만, K가 넉넉할 때 불필요한 검증을 줄이는 데
   유효하다(K=10에서 검증 118건 → 44건, recall 동일).
+
+---
+
+## ADR-029 — Remove the budget, VoI, and cost layers; unify analyze and decide
+
+**Status:** Accepted
+
+**Date:** 2026-08-14
+
+**Decision:** ADR-026/027/028이 dormant·opt-in·display로 남겨둔 계층을 **코드에서
+제거하고**, 두 CLI 경로를 하나로 합친다.
+
+- `decision/greedy.py`(submodular/knapsack 예산 선택기), `decision/voi.py`
+  (Value of Information), `decision/cost.py`(검증 비용·severity 정책)와 그 테스트를
+  삭제한다.
+- `decision/policy.run_decision_layer()`는 이제 **선택적 conformal 컷 + 확률
+  Top-K argmax** 하나만 수행한다. `--budget`/`--discount`/`--exploration-budget`,
+  `BudgetedSelection`, `approximation_ratio`, `binding_constraint`,
+  `DecisionCandidate.severity`/`verification_cost`/`redundancy_key`,
+  `DecisionOutcome.budget_covers_conformal_set`가 모두 사라진다. 동률 tie-break은
+  family 순서→candidate_id로 남는다.
+- 별도 `decide` 명령을 제거하고 **`analyze`와 `-u`가 알고리즘을 직접 수행**한다.
+  `--top-k`는 유지, `--model`/`--conformal`을 추가한다. `corpus` 하위명령은 그대로다.
+  휴리스틱 v0.1 리포트 형태(`summary`/`candidates`/`raw_rank_score`…)는 lean 결정
+  리포트(`selection`/`verification_order`/`guarantee`/`warnings`)로 대체된다.
+
+**Reason:** ADR-028이 기본을 확률 상위 K로 되돌린 뒤, 남은 예산·VoI·severity
+기계장치는 **어느 것도 기본 경로에서 실행되지 않는 죽은 코드**가 되었다.
+
+- VoI는 ADR-026이 이미 "배선해도 아무것도 바꾸지 않는다"고 측정했다. dormant 유지는
+  "없는 기여가 있는 것처럼" 보이는 위험만 남긴다.
+- 예산 selector는 ADR-028이 기본에서 뺀 뒤 opt-in으로만 남았는데, `feat/scoring`의
+  목표(가장 취약한 K개 보고)와 다른 질문(예산 대비 발견)에 답한다. feature 4개·앱
+  14개 규모에서 submodular 근사 보장·knapsack 기계장치는 데이터에 비해 과설계이고,
+  심사에서 "왜 이 복잡도가 필요한가"를 방어하기 어렵다.
+- cost/severity는 ADR-023 스스로 "측정값이 아니라 정책"이라 했고 ADR-028이 순위에서
+  뺐으므로, 남길 이유가 없다.
+- 두 CLI 경로(휴리스틱 `analyze` + 알고리즘 `decide`)를 유지하면 이후 모든 기능이
+  "휴리스틱 경로에도 넣을지"를 매번 결정해야 한다. 하나로 합치면 그 부채가 사라진다.
+
+**Alternatives considered:** 예산/VoI를 opt-in 코드로 유지(reject — 실행되지 않는
+경로가 리뷰·테스트 비용만 늘리고 net diff에 죽은 계층이 남는다); 예산을 별도
+`budget` 하위명령으로 분리(defer — 예산 대비 발견은 후속 연구로 남기고, 필요하면
+그때 되살린다).
+
+**Consequences:**
+
+- main 대비 net diff에 `greedy.py`/`voi.py`/`cost.py`가 없다. 이들을 서술하는
+  ADR-023, ADR-025(일부), ADR-026, ADR-027은 이 ADR로 대체되며 본문은 역사 기록으로
+  보존한다.
+- `analyze`의 JSON 계약이 바뀐다. frozen v0.1 형태를 검증하던 단위·통합 테스트를 새
+  형태로 갱신했다.
+- 예산 대비 발견 질문(`EVALUATION_PROTOCOL.md` §6)은 여전히 유효하나 지금은 측정
+  도구(`evaluate_ranking`, `evaluate_heldout`)에만 남고 제품 경로에는 없다.
+
+---
+
+## ADR-030 — Break single-feature separability in the synthetic corpus
+
+**Status:** Accepted
+
+**Date:** 2026-08-14
+
+**Decision:** `tools/corpus_target_site.py`가 behaviour마다 고정 길이 템플릿을
+렌더링하던 것을 바꿔, `response_length_diff_ratio`가 라벨을 단독으로 결정하지
+못하게 한다. 라우트마다 (a) 응답에 동일하게 붙는 재현 가능한 랜덤 크기의 정적
+chrome(길이 비율의 분모를 흔듦)과 (b) 값 의존적 benign 결과 행(안전한 페이지도
+입력에 따라 길이가 변함)을 추가한다. 라벨(behaviour)과 다른 feature(sql_error·
+status·marker)의 의미는 바꾸지 않는다.
+
+**Reason:** 이전 코퍼스는 behaviour마다 응답 길이가 고정이라 같은 behaviour의 모든
+라우트가 동일한 `response_length_diff_ratio`를 냈다. 그래서 이 feature 하나의
+임계값만으로 유형 안에서 라벨이 완벽히 갈렸고(단일 임계값 정확도 1.00), 모델이
+어려운 문제를 푼 게 아니라 한 축의 lookup을 외운 것에 가까워 모든 지표가 부풀려졌다.
+이는 코퍼스 설계 원칙 "Realism, not separability"와도 어긋났다.
+
+**Consequences:**
+
+- 길이 단독 임계값 정확도가 SQLi 1.00→0.75, XSS 1.00→0.81(다수결 기준선과 동일)로
+  떨어지고, 판별력이 SQL 오류·상태·반사 feature로 이동한다. blind SQLi(길이 신호만)는
+  현실처럼 탐지하기 어려워진다.
+- ground truth는 바뀌지 않는다(라벨·behaviour 동일, 응답 크기만 변경). 코퍼스
+  아티팩트(`corpus.jsonl`, `model.json`, `calibration-report.json`, `conformal.json`,
+  `ranking-report.json`)를 재생성했다.
+- 결함 코퍼스로 뽑았던 ADR-027·028 본문의 표(held-out 26/33·32/33 등,
+  `P(XSS|반사)≈0.29`)는 더 이상 재현되지 않는다. 정직해진 수치로는 held-out에서 학습
+  모델이 휴리스틱을 앞선다(0.91 대 0.76). 상세는 PR 본문 §3·§4의 재측정값을 따른다.
 
 ---
 
