@@ -642,7 +642,7 @@ PYTHONPATH=src python tools/corpus_target_site.py
 결정 실행:
 
 ```bash
-PYTHONPATH=src python -m vulnspider decide --url http://127.0.0.1:PORT/ --top-k 5 --model data/corpus/model.json --conformal data/corpus/conformal.json -o decision.json
+PYTHONPATH=src python -m vulnspider decide --url http://127.0.0.1:PORT/ --top-k 5 --model data/corpus/model.json --conformal data/corpus/conformal.json -o decision.json --html-output decision.html
 ```
 
 ```text
@@ -651,9 +651,15 @@ vulnspider: selected 3 of 12 candidates (top-k 5, 12 requests,
 ```
 
 `decision.json`에 검증 순서, 후보별 확률·비용·심각도, 어느 제약이 걸렸는지,
-보장 정보가 들어 있다.
+보장 정보가 들어 있다. `--html-output`을 주면 같은 내용을 브라우저에서 볼 수
+있는 리포트가 함께 생긴다 — **URL 하나로 최종 리포트까지 가는 단일 명령**이다.
 
-### 9.6 기존 HTML 대시보드 (변경 없음)
+리포트에는 후보별로 어떤 feature가 관측됐고 각각이 log-odds를 얼마나 움직였는지
+표로 나온다. **미관측 feature는 "not observed"로 표시**되어 관측된 0과 구분된다.
+
+### 9.6 기존 HTML 대시보드 (휴리스틱 경로, 변경 없음)
+
+`analyze`는 **기존 휴리스틱 순서**를 렌더링한다. 결정 계층을 쓰지 않는다.
 
 ```bash
 PYTHONPATH=src python -m vulnspider analyze --url http://127.0.0.1:PORT/ --top-k 10 --output analysis.json --html-output report.html

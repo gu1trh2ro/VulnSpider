@@ -44,6 +44,13 @@ class DecisionCandidate:
     redundancy_key: str
     logit_variance: float = 0.0
     selection_rank: int | None = None
+    subject_ref: str = ""
+    """The InputPoint or AccessProbePlan this candidate was derived from.
+
+    Carried forward from the handoff so a report can join a selected candidate
+    back to the request it came from. Reporting must not re-derive this
+    (ARCHITECTURE.md: reporting displays authoritative results).
+    """
 
     def __post_init__(self) -> None:
         if not self.candidate_id:
@@ -145,4 +152,5 @@ def decision_candidate_from_context(
         redundancy_key=redundancy_key or context.request_context_ref,
         logit_variance=calibrated.logit_variance,
         selection_rank=context.rank,
+        subject_ref=context.candidate_subject_ref,
     )

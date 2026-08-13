@@ -154,7 +154,7 @@ guarantee are estimated from (ADR-025).
 because ADR-025 adds commands without changing `analyze`, `-u`, or their flags:
 
 ```text
-vulnspider decide            --url ... --top-k K [--budget N] [--model M] [--conformal C] -o R
+vulnspider decide            --url ... --top-k K [--budget N] [--model M] [--conformal C] -o R [--html-output H]
 vulnspider corpus collect    --url ... --application-id A --ground-truth G -o C
 vulnspider corpus fit        --corpus C -o M [--report Q]
 vulnspider corpus calibrate  --corpus C --target-recall R -o T
@@ -162,7 +162,14 @@ vulnspider corpus calibrate  --corpus C --target-recall R -o T
 
 `decide` ranks every candidate, then applies `--top-k` (required, the primary
 control), an optional `--budget`, and an optional conformal threshold as
-independent stopping conditions, reporting which one bound (ADR-027).
+independent stopping conditions, reporting which one bound (ADR-027). With
+`--html-output` it is the single command that goes from a URL to a browsable
+report, which is what `analyze --html-output` does for the heuristic path.
+
+`reporting/decision_html_report.py` renders the `DecisionOutcome`. Like the
+v0.1 report it recomputes nothing and shows unobserved features as unobserved
+rather than as zero. It shares the v0.1 stylesheet so both artifacts look like
+one tool; that coupling is presentation-only.
 
 `tools/corpus_target_site.py` generates the loopback labeled applications the
 corpus is collected from, and `tools/build_corpus.py` runs the whole loop.

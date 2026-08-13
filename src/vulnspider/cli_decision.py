@@ -48,7 +48,12 @@ from vulnspider.decision.cost import SeverityPolicy, VerificationCostPolicy
 from vulnspider.decision.policy import DecisionOutcome, run_decision_layer
 from vulnspider.domain import stable_fingerprint
 from vulnspider.pipeline import AnalysisResult
-from vulnspider.scoring.calibration import CalibratedScorer, CalibrationError
+from vulnspider.reporting.decision_html_report import write_decision_html_report
+from vulnspider.scoring.calibration import (
+    CalibratedProbability,
+    CalibratedScorer,
+    CalibrationError,
+)
 from vulnspider.selection import (
     build_mutation_handoff,
     select_combined_top_k,
@@ -77,7 +82,7 @@ def build_decision_candidates(
     *,
     cost_policy: VerificationCostPolicy | None = None,
     severity_policy: SeverityPolicy | None = None,
-) -> tuple[DecisionCandidate, ...]:
+) -> tuple[tuple[DecisionCandidate, ...], dict[str, CalibratedProbability]]:
     """Project one analysis into decision-layer candidates.
 
     Every candidate the scoring layer produced is ranked -- not just a Top-K --
@@ -92,7 +97,7 @@ def build_decision_candidates(
 
     results = analysis.scoring_results
     if not results:
-        return ()
+        return (), {}
 
     rank_all = len(results)
     injection = select_top_k(results, k=rank_all)
@@ -110,6 +115,7 @@ def build_decision_candidates(
     }
 
     candidates: list[DecisionCandidate] = []
+    scored: dict[str, CalibratedProbability] = {}
     for context in handoff.contexts:
         scorer = scorers.get(context.family)
         if scorer is None:
@@ -121,16 +127,18 @@ def build_decision_candidates(
             raise DecisionCLIError(
                 f"analysis has no feature vector {context.feature_vector_id!r}"
             )
+        calibrated = scorer.probability(vector.features)
+        scored[context.candidate_id] = calibrated
         candidates.append(
             decision_candidate_from_context(
                 context,
-                scorer.probability(vector.features),
+                calibrated,
                 cost_policy=cost_policy,
                 severity_policy=severity_policy,
                 redundancy_key=endpoint_by_point.get(context.candidate_subject_ref),
             )
         )
-    return tuple(candidates)
+    return tuple(candidates), scored
 
 
 def decision_report(
@@ -315,6 +323,15 @@ def add_decision_subcommands(subparsers: argparse._SubParsersAction) -> None:
         required=True,
         help="Decision report JSON destination.",
     )
+    decide.add_argument(
+        "--html-output",
+        type=Path,
+        default=None,
+        help=(
+            "Optional destination for a browsable HTML report rendering the "
+            "same decision as --output."
+        ),
+    )
     _add_crawl_bounds(decide)
 
     corpus = subparsers.add_parser(
@@ -423,9 +440,11 @@ def run_decide_command(
         crawler=crawler,
         crawler_transport=crawler_transport,
     )
+    if args.html_output is not None and args.html_output == args.output:
+        raise DecisionCLIError("--output and --html-output must differ")
     models = load_models(args.model, _FAMILIES)
     conformal = load_conformal(args.conformal)
-    candidates = build_decision_candidates(analysis, models)
+    candidates, probabilities = build_decision_candidates(analysis, models)
     outcome = run_decision_layer(
         candidates,
         top_k=args.top_k,
@@ -437,6 +456,22 @@ def run_decide_command(
         decision_report(outcome, target_url=args.url, models=models),
         args.output,
     )
+    if args.html_output is not None:
+        write_decision_html_report(
+            outcome,
+            args.html_output,
+            target=args.url,
+            input_points={
+                point.id or "": point for point in analysis.input_points
+            },
+            endpoints={
+                endpoint.id or "": endpoint for endpoint in analysis.endpoints
+            },
+            probabilities=probabilities,
+            models=models,
+            warnings=analysis.warnings,
+            elapsed_seconds=analysis.elapsed_seconds,
+        )
     spend = (
         f"{outcome.selection.spent_cost} requests"
         if args.budget is None
@@ -455,6 +490,8 @@ def run_decide_command(
             f"{outcome.conformal_set_size}; the recall guarantee does not hold",
         )
     print(f"vulnspider: decision report: {args.output}")
+    if args.html_output is not None:
+        print(f"vulnspider: html report: {args.html_output}")
     return 0
 
 
@@ -700,5 +737,6 @@ __all__ = [
     "append_corpus",
     "write_corpus",
     "scorers_as_mapping",
+    "write_decision_html_report",
     "write_json",
 ]

@@ -148,7 +148,7 @@ def _score(
 ) -> tuple[int, int, int, int]:
     found = positives = verified = requests = 0
     for analysis, labels in observations:
-        candidates = build_decision_candidates(analysis, scorers)
+        candidates, _probabilities = build_decision_candidates(analysis, scorers)
         outcome = run_decision_layer(
             candidates,
             top_k=top_k,

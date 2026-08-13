@@ -207,6 +207,79 @@ class DecideCommandTests(unittest.TestCase):
                 findings.append(report["selection"]["expected_findings"])
         self.assertEqual(findings, sorted(findings))
 
+    def test_html_report_is_written_and_escaped(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "d.json"
+            html = Path(directory) / "d.html"
+            self.assertEqual(
+                _run(
+                    [
+                        "decide",
+                        "--url",
+                        ROOT_URL,
+                        "--top-k",
+                        "5",
+                        "-o",
+                        str(output),
+                        "--html-output",
+                        str(html),
+                    ]
+                ),
+                0,
+            )
+            self.assertTrue(html.exists())
+            rendered = html.read_text(encoding="utf-8")
+        self.assertTrue(rendered.startswith("<!DOCTYPE html>"))
+        self.assertIn("Verification order", rendered)
+        self.assertIn("decision report", rendered)
+        # The report must show where a candidate lives, joined from the
+        # authoritative InputPoint rather than reconstructed.
+        self.assertIn("/product", rendered)
+        self.assertIn("query:id", rendered)
+        # Probabilities are pre-verification priorities (ADR-016); the report
+        # must say so rather than implying a confirmed finding.
+        self.assertIn("pre-verification priorities", rendered)
+        self.assertIn("not confirmed findings", rendered)
+
+    def test_html_report_reports_the_guarantee_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            html = Path(directory) / "d.html"
+            _run(
+                [
+                    "decide",
+                    "--url",
+                    ROOT_URL,
+                    "--top-k",
+                    "5",
+                    "-o",
+                    str(Path(directory) / "d.json"),
+                    "--html-output",
+                    str(html),
+                ]
+            )
+            rendered = html.read_text(encoding="utf-8")
+        self.assertIn("No recall guarantee was requested", rendered)
+
+    def test_html_and_json_destinations_must_differ(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            shared = Path(directory) / "same.json"
+            self.assertEqual(
+                _run(
+                    [
+                        "decide",
+                        "--url",
+                        ROOT_URL,
+                        "--top-k",
+                        "5",
+                        "-o",
+                        str(shared),
+                        "--html-output",
+                        str(shared),
+                    ]
+                ),
+                1,
+            )
+
     def test_top_k_is_required(self) -> None:
         with self.assertRaises(SystemExit):
             _run(["decide", "--url", ROOT_URL, "-o", "x.json"])
@@ -533,8 +606,11 @@ class CandidateProjectionTests(unittest.TestCase):
             crawler_transport=FixtureCrawlerTransport(),
             transport=FixtureProbeTransport(),
         )
-        candidates = build_decision_candidates(
+        candidates, probabilities = build_decision_candidates(
             analysis, prior_family_scorers(("SQLI", "REFLECTED_XSS"))
+        )
+        self.assertEqual(
+            {item.candidate_id for item in candidates}, set(probabilities)
         )
         self.assertTrue(candidates)
         by_key: dict[str, set[str]] = {}
