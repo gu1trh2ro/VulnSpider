@@ -230,18 +230,46 @@ class DecideCommandTests(unittest.TestCase):
             self.assertTrue(html.exists())
             rendered = html.read_text(encoding="utf-8")
         self.assertTrue(rendered.startswith("<!DOCTYPE html>"))
-        self.assertIn("Verification order", rendered)
+        self.assertIn('<html lang="ko">', rendered)
         # This is the full scan report, not a summary of numbers: it must join
         # each candidate to its endpoint, explain the ranking, and show the
         # baseline/probe pair that was actually executed.
-        self.assertIn("Why it ranks here", rendered)
-        self.assertIn("Executed requests", rendered)
-        self.assertIn("General guidance", rendered)
+        self.assertIn("검증 순서", rendered)
+        self.assertIn("순위 근거", rendered)
+        self.assertIn("실행된 요청", rendered)
+        self.assertIn("일반 지침", rendered)
         self.assertIn("query.id", rendered)
         self.assertIn("/product", rendered)
         self.assertIn("VULNSPIDER_", rendered)  # the probe marker actually sent
         # Probabilities are pre-verification priorities (ADR-016).
-        self.assertIn("pre-verification priorities", rendered)
+        self.assertIn("검증 이전의 우선순위", rendered)
+
+    def test_html_report_draws_charts_without_external_requests(self) -> None:
+        """Charts are inline SVG/CSS. The report has to open offline from a
+        scan directory and must not fetch anything when it does."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            html = Path(directory) / "d.html"
+            _run(
+                [
+                    "decide",
+                    "--url",
+                    ROOT_URL,
+                    "--top-k",
+                    "5",
+                    "-o",
+                    str(Path(directory) / "d.json"),
+                    "--html-output",
+                    str(html),
+                ]
+            )
+            rendered = html.read_text(encoding="utf-8")
+        self.assertIn("<svg", rendered)
+        self.assertIn("확률 구간 분포", rendered)
+        self.assertIn("파이프라인 축소", rendered)
+        self.assertIn("선택된 후보 확률 비교", rendered)
+        for outbound in ("<script", "http://cdn", "https://", "<link", "@import"):
+            self.assertNotIn(outbound, rendered)
 
     def test_html_report_accounts_for_every_scored_candidate(self) -> None:
         """A reader must be able to explain the gap between scored and
@@ -268,9 +296,10 @@ class DecideCommandTests(unittest.TestCase):
             report = json.loads(output.read_text(encoding="utf-8"))
         scored = report["selection"]["candidates_scored"]
         selected = report["selection"]["selected"]
-        self.assertIn(f"Not selected ({scored - selected})", rendered)
-        self.assertIn("why not", rendered)
-        self.assertIn("ranked below the cut", rendered)
+        self.assertIn(f"선택되지 않은 후보 ({scored - selected})", rendered)
+        self.assertIn("사유", rendered)
+        self.assertIn("순위가 컷 아래", rendered)
+        self.assertIn("안전하다고 판정한 것이 아닙니다", rendered)
 
     def test_html_report_reports_the_guarantee_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -289,8 +318,8 @@ class DecideCommandTests(unittest.TestCase):
                 ]
             )
             rendered = html.read_text(encoding="utf-8")
-        self.assertIn("Recall guarantee", rendered)
-        self.assertIn("None requested", rendered)
+        self.assertIn("Recall 보장", rendered)
+        self.assertIn("요청하지 않았습니다", rendered)
 
     def test_html_and_json_destinations_must_differ(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

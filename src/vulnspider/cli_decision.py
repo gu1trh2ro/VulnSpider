@@ -487,6 +487,8 @@ def run_decide_command(
             models=models,
             warnings=analysis.warnings,
             elapsed_seconds=analysis.elapsed_seconds,
+            endpoint_count=len(analysis.endpoints),
+            input_point_count=len(analysis.input_points),
         )
     spend = (
         f"{outcome.selection.spent_cost} requests"

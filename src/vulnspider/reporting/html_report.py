@@ -616,6 +616,7 @@ _DOCUMENT_STYLE = """
     --paper:#f6f7f9; --card:#ffffff; --ink:#12161d; --muted:#5b6472;
     --line:#e3e7ee; --accent:#2f4b7c;
     --low:#7c8798; --medium:#c08a2d; --high:#c0463b;
+    --sqli:#2f6f8f; --xss:#7a5aa8; --bac:#2f7d5f; --track:#eef1f6;
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
     --sans:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
   }
