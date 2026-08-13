@@ -77,6 +77,7 @@ def build_html_report_context(
     input_points: Mapping[str, InputPoint] = _EMPTY_INPUT_POINTS,
     endpoints: Mapping[str, Endpoint] = _EMPTY_ENDPOINTS,
     probe_runs: Mapping[str, ProbeRun] = _EMPTY_PROBE_RUNS,
+    requests_executed: int | None = None,
     target: str = "",
     elapsed_seconds: float = 0.0,
 ) -> dict[str, Any]:
@@ -119,7 +120,11 @@ def build_html_report_context(
             "unrankable_results": summary.unrankable_results,
             "selected_results": summary.selected_results,
             "top_k_requested": summary.top_k_requested,
-            "requests_executed": 2 * len(probe_runs),
+            "requests_executed": (
+                2 * len(probe_runs)
+                if requests_executed is None
+                else int(requests_executed)
+            ),
             "elapsed_seconds": float(elapsed_seconds),
         },
         "priority_bands": band_counts,
@@ -138,6 +143,7 @@ def render_html_report(
     input_points: Mapping[str, InputPoint] = _EMPTY_INPUT_POINTS,
     endpoints: Mapping[str, Endpoint] = _EMPTY_ENDPOINTS,
     probe_runs: Mapping[str, ProbeRun] = _EMPTY_PROBE_RUNS,
+    requests_executed: int | None = None,
     target: str = "",
     elapsed_seconds: float = 0.0,
 ) -> str:
@@ -147,6 +153,7 @@ def render_html_report(
         input_points=input_points,
         endpoints=endpoints,
         probe_runs=probe_runs,
+        requests_executed=requests_executed,
         target=target,
         elapsed_seconds=elapsed_seconds,
     )
@@ -161,6 +168,7 @@ def write_html_report(
     input_points: Mapping[str, InputPoint] = _EMPTY_INPUT_POINTS,
     endpoints: Mapping[str, Endpoint] = _EMPTY_ENDPOINTS,
     probe_runs: Mapping[str, ProbeRun] = _EMPTY_PROBE_RUNS,
+    requests_executed: int | None = None,
     target: str = "",
     elapsed_seconds: float = 0.0,
 ) -> None:
@@ -171,6 +179,7 @@ def write_html_report(
             input_points=input_points,
             endpoints=endpoints,
             probe_runs=probe_runs,
+            requests_executed=requests_executed,
             target=target,
             elapsed_seconds=elapsed_seconds,
         ),

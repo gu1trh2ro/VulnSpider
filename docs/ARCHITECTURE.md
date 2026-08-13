@@ -44,9 +44,14 @@ Legacy crawl-record JSON
   -> optional HTML report
 ```
 
-The CLI boundary is `vulnspider analyze --input <legacy-records.json>`. It
-accepts only adapter-compatible legacy records and only executes probes against
-localhost/loopback targets.
+The frozen compatibility CLI boundary remains
+`vulnspider analyze --input <legacy-records.json>`. The advanced implemented
+v0.2 boundary also accepts `analyze --url`: it uses Native Static Discovery by
+default and adds combined Native Dynamic Discovery only with explicit
+`--dynamic` plus caller-owned exact authority. The thin user adapter
+`vulnspider -u URL` calls that same `analyze_url()` pipeline with Dynamic
+enabled by default; `--static-only` selects the existing Native Static path.
+Both analysis paths execute probes only against localhost/loopback targets.
 
 ### 1.3 Implemented boundaries
 
@@ -76,7 +81,10 @@ the legacy crawler or import the legacy database runtime. It converts stored
 records into canonical v0.1 models while preserving ordered/repeated query
 pairs, occurrence identity, form provenance, completeness, and warnings.
 
-There is no implemented native `DiscoveryCollector` in v0.1.
+There is no native `DiscoveryCollector` in the frozen v0.1 path. The current
+v0.2 implementation produces `CanonicalDiscoveryResult` through Native Static,
+Native Dynamic, and deterministic combined collectors without changing the
+legacy adapter contract.
 
 #### Probe planning and execution
 
@@ -115,11 +123,26 @@ must refer to different destinations.
 not mean that `ScopeGuard`, a native surface collector, or a separate
 `AttackSurfaceNormalizer` has been implemented.
 
+#### Native discovery
+
+`discovery/` implements bounded Static and Dynamic producers, strict request
+authority, pre-canonical sensitive-form elision for combined mode, and a
+deterministic Static-first merge. The advanced `analyze --dynamic` boundary
+keeps exact caller grants. The simple adapter additionally permits only an
+exact same-origin GET URL already extracted from a rendered anchor, for that
+single crawler navigation, plus same-origin GET script/style resources.
+Fetch/XHR, WebSocket, EventSource, POST, popup, and child-frame documents stay
+blocked by default. `pipeline.analyze_url()` sends the validated combined
+`CombinedDiscoveryResult.discovery` to the unchanged
+`analyze_discovery_result()` consumer. Advanced plain `analyze --url` and
+simple `--static-only` stay Static-only, while legacy `--input` cannot activate
+browser code.
+
 ### 1.5 Implemented dependency direction
 
 ```text
 cli -> pipeline + reporting
-pipeline -> discovery adapter + observation + features + scoring + selection
+pipeline -> discovery producers/adapter + observation + features + scoring + selection
 reporting -> selection -> scoring -> features -> domain
 selection -> scoring -> features -> domain
 observation -> domain
@@ -136,14 +159,17 @@ Rules:
 ## 2. Target Prototype v0.2
 
 Everything in this section is **Planned for v0.2** unless explicitly labeled
-otherwise.
+otherwise. Native Static Discovery and opt-in combined Native Dynamic
+Discovery through its CLI/pipeline Milestone 6 are implemented; the final
+Milestone 7 loopback E2E remains pending.
 
 ### 2.1 Target execution path
 
 ```text
 Target URL
   -> Scope / Redirect / Budget validation
-  -> Native Static Crawler
+  -> Native Static Crawler (implemented)
+  -> optional bounded Native Dynamic Crawler (implemented through M6)
   -> CanonicalDiscoveryResult (Proposed Contract)
   -> Observation / Feature Extraction
   -> SQLi / Reflected XSS / BAC Scoring
@@ -158,15 +184,16 @@ Target URL
   -> Final Reporting / Finding
 ```
 
-A bounded native dynamic/browser crawler prototype follows the static crawler
-and must produce the same canonical discovery contract.
+A bounded native dynamic/browser crawler follows the static crawler only under
+explicit opt-in and produces the same canonical discovery contract. The final
+loopback E2E acceptance milestone is not yet implemented.
 
 ### 2.2 Native discovery direction
 
 The native crawler, not `LegacyCrawlerAdapter`, is the primary v0.2 producer of
 canonical domain models.
 
-Static discovery is implemented first:
+Static discovery is implemented:
 
 - Target and scope validation.
 - Redirect final-target revalidation.
@@ -176,9 +203,9 @@ Static discovery is implemented first:
 - Ordered and repeated parameter occurrence preservation.
 - Raw query context and form provenance preservation.
 
-Dynamic discovery is connected only after the static contract is validated. It
-may add browser-observed surfaces, but it cannot create a second incompatible
-domain model.
+Dynamic discovery is connected after the Static contract is validated. It adds
+browser-observed surfaces under exact caller authority and cannot create a
+second incompatible domain model.
 
 ### 2.3 BAC family
 

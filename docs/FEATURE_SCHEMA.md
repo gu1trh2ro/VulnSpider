@@ -318,6 +318,78 @@ available range: 0..45
 - score evidence에 `observed=false`, `feature_value=null`,
   `contribution=null` 상태를 기록한다.
 
+응답 본문이 디코딩되지 않은 경우(`ResponseSnapshot.decoded_text is None`)
+본문 기반 feature(`marker_reflected`, `sql_error_pattern`)는 관찰된 `0.0`이
+아니라 미관찰로 기록한다. `details.reason`은 `response-body-not-decoded`다.
+
+---
+
+## 7-1. Multi-context InputPoint 합성
+
+aggregation version:
+
+```text
+input-point-existential-v1
+```
+
+### 왜 필요한가
+
+`FeatureVector`는 probe run 하나가 아니라 **InputPoint 하나**에 귀속된다
+(`docs/DOMAIN_MODEL.md` §9). Native Static 단일 시드 크롤에서는 InputPoint 하나가
+probe-ready request context를 하나만 갖는 경우가 대부분이어서 두 단위가
+우연히 일치했다.
+
+Native Dynamic / Combined 수집은 같은 endpoint의 같은 파라미터를 서로 다른
+값으로 여러 번 관측한다. 예를 들어 static이 `/search?q=one`을, 렌더링된 링크가
+`/search?q=two`를 발견하면 `Endpoint`와 `InputPoint` fingerprint는 같고
+`RequestTemplate`만 달라져 probe-ready context가 2개가 된다.
+
+이때 probe run마다 `FeatureVector`를 만들면 같은 candidate id
+(`InputPoint x VulnerabilityType`, ADR-002)가 한 번의 분석에서 여러 번
+생성되어 Top-K 요약과 evidence 소유 관계가 어긋난다.
+
+### 합성 규칙
+
+같은 InputPoint의 probe run 결과들을 feature 단위로 합성한다.
+
+```text
+for each feature name:
+    entries  = 그 InputPoint의 모든 probe run 관측
+    observed = [e for e in entries if e.observed]
+
+    if not observed:
+        observed=false, value=null
+        details.reason = "no-observed-probe-run"
+    else:
+        value = max(e.value for e in observed)
+        동점이면 probe_run_id 오름차순으로 결정
+```
+
+- probe run이 하나뿐이면 원본 `FeatureVector`를 그대로 사용한다.
+- `probe_run_ids`에는 그 InputPoint를 관측한 모든 `ResponsePair` id가 들어간다.
+- `details`에 다음을 남긴다.
+
+```text
+aggregation              합성 정책 버전
+aggregated_probe_run_ids 합성에 참여한 probe run
+selected_probe_run_id    채택된 값을 만든 probe run
+probe_run_values         run별 값 (미관찰이면 null)
+unobserved_probe_runs    미관찰 run 수
+```
+
+### 근거와 주의
+
+- `RankScore`는 취약 확률이 아니라 검증 우선순위다(ADR-003, 도메인 규칙 6).
+  같은 InputPoint를 여러 request context로 관측했을 때 그중 하나에서라도
+  신호가 보였다면 그 InputPoint의 검증 우선순위는 올라가야 한다.
+- 미관찰 run은 관찰된 run을 가리지 못한다. 반대로 모든 run이 미관찰이면
+  feature는 미관찰로 남는다(도메인 규칙 8).
+- 서로 다른 run에서 온 값이 하나의 벡터에 모일 수 있으므로, 합성된 feature
+  값은 단일 요청 한 쌍의 재현이 아니다. 어떤 run에서 왔는지는 항상
+  `selected_probe_run_id`로 설명 가능해야 한다.
+- 서로 다른 extractor version이 같은 feature 이름을 만들면 합성하지 않고
+  실패한다.
+
 ---
 
 ## 8. Feature 추가 규칙

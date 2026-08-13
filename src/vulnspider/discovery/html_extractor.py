@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from vulnspider.discovery.contracts import (
@@ -15,6 +15,7 @@ from vulnspider.discovery.contracts import (
     DiscoveryContractError,
     DiscoveryMetadata,
     DiscoveryProvenance,
+    DiscoverySafetyInvariant,
     DiscoverySubjectKind,
     DiscoveryWarning,
     NonProbeReadyReason,
@@ -40,6 +41,11 @@ SCOPE_POLICY_VERSION = "same-origin-v1"
 
 _NON_DATA_INPUT_TYPES = frozenset({"button", "image", "reset", "submit"})
 _CHECKABLE_INPUT_TYPES = frozenset({"checkbox", "radio"})
+
+
+@dataclass(frozen=True, slots=True)
+class SensitiveFormElisionPolicy:
+    """Opt into pre-canonical elision of structurally sensitive forms."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,8 +174,10 @@ class _ActiveSelect:
 
 @dataclass(slots=True)
 class _RawForm:
+    occurrence_index: int
     raw_method: str | None
     raw_action: str | None
+    sensitive: bool = False
     controls: list[_RawControl] = field(default_factory=list)
     malformed_reasons: set[str] = field(default_factory=set)
     closed: bool = False
@@ -187,8 +195,53 @@ class _PointState:
     hidden: bool = False
 
 
-class _StaticHtmlParser(HTMLParser):
+class _SensitiveFormClassifier(HTMLParser):
     def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.form_count = 0
+        self.form_occurrence: int | None = None
+        self.sensitive_form_occurrences: set[int] = set()
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if tag == "form":
+            self.form_occurrence = self.form_count
+            self.form_count += 1
+            return
+        if (
+            tag == "input"
+            and self.form_occurrence is not None
+            and _normalized_input_type(attrs) == "password"
+        ):
+            self.sensitive_form_occurrences.add(self.form_occurrence)
+
+    def handle_startendtag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        self.handle_starttag(tag, attrs)
+        if tag == "form":
+            self.handle_endtag(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "form":
+            self.form_occurrence = None
+
+    def finish(self) -> None:
+        self.close()
+        self.form_occurrence = None
+
+
+class _StaticHtmlParser(HTMLParser):
+    def __init__(
+        self,
+        *,
+        sensitive_form_occurrences: frozenset[int] = frozenset(),
+    ) -> None:
         super().__init__(convert_charrefs=True)
         self.raw_links: list[str | None] = []
         self.forms: list[_RawForm] = []
@@ -197,12 +250,20 @@ class _StaticHtmlParser(HTMLParser):
         self.textarea: _ActiveTextarea | None = None
         self.select: _ActiveSelect | None = None
         self._control_index = 0
+        self._form_occurrence_count = 0
+        self._sensitive_form_occurrences = sensitive_form_occurrences
 
     def handle_starttag(
         self,
         tag: str,
         attrs: list[tuple[str, str | None]],
     ) -> None:
+        if (
+            self.form is not None
+            and self.form.sensitive
+            and tag in {"button", "input", "option", "select", "textarea"}
+        ):
+            return
         attributes = _attribute_map(attrs)
         if tag == "a":
             self.raw_links.append(attributes.get("href"))
@@ -275,9 +336,13 @@ class _StaticHtmlParser(HTMLParser):
             nested_reason = {"nested-form"}
         else:
             nested_reason = set()
+        occurrence_index = self._form_occurrence_count
+        self._form_occurrence_count += 1
         self.form = _RawForm(
+            occurrence_index=occurrence_index,
             raw_method=attributes.get("method"),
             raw_action=attributes.get("action"),
+            sensitive=occurrence_index in self._sensitive_form_occurrences,
             malformed_reasons=nested_reason,
         )
         self._control_index = 0
@@ -544,12 +609,24 @@ class _CanonicalBuilder:
         scope: ScopeMetadata,
         parent_url: str | None,
         depth: int,
+        request_authorizer: Callable[[str], bool] | None,
     ) -> None:
         self.source_url = source_url
         self.metadata = metadata
         self.scope = scope
         self.parent_url = parent_url
         self.depth = depth
+        self.request_authorizer = request_authorizer
+        self.native_metadata_key = (
+            "native_dynamic"
+            if metadata.collector_kind == CollectorKind.NATIVE_DYNAMIC
+            else "native_static"
+        )
+        self.discovered_by = (
+            "native_dynamic_rendered_dom"
+            if metadata.collector_kind == CollectorKind.NATIVE_DYNAMIC
+            else "native_static_html"
+        )
         self.run_id = discovery_run_id_for(metadata, scope)
         self.endpoints: dict[str, Endpoint] = {}
         self.point_states: dict[str, _PointState] = {}
@@ -772,6 +849,7 @@ class _CanonicalBuilder:
         *,
         link_count: int,
         form_count: int,
+        safety_invariants: Sequence[DiscoverySafetyInvariant] = (),
     ) -> CanonicalDiscoveryResult:
         points = self._finalize_points()
         provenance: list[DiscoveryProvenance] = []
@@ -817,6 +895,7 @@ class _CanonicalBuilder:
             probe_readiness=tuple(self.readiness.values()),
             crawl_provenance=tuple(provenance),
             warnings=tuple(self.warnings.values()),
+            safety_invariants=safety_invariants,
         )
 
     def _add_endpoint(
@@ -832,7 +911,7 @@ class _CanonicalBuilder:
             scheme=parts.scheme,
             host=parts.netloc,
             path=parts.path or "/",
-            discovered_by="native_static_html",
+            discovered_by=self.discovered_by,
         )
         stored = self.endpoints.setdefault(endpoint.id or "", endpoint)
         self._observe(
@@ -858,6 +937,28 @@ class _CanonicalBuilder:
         not_ready_reasons: Sequence[NonProbeReadyReason],
         control_types: tuple[tuple[str, bool, int], ...] = (),
     ) -> None:
+        context_complete = ready
+        effective_reasons = tuple(not_ready_reasons)
+        if self.request_authorizer is not None:
+            try:
+                authorized = self.request_authorizer(url) is True
+            except Exception:  # noqa: BLE001 - authority ambiguity fails closed.
+                authorized = False
+            if not authorized:
+                ready = False
+                effective_reasons = tuple(
+                    sorted(
+                        set(effective_reasons)
+                        | {NonProbeReadyReason.REQUEST_NOT_AUTHORIZED},
+                        key=lambda item: item.value,
+                    )
+                )
+                metadata = {
+                    **metadata,
+                    "non_probe_ready_reasons": tuple(
+                        item.value for item in effective_reasons
+                    ),
+                }
         query_pairs = tuple(
             (name, value) for name, value, _ in query_occurrences
         )
@@ -873,7 +974,7 @@ class _CanonicalBuilder:
             form=form_pairs,
             completeness=(
                 RequestContextCompleteness.COMPLETE
-                if ready
+                if context_complete
                 else RequestContextCompleteness.PARTIAL
             ),
             context_key=context_key,
@@ -925,7 +1026,7 @@ class _CanonicalBuilder:
                 type_hint=type_hint,
                 source_page=self.source_url,
                 metadata={
-                    "native_static": True,
+                    self.native_metadata_key: True,
                     "hidden": hidden,
                     "visibility": "hidden" if hidden else "visible",
                 },
@@ -947,7 +1048,7 @@ class _CanonicalBuilder:
                 stored_template,
                 observation_key=f"{observation_key}:query:{pair_index}",
                 ready=ready,
-                not_ready_reasons=not_ready_reasons,
+                not_ready_reasons=effective_reasons,
             )
 
         form_counts = Counter(
@@ -973,7 +1074,7 @@ class _CanonicalBuilder:
                 type_hint=control.type_hint,
                 source_page=self.source_url,
                 metadata={
-                    "native_static": True,
+                    self.native_metadata_key: True,
                     "hidden": control.hidden,
                     "visibility": "hidden" if control.hidden else "visible",
                 },
@@ -991,7 +1092,7 @@ class _CanonicalBuilder:
                 stored_template,
                 observation_key=f"{observation_key}:form:{pair_index}",
                 ready=ready,
-                not_ready_reasons=not_ready_reasons,
+                not_ready_reasons=effective_reasons,
             )
 
     def _remember_point(
@@ -1072,7 +1173,7 @@ class _CanonicalBuilder:
             baseline_value = values[0] if len(values) == 1 else None
             type_hints = tuple(sorted(state.type_hints))
             metadata: dict[str, Any] = {
-                "native_static": True,
+                self.native_metadata_key: True,
                 "hidden": state.hidden,
                 "visibility": "hidden" if state.hidden else "visible",
                 "origin_kinds": tuple(sorted(state.origin_kinds)),
@@ -1104,6 +1205,9 @@ def extract_static_html(
     scope_metadata: ScopeMetadata | None = None,
     parent_url: str | None = None,
     depth: int = 0,
+    sensitive_form_policy: SensitiveFormElisionPolicy | None = None,
+    request_authorizer: Callable[[str], bool] | None = None,
+    safety_invariants: Sequence[DiscoverySafetyInvariant] = (),
 ) -> StaticExtractionResult:
     """Extract one HTML string without fetching, submitting, or executing it."""
 
@@ -1113,6 +1217,14 @@ def extract_static_html(
         raise TypeError("source_url must be a string")
     if type(depth) is not int or depth < 0:
         raise ValueError("depth must be a non-negative integer")
+    if sensitive_form_policy is not None and (
+        type(sensitive_form_policy) is not SensitiveFormElisionPolicy
+    ):
+        raise TypeError(
+            "sensitive_form_policy must be a SensitiveFormElisionPolicy or None"
+        )
+    if request_authorizer is not None and not callable(request_authorizer):
+        raise TypeError("request_authorizer must be callable or None")
     _, canonical_source = _resolve_http_url(source_url, base_url=None)
     canonical_parent = None
     if parent_url is not None:
@@ -1129,9 +1241,19 @@ def extract_static_html(
         ),
     )
     metadata.validate()
-    if metadata.collector_kind != CollectorKind.NATIVE_STATIC:
+    if metadata.collector_kind not in {
+        CollectorKind.NATIVE_STATIC,
+        CollectorKind.NATIVE_DYNAMIC,
+    }:
         raise DiscoveryContractError(
-            "static HTML extractor requires NATIVE_STATIC collector metadata"
+            "HTML extractor requires Native Static or Native Dynamic metadata"
+        )
+    if (
+        metadata.collector_kind == CollectorKind.NATIVE_DYNAMIC
+        and sensitive_form_policy is None
+    ):
+        raise DiscoveryContractError(
+            "Native Dynamic HTML extraction requires sensitive-form elision"
         )
     scope = scope_metadata or ScopeMetadata(
         target_scope_id=scope_id_for_root(
@@ -1143,9 +1265,29 @@ def extract_static_html(
     )
     scope.validate()
 
-    parser = _StaticHtmlParser()
+    sensitive_form_occurrences: frozenset[int] = frozenset()
+    classified_form_count: int | None = None
+    if sensitive_form_policy is not None:
+        classifier = _SensitiveFormClassifier()
+        classifier.feed(html)
+        classifier.finish()
+        sensitive_form_occurrences = frozenset(
+            classifier.sensitive_form_occurrences
+        )
+        classified_form_count = classifier.form_count
+
+    parser = _StaticHtmlParser(
+        sensitive_form_occurrences=sensitive_form_occurrences
+    )
     parser.feed(html)
     parser.finish()
+    if (
+        classified_form_count is not None
+        and classified_form_count != len(parser.forms)
+    ):
+        raise ValueError(
+            "sensitive form classification did not align with canonical parsing"
+        )
 
     builder = _CanonicalBuilder(
         source_url=canonical_source,
@@ -1153,6 +1295,7 @@ def extract_static_html(
         scope=scope,
         parent_url=canonical_parent,
         depth=depth,
+        request_authorizer=request_authorizer,
     )
     builder.add_url_surface(
         canonical_source,
@@ -1231,9 +1374,20 @@ def extract_static_html(
             observation_key=f"link:{link.id}",
         )
 
-    form_signatures = [_form_signature(item) for item in parser.forms]
     form_seen: Counter[str] = Counter()
-    for raw_form, signature in zip(parser.forms, form_signatures, strict=True):
+    for raw_form in parser.forms:
+        if raw_form.sensitive:
+            builder.add_warning(
+                "SENSITIVE_FORM_ELIDED",
+                "sensitive form was elided before canonical construction",
+                {
+                    "depth": depth,
+                    "form_occurrence_index": raw_form.occurrence_index,
+                    "producer_kind": metadata.collector_kind.value,
+                },
+            )
+            continue
+        signature = _form_signature(raw_form)
         duplicate_index = form_seen[signature]
         form_seen[signature] += 1
         boundary_key = (
@@ -1241,9 +1395,24 @@ def extract_static_html(
         )
         builder.add_form(raw_form, boundary_key=boundary_key)
 
+    try:
+        active_invariants = {
+            DiscoverySafetyInvariant(item) for item in safety_invariants
+        }
+    except (TypeError, ValueError):
+        raise DiscoveryContractError(
+            "safety_invariants must contain canonical values"
+        ) from None
+    if sensitive_form_policy is not None:
+        active_invariants.add(
+            DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION
+        )
     discovery = builder.build(
         link_count=len(links),
         form_count=len(parser.forms),
+        safety_invariants=tuple(
+            sorted(active_invariants, key=lambda item: item.value)
+        ),
     )
     ordered_links = tuple(
         sorted(
@@ -1264,10 +1433,42 @@ def extract_static_html(
     )
 
 
+def extract_static_html_with_sensitive_form_elision(
+    html: str,
+    source_url: str,
+    *,
+    discovery_metadata: DiscoveryMetadata,
+    scope_metadata: ScopeMetadata,
+    parent_url: str | None,
+    depth: int,
+) -> StaticExtractionResult:
+    """Extract Static HTML with the merge-required elision policy bound."""
+
+    return extract_static_html(
+        html,
+        source_url,
+        discovery_metadata=discovery_metadata,
+        scope_metadata=scope_metadata,
+        parent_url=parent_url,
+        depth=depth,
+        sensitive_form_policy=SensitiveFormElisionPolicy(),
+    )
+
+
 def _attribute_map(
     attrs: Sequence[tuple[str, str | None]],
 ) -> dict[str, str | None]:
     return {name.lower(): value for name, value in attrs}
+
+
+def _normalized_input_type(
+    attrs: Sequence[tuple[str, str | None]],
+) -> str:
+    raw_type: str | None = None
+    for name, value in attrs:
+        if name.lower() == "type":
+            raw_type = value
+    return (raw_type or "text").strip().lower() or "text"
 
 
 def _non_empty_attribute(

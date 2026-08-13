@@ -294,6 +294,76 @@ integration PR은 review 후 merge commit을 사용할 수 있다. contract
 
 ---
 
+## ADR-019 — Simple CLI defaults to bounded Dynamic discovery
+
+**Status:** Accepted
+
+**Date:** 2026-08-04
+
+**Decision:** `vulnspider -u URL` is a thin adapter over the existing combined
+Static + Dynamic + merge + Light Probe pipeline. It uses the reviewed Dynamic
+budget defaults except for a simple-adapter maximum link depth of two, allows
+only exact same-origin GET URLs extracted from rendered anchors for
+crawler-initiated navigation, and allows same-origin GET script/style resources
+needed to render those anchors. The advanced
+`vulnspider analyze` interface and its exact-grant defaults remain unchanged.
+
+**Reason:** The public one-line command should discover JavaScript-rendered GET
+surfaces without requiring users to predict those URLs, while page code must
+not gain general navigation or active-transport authority.
+
+**Consequences:** Fetch/XHR, WebSocket, EventSource, POST, form submission,
+popup, child-frame documents, cross-origin, and different-port traffic remain
+blocked unless an existing explicit advanced grant category permits it. JSON
+publication uses same-directory temporary output plus atomic replacement, and
+failed or degraded simple scans do not publish a new result.
+
+---
+
+## ADR-020 — One FeatureVector per InputPoint across its probe-ready contexts
+
+**Status:** Accepted
+
+**Date:** 2026-08-10
+
+**Decision:** When one `InputPoint` owns several probe-ready
+`InputPointRequestContext` objects, every executed probe run still runs, but
+their per-run `FeatureVector` objects are combined into exactly one
+`FeatureVector` for that `InputPoint` before candidate generation. Each feature
+is combined existentially: the largest observed value wins, ties resolve by
+ascending probe-run id, and a feature stays unobserved when no run observed it.
+`probe_run_ids` lists every contributing `ResponsePair`, and `details` records
+the aggregation version, the participating runs, the run that supplied the
+retained value, each run's value, and the unobserved-run count. Aggregation
+policy version: `input-point-existential-v1`.
+
+**Context:** `docs/DOMAIN_MODEL.md` §9 already defines a `FeatureVector` as one
+`InputPoint` plus the probe runs that produced it, and ADR-002 keeps
+`InputPoint x VulnerabilityType` as the ranking atom. Native Static single-seed
+crawls happened to bind one context per `InputPoint`, so a per-run vector was
+indistinguishable from a per-InputPoint vector. Native Dynamic and Combined
+discovery observe the same endpoint parameter through several request
+templates, so per-run vectors produced several `ScoringResult` objects sharing
+one candidate id. `select_top_k` then collapsed them silently, the same
+candidate could appear in both `selected` and `unrankable`, and the reported
+summary counted observations instead of candidates.
+
+**Alternatives:** Probe only one deterministically chosen context per
+`InputPoint`. Rejected because it discards the observation that discriminates
+between contexts, for example a numeric baseline versus an already-broken one.
+Fixing only the selection accounting was also rejected because it leaves the
+ranking atom split across several feature vectors.
+
+**Consequences:** `AnalysisResult.feature_vectors` holds one vector per
+observed `InputPoint`, and several `ProbeObservation` records can reference the
+same `feature_vector_id`. Reporting joins by `probe_run_ids` membership instead
+of assuming one run per vector. A combined feature value can come from a
+different probe run than its sibling feature, so a combined vector is not the
+replay of one request pair; `selected_probe_run_id` keeps that explainable.
+Single-context analyses are unchanged and keep their previous vector ids.
+
+---
+
 ## New Decision Template
 
 ```text

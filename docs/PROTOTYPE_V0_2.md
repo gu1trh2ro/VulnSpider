@@ -48,9 +48,9 @@ v0.2 therefore:
 ```text
 Target URL
   -> Scope / Redirect / Budget checks
-  -> Native Static Crawler
-  -> later Native Dynamic Crawler prototype
-  -> CanonicalDiscoveryResult (Proposed Contract)
+  -> Native Static Crawler (implemented)
+  -> optional Native Dynamic Crawler (implemented through CLI/pipeline M6)
+  -> CanonicalDiscoveryResult
   -> Observation / Feature Extraction
   -> SQLi / Reflected XSS / BAC Scoring
   -> Top-K
@@ -67,7 +67,8 @@ Target URL
 
 ### 4.1 Native discovery
 
-**Planned for v0.2**
+**Implemented through Native Dynamic CLI/pipeline Milestone 6; final Dynamic
+loopback E2E acceptance remains planned**
 
 - Direct authorized target URL input.
 - Scope allowlist and final redirect-target validation.
@@ -78,8 +79,10 @@ Target URL
 - Direct production of canonical domain models.
 - A bounded dynamic/browser crawler prototype using the same contract.
 
-The native static crawler is implemented and validated first. Dynamic
-collection cannot introduce a parallel schema.
+The native Static crawler and explicit opt-in combined Dynamic path are
+implemented against one validated canonical schema. Dynamic collection cannot
+introduce a parallel schema. The final Milestone 7 loopback E2E is still
+pending and this status does not claim its acceptance evidence.
 
 ### 4.2 Observation, features, and prioritization
 
@@ -271,6 +274,8 @@ The whole team reviews confidence rules. 석현 owns their implementation.
 
 - Connect browser collection to the same contract.
 - Demonstrate canonical deduplication and unchanged downstream consumption.
+- Status: implemented through the focused CLI/pipeline Milestone 6; final
+  loopback E2E acceptance remains pending.
 
 ### M3 - BAC prioritization
 

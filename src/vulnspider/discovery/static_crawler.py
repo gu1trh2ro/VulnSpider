@@ -20,6 +20,7 @@ from vulnspider.discovery.contracts import (
     CrawlStatistics,
     DiscoveryMetadata,
     DiscoveryProvenance,
+    DiscoverySafetyInvariant,
     DiscoveryWarning,
     ProbeReadiness,
     ScopeMetadata,
@@ -28,6 +29,7 @@ from vulnspider.discovery.contracts import (
 from vulnspider.discovery.html_extractor import (
     StaticExtractionResult,
     extract_static_html,
+    extract_static_html_with_sensitive_form_elision,
 )
 from vulnspider.domain import (
     Endpoint,
@@ -207,6 +209,16 @@ class StaticHtmlExtractor(Protocol):
         """Extract one already-fetched HTML document."""
 
 
+def _extractor_safety_invariants(
+    extractor: StaticHtmlExtractor,
+) -> tuple[DiscoverySafetyInvariant, ...]:
+    if extractor is extract_static_html_with_sensitive_form_elision:
+        return (
+            DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION,
+        )
+    return ()
+
+
 class _NoRedirectHandler(HTTPRedirectHandler):
     def redirect_request(  # type: ignore[override]
         self,
@@ -373,6 +385,7 @@ class _CrawlState:
     started: float
     queue: list[tuple[int, str, str]]
     scheduled: set[str]
+    extractor_safety_invariants: tuple[DiscoverySafetyInvariant, ...]
     requested: set[str] = field(default_factory=set)
     visited_urls: list[str] = field(default_factory=list)
     processed_urls: list[str] = field(default_factory=list)
@@ -431,6 +444,7 @@ class StaticCrawler:
         active_policy = policy or CrawlPolicy()
         if not isinstance(active_policy, CrawlPolicy):
             raise StaticCrawlerError("policy must be a CrawlPolicy")
+        extractor_safety_invariants = _extractor_safety_invariants(self.extractor)
         canonical_root = canonicalize_crawl_url(root_url)
         metadata = DiscoveryMetadata(
             collector_kind=CollectorKind.NATIVE_STATIC,
@@ -438,6 +452,7 @@ class StaticCrawler:
             configuration_fingerprint=stable_fingerprint(
                 "native-static-crawl-policy",
                 active_policy.to_dict(),
+                tuple(item.value for item in extractor_safety_invariants),
             ),
         )
         scope_ref = (
@@ -461,6 +476,7 @@ class StaticCrawler:
             started=self.clock(),
             queue=[(0, canonical_root, "")],
             scheduled={canonical_root},
+            extractor_safety_invariants=extractor_safety_invariants,
         )
 
         while state.queue:
@@ -596,7 +612,7 @@ class StaticCrawler:
                     },
                 )
                 return None
-            if not _same_origin(state.root_url, destination):
+            if not same_origin_crawl_url(state.root_url, destination):
                 state.warn(
                     "OFF_SCOPE_REDIRECT",
                     "cross-origin redirect was blocked before transport",
@@ -742,7 +758,7 @@ class StaticCrawler:
                     {"link_id": link.id},
                 )
                 continue
-            if not _same_origin(state.root_url, candidate):
+            if not same_origin_crawl_url(state.root_url, candidate):
                 state.warn(
                     "OFF_SCOPE_LINK",
                     "cross-origin link was blocked before queueing",
@@ -869,8 +885,12 @@ def _origin(url: str) -> tuple[str, str, int]:
     return scheme, hostname, port
 
 
-def _same_origin(root_url: str, candidate_url: str) -> bool:
-    return _origin(root_url) == _origin(candidate_url)
+def same_origin_crawl_url(root_url: str, candidate_url: str) -> bool:
+    """Return exact scheme/host/effective-port origin equality for crawl URLs."""
+
+    canonical_root = canonicalize_crawl_url(root_url)
+    canonical_candidate = canonicalize_crawl_url(candidate_url)
+    return _origin(canonical_root) == _origin(canonical_candidate)
 
 
 def _url_fingerprint(url: str) -> str:
@@ -898,6 +918,7 @@ def _build_discovery_result(
     provenance: dict[str, DiscoveryProvenance] = {}
     hints: dict[str, BACStaticHint] = {}
     warnings = dict(state.warnings)
+    safety_invariants = set(state.extractor_safety_invariants)
 
     for extraction in state.extractions:
         discovery = extraction.discovery
@@ -917,6 +938,7 @@ def _build_discovery_result(
             hints.setdefault(item.id or "", item)
         for item in discovery.warnings:
             warnings.setdefault(item.id or "", item)
+        safety_invariants.update(discovery.safety_invariants)
 
     points = tuple(
         _merge_input_points(group)
@@ -952,6 +974,9 @@ def _build_discovery_result(
         crawl_provenance=tuple(provenance.values()),
         bac_static_hints=tuple(hints.values()),
         warnings=tuple(warnings.values()),
+        safety_invariants=tuple(
+            sorted(safety_invariants, key=lambda item: item.value)
+        ),
     )
 
 

@@ -10,12 +10,14 @@ import unittest
 from tests.unit.test_static_crawler import FakeTransport, html_response
 from vulnspider.discovery import (
     CrawlPolicy,
+    DiscoverySafetyInvariant,
     StaticCrawler,
     StaticCrawlerError,
     StaticCrawlerResponse,
     StaticCrawlerTransportError,
     canonicalize_crawl_url,
     extract_static_html,
+    extract_static_html_with_sensitive_form_elision,
 )
 
 
@@ -23,6 +25,34 @@ ROOT_URL = "http://example.test/"
 
 
 class StaticCrawlerAdversarialTests(unittest.TestCase):
+    def test_http_error_safety_invariant_is_bound_to_eliding_extractor(
+        self,
+    ) -> None:
+        response = StaticCrawlerResponse(
+            status_code=404,
+            body=b"not found",
+            content_type="text/html",
+        )
+
+        default_result = StaticCrawler(
+            transport=FakeTransport({ROOT_URL: response}),
+            extractor=extract_static_html,
+            clock=lambda: 0.0,
+        ).crawl(ROOT_URL)
+        eliding_result = StaticCrawler(
+            transport=FakeTransport({ROOT_URL: response}),
+            extractor=extract_static_html_with_sensitive_form_elision,
+            clock=lambda: 0.0,
+        ).crawl(ROOT_URL)
+
+        self.assertEqual(default_result.discovery.safety_invariants, ())
+        self.assertEqual(
+            eliding_result.discovery.safety_invariants,
+            (
+                DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION,
+            ),
+        )
+
     def test_cross_origin_link_never_reaches_transport(self) -> None:
         transport = FakeTransport(
             {

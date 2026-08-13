@@ -1,0 +1,704 @@
+from __future__ import annotations
+
+import os
+import socket
+import tempfile
+import unittest
+from http.client import HTTPConnection
+from pathlib import Path
+from urllib.request import urlopen
+
+from tests.integration.dynamic_loopback_site import DynamicLoopbackSite
+from vulnspider.discovery import (
+    ChildFrameDocumentKind,
+    DynamicBrowserError,
+    DynamicBrowserErrorCode,
+    DynamicBrowserPolicy,
+    DynamicCapabilityError,
+    DynamicNetworkDecisionKind,
+    DynamicNetworkReason,
+    DynamicRequestAuthority,
+    DynamicResourceGrant,
+    DynamicResourceKind,
+    PlaywrightDynamicBrowser,
+    preflight_dynamic_browser,
+)
+
+
+class DynamicLoopbackHarnessTests(unittest.TestCase):
+    def test_binds_ephemeral_loopback_port_records_requests_and_closes(self) -> None:
+        site = DynamicLoopbackSite()
+        with site:
+            primary_port = site.primary_port
+            sentinel_port = site.sentinel_port
+            self.assertGreater(primary_port, 0)
+            self.assertGreater(sentinel_port, 0)
+            self.assertNotEqual(primary_port, sentinel_port)
+            self.assertTrue(all(site.server_threads_alive))
+            with urlopen(site.root_url, timeout=1.0) as response:
+                body = response.read().decode("utf-8")
+            self.assertIn("initial-marker", body)
+            self.assertEqual(
+                [(item.method, item.path) for item in site.primary_requests],
+                [("GET", "/")],
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        self.assertTrue(site.cleanup_complete)
+        self.assertEqual(site.server_threads_alive, (False, False))
+        for port in (primary_port, sentinel_port):
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                probe.bind(("127.0.0.1", port))
+            finally:
+                probe.close()
+
+    def test_test_exception_still_closes_both_servers(self) -> None:
+        site = DynamicLoopbackSite()
+        with self.assertRaisesRegex(RuntimeError, "test failure"):
+            with site:
+                raise RuntimeError("test failure")
+        self.assertTrue(site.cleanup_complete)
+        self.assertEqual(site.server_threads_alive, (False, False))
+
+    def test_extended_routes_are_observable_without_reaching_sentinel(
+        self,
+    ) -> None:
+        with DynamicLoopbackSite() as site:
+            page_expectations = (
+                (site.eventsource_url, "EventSource"),
+                (site.websocket_url, "WebSocket"),
+                (site.fetch_xhr_url, "XMLHttpRequest"),
+                (site.unsafe_get_url, "state-change"),
+                (site.autosubmit_url, "requestSubmit"),
+                (site.page_close_url, "page-close-marker"),
+                (site.iframe_url, "frame-child"),
+                (site.popup_url, "window.open"),
+                (site.location_same_url, "location.replace"),
+                (site.location_cross_url, "location.replace"),
+                (site.redirect_target_url, "redirect-marker"),
+                (site.location_target_url, "location-marker"),
+            )
+            for url, marker in page_expectations:
+                with urlopen(url, timeout=1.0) as response:
+                    body = response.read().decode("utf-8")
+                self.assertIn(marker, body)
+
+            def redirect_response(path: str) -> tuple[int, str | None]:
+                connection = HTTPConnection(
+                    "127.0.0.1",
+                    site.primary_port,
+                    timeout=1.0,
+                )
+                try:
+                    connection.request("GET", path)
+                    response = connection.getresponse()
+                    response.read()
+                    return response.status, response.getheader("Location")
+                finally:
+                    connection.close()
+
+            self.assertEqual(
+                redirect_response("/redirect-same"),
+                (302, "/redirect/final"),
+            )
+            self.assertEqual(
+                redirect_response("/redirect-cross"),
+                (302, "/redirect/intermediate"),
+            )
+            self.assertEqual(
+                redirect_response("/redirect/intermediate"),
+                (302, f"{site.sentinel_origin}/redirect-target"),
+            )
+            self.assertEqual(site.sentinel_requests, ())
+            self.assertEqual(
+                [item.path for item in site.primary_requests],
+                [
+                    "/eventsource",
+                    "/websocket",
+                    "/fetch-xhr",
+                    "/unsafe-get",
+                    "/autosubmit",
+                    "/page-close",
+                    "/iframe",
+                    "/popup",
+                    "/location-same",
+                    "/location-cross",
+                    "/redirect/final",
+                    "/location-target",
+                    "/redirect-same",
+                    "/redirect-cross",
+                    "/redirect/intermediate",
+                ],
+            )
+
+        self.assertTrue(site.cleanup_complete)
+        self.assertEqual(site.server_threads_alive, (False, False))
+
+
+class DynamicBrowserLoopbackTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._original_cwd = Path.cwd()
+        cls._browser_workdir = tempfile.TemporaryDirectory(
+            prefix="vulnspider-browser-"
+        )
+        os.chdir(cls._browser_workdir.name)
+        try:
+            preflight_dynamic_browser()
+        except DynamicCapabilityError as exc:
+            os.chdir(cls._original_cwd)
+            cls._browser_workdir.cleanup()
+            raise unittest.SkipTest(
+                f"real Chromium unavailable: {exc.code.value}"
+            ) from None
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        os.chdir(cls._original_cwd)
+        cls._browser_workdir.cleanup()
+
+    def test_real_chromium_executes_javascript_and_blocks_external_transports(
+        self,
+    ) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(
+                root_url=site.root_url,
+                resource_grants=(
+                    DynamicResourceGrant(
+                        DynamicResourceKind.SCRIPT,
+                        site.allowed_script_url,
+                    ),
+                ),
+            )
+
+            def operation(session):
+                navigated_url = session.navigate()
+                session.wait_for_selector("#dynamic-marker")
+                return navigated_url, session.text_content("#dynamic-marker")
+
+            result = PlaywrightDynamicBrowser().run(authority, operation)
+
+            self.assertEqual(result.value, (site.root_url, "javascript-executed"))
+            primary_paths = [item.path for item in site.primary_requests]
+            self.assertIn("/", primary_paths)
+            self.assertIn("/allowed.js", primary_paths)
+            self.assertEqual(site.sentinel_requests, ())
+
+        audit = result.audit
+        self.assertTrue(audit.cleanup_complete)
+        self.assertEqual(audit.playwright_started, 1)
+        self.assertEqual(audit.playwright_stopped, 1)
+        self.assertEqual(audit.browsers_launched, 1)
+        self.assertEqual(audit.browsers_closed, 1)
+        self.assertEqual(audit.contexts_created, 1)
+        self.assertEqual(audit.contexts_closed, 1)
+        self.assertEqual(audit.pages_created, 1)
+        self.assertEqual(audit.pages_closed, 1)
+        self.assertGreaterEqual(audit.http_allowed_count, 2)
+        self.assertGreaterEqual(audit.http_blocked_count, 1)
+        self.assertEqual(audit.websocket_attempt_count, 1)
+        self.assertEqual(audit.websocket_blocked_count, 1)
+        self.assertEqual(audit.websocket_connected_count, 0)
+        self.assertTrue(
+            any(
+                event.decision == DynamicNetworkDecisionKind.BLOCK
+                and event.reason == DynamicNetworkReason.REQUEST_NOT_AUTHORIZED
+                and event.path == "/blocked.js"
+                for event in audit.events
+            )
+        )
+        self.assertTrue(
+            any(
+                event.reason == DynamicNetworkReason.WEBSOCKET_DENIED
+                and event.path == "/socket"
+                for event in audit.events
+            )
+        )
+
+    def test_real_eventsource_attempts_are_blocked(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(root_url=site.eventsource_url)
+
+            def operation(session):
+                session.navigate()
+                session.wait_for_selector("#eventsource-marker")
+                return session.text_content("#eventsource-marker")
+
+            result = PlaywrightDynamicBrowser().run(authority, operation)
+
+            self.assertEqual(result.value, "both-blocked")
+            primary_paths = [item.path for item in site.primary_requests]
+            self.assertIn("/eventsource", primary_paths)
+            self.assertNotIn("/event-stream", primary_paths)
+            self.assertEqual(site.sentinel_requests, ())
+
+        audit = result.audit
+        self.assertTrue(audit.cleanup_complete)
+        self.assertEqual(audit.eventsource_attempt_count, 2)
+        self.assertEqual(audit.eventsource_blocked_count, 2)
+        self.assertEqual(audit.eventsource_allowed_count, 0)
+        self.assertEqual(
+            sum(
+                event.reason == DynamicNetworkReason.EVENTSOURCE_DENIED
+                for event in audit.events
+            ),
+            2,
+        )
+
+    def test_real_same_and_cross_authority_websockets_are_denied(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(root_url=site.websocket_url)
+
+            def operation(session):
+                session.navigate()
+                session.wait_for_selector("#websocket-marker")
+                return session.text_content("#websocket-marker")
+
+            result = PlaywrightDynamicBrowser().run(authority, operation)
+
+            self.assertEqual(result.value, "constructors-attempted")
+            self.assertEqual(
+                [item.path for item in site.primary_requests],
+                ["/websocket"],
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        audit = result.audit
+        self.assertTrue(audit.cleanup_complete)
+        self.assertEqual(audit.websocket_attempt_count, 2)
+        self.assertEqual(audit.websocket_blocked_count, 2)
+        self.assertEqual(audit.websocket_connected_count, 0)
+        self.assertEqual(
+            {
+                event.path
+                for event in audit.events
+                if event.reason == DynamicNetworkReason.WEBSOCKET_DENIED
+            },
+            {"/same-socket", "/cross-socket"},
+        )
+
+    def test_real_fetch_and_xhr_are_blocked_before_transport(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(root_url=site.fetch_xhr_url)
+
+            def operation(session):
+                session.navigate()
+                session.wait_for_selector("#fetch-xhr-marker")
+                return session.text_content("#fetch-xhr-marker")
+
+            result = PlaywrightDynamicBrowser().run(authority, operation)
+
+            self.assertEqual(result.value, "both-blocked")
+            self.assertEqual(
+                [item.path for item in site.primary_requests],
+                ["/fetch-xhr"],
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        audit = result.audit
+        self.assertTrue(audit.cleanup_complete)
+        blocked = {
+            (event.resource_kind, event.path): event.reason
+            for event in audit.events
+            if event.decision == DynamicNetworkDecisionKind.BLOCK
+        }
+        self.assertEqual(
+            blocked[("fetch", "/fetch-target")],
+            DynamicNetworkReason.REQUEST_NOT_AUTHORIZED,
+        )
+        self.assertEqual(
+            blocked[("xhr", "/xhr-target")],
+            DynamicNetworkReason.REQUEST_NOT_AUTHORIZED,
+        )
+
+    def test_real_unauthorized_same_origin_get_is_blocked(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(root_url=site.unsafe_get_url)
+            with self.assertRaises(DynamicBrowserError) as raised:
+                PlaywrightDynamicBrowser().run(
+                    authority,
+                    lambda session: session.navigate(),
+                )
+
+            self.assertEqual(
+                [item.path for item in site.primary_requests],
+                ["/unsafe-get"],
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        error = raised.exception
+        self.assertEqual(error.code, DynamicBrowserErrorCode.NAVIGATION_FAILED)
+        self.assertIsNotNone(error.audit)
+        assert error.audit is not None
+        self.assertTrue(error.audit.cleanup_complete)
+        self.assertTrue(
+            any(
+                event.resource_kind == "document"
+                and event.reason == DynamicNetworkReason.REQUEST_NOT_AUTHORIZED
+                and event.path == "/state-change"
+                for event in error.audit.events
+            )
+        )
+
+    def test_real_autosubmit_post_is_blocked_before_transport(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(root_url=site.autosubmit_url)
+            with self.assertRaises(DynamicBrowserError) as raised:
+                PlaywrightDynamicBrowser().run(
+                    authority,
+                    lambda session: session.navigate(),
+                )
+
+            self.assertEqual(
+                [(item.method, item.path) for item in site.primary_requests],
+                [("GET", "/autosubmit")],
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        error = raised.exception
+        self.assertEqual(error.code, DynamicBrowserErrorCode.NAVIGATION_FAILED)
+        self.assertIsNotNone(error.audit)
+        assert error.audit is not None
+        self.assertTrue(error.audit.cleanup_complete)
+        self.assertTrue(
+            any(
+                event.resource_kind == "document"
+                and event.reason == DynamicNetworkReason.NON_GET_METHOD
+                and event.path == "/submit-target"
+                for event in error.audit.events
+            )
+        )
+
+    def test_real_dom_driven_page_close_is_idempotently_cleaned(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(root_url=site.page_close_url)
+
+            def operation(session):
+                session.navigate()
+                session.wait_for_selector("#page-close-marker")
+                value = session.text_content("#page-close-marker")
+                session.close_page()
+                return value
+
+            result = PlaywrightDynamicBrowser().run(authority, operation)
+
+            self.assertEqual(result.value, "ready-to-close")
+            self.assertEqual(
+                [item.path for item in site.primary_requests],
+                ["/page-close"],
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        audit = result.audit
+        self.assertTrue(audit.cleanup_complete)
+        self.assertEqual(audit.pages_created, 1)
+        self.assertEqual(audit.pages_closed, 1)
+        self.assertEqual(audit.contexts_closed, 1)
+        self.assertEqual(audit.browsers_closed, 1)
+        self.assertEqual(audit.playwright_stopped, 1)
+
+    def test_real_child_frames_are_blocked_and_detached(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(root_url=site.iframe_url)
+
+            def operation(session):
+                session.navigate()
+                session.wait_for_selector("#iframe-marker")
+                return session.text_content("#iframe-marker")
+
+            result = PlaywrightDynamicBrowser().run(authority, operation)
+
+            self.assertEqual(result.value, "children-blocked")
+            primary_paths = [item.path for item in site.primary_requests]
+            self.assertIn("/iframe", primary_paths)
+            self.assertNotIn("/frame-child", primary_paths)
+            self.assertEqual(site.sentinel_requests, ())
+
+        audit = result.audit
+        self.assertTrue(audit.cleanup_complete)
+        self.assertEqual(audit.child_frame_attach_attempt_count, 4)
+        self.assertEqual(audit.child_frame_document_request_count, 2)
+        self.assertEqual(audit.child_frame_document_blocked_count, 2)
+        self.assertEqual(audit.child_frame_authorized_commit_count, 0)
+        self.assertEqual(audit.child_frame_unauthorized_commit_count, 0)
+        self.assertEqual(
+            audit.child_frame_commit_count,
+            audit.child_frame_internal_commit_count,
+        )
+        self.assertGreaterEqual(audit.child_frame_about_blank_commit_count, 1)
+        self.assertGreaterEqual(audit.child_frame_browser_error_commit_count, 1)
+        self.assertGreaterEqual(audit.child_frame_replacement_commit_count, 1)
+        self.assertIn(
+            ChildFrameDocumentKind.ABOUT_BLANK,
+            audit.child_frame_commit_kinds,
+        )
+        self.assertIn(
+            ChildFrameDocumentKind.BROWSER_ERROR,
+            audit.child_frame_commit_kinds,
+        )
+        self.assertIn(
+            ChildFrameDocumentKind.REPLACEMENT,
+            audit.child_frame_commit_kinds,
+        )
+        self.assertEqual(audit.child_frame_commit_overflow_count, 0)
+        self.assertEqual(audit.child_frame_completion_count, 0)
+        self.assertEqual(audit.child_frame_detach_count, 4)
+        self.assertEqual(
+            sum(
+                event.reason == DynamicNetworkReason.CHILD_FRAME_DOCUMENT
+                for event in audit.events
+            ),
+            2,
+        )
+
+    def test_real_popup_is_guarded_and_cleaned(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(root_url=site.popup_url)
+
+            def operation(session):
+                session.navigate()
+                session.wait_for_selector("#popup-marker")
+                return session.text_content("#popup-marker")
+
+            result = PlaywrightDynamicBrowser().run(authority, operation)
+
+            self.assertEqual(result.value, "popup-attempted")
+            self.assertEqual(site.sentinel_requests, ())
+
+        audit = result.audit
+        self.assertTrue(audit.cleanup_complete)
+        self.assertEqual(audit.popup_attempt_count, 1)
+        self.assertEqual(audit.pages_created, 2)
+        self.assertEqual(audit.pages_closed, 2)
+        self.assertTrue(
+            any(
+                event.reason == DynamicNetworkReason.NON_PRIMARY_PAGE
+                and event.path == "/popup-target"
+                for event in audit.events
+            )
+        )
+
+    def test_real_same_authority_http_redirect_completes(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(
+                root_url=site.redirect_same_url,
+                navigation_urls=(site.redirect_target_url,),
+                resource_grants=(
+                    DynamicResourceGrant(
+                        DynamicResourceKind.SCRIPT,
+                        site.redirect_relative_script_url,
+                    ),
+                ),
+            )
+
+            def operation(session):
+                navigated_url = session.navigate()
+                session.wait_for_selector("#redirect-marker")
+                session.wait_for_selector("#redirect-relative-marker")
+                return (
+                    navigated_url,
+                    session.text_content("#redirect-marker"),
+                    session.text_content("#redirect-relative-marker"),
+                )
+
+            result = PlaywrightDynamicBrowser().run(authority, operation)
+
+            self.assertEqual(
+                result.value,
+                (
+                    site.redirect_target_url,
+                    "same-authority",
+                    "target-relative",
+                ),
+            )
+            self.assertEqual(
+                [item.path for item in site.primary_requests],
+                [
+                    "/redirect-same",
+                    "/redirect/final",
+                    "/redirect/relative.js",
+                ],
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        self.assertTrue(result.audit.cleanup_complete)
+        self.assertEqual(result.audit.redirect_attempt_count, 1)
+        self.assertEqual(result.audit.redirect_allowed_count, 1)
+        self.assertEqual(result.audit.redirect_block_count, 0)
+
+    def test_real_cross_authority_http_redirect_is_blocked(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(
+                root_url=site.redirect_cross_url,
+                navigation_urls=(site.redirect_cross_intermediate_url,),
+            )
+            with self.assertRaises(DynamicBrowserError) as raised:
+                PlaywrightDynamicBrowser().run(
+                    authority,
+                    lambda session: session.navigate(),
+                )
+
+            self.assertEqual(
+                [item.path for item in site.primary_requests],
+                ["/redirect-cross", "/redirect/intermediate"],
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        error = raised.exception
+        self.assertEqual(error.code, DynamicBrowserErrorCode.NAVIGATION_FAILED)
+        self.assertIsNotNone(error.audit)
+        assert error.audit is not None
+        self.assertTrue(error.audit.cleanup_complete)
+        self.assertEqual(error.audit.redirect_attempt_count, 2)
+        self.assertEqual(error.audit.redirect_allowed_count, 1)
+        self.assertEqual(error.audit.redirect_block_count, 1)
+        self.assertTrue(
+            any(
+                event.reason == DynamicNetworkReason.REQUEST_NOT_AUTHORIZED
+                and event.path == "/redirect-target"
+                for event in error.audit.events
+            )
+        )
+
+    def test_real_same_authority_js_location_completes(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(
+                root_url=site.location_same_url,
+                navigation_urls=(site.location_target_url,),
+            )
+
+            def operation(session):
+                navigated_url = session.navigate()
+                session.wait_for_selector("#location-marker")
+                return navigated_url, session.text_content("#location-marker")
+
+            result = PlaywrightDynamicBrowser().run(authority, operation)
+
+            self.assertEqual(
+                result.value,
+                (site.location_target_url, "same-authority"),
+            )
+            self.assertEqual(
+                [item.path for item in site.primary_requests],
+                ["/location-same", "/location-target"],
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        self.assertTrue(result.audit.cleanup_complete)
+
+    def test_real_cross_authority_js_location_is_blocked(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(root_url=site.location_cross_url)
+            with self.assertRaises(DynamicBrowserError) as raised:
+                PlaywrightDynamicBrowser().run(
+                    authority,
+                    lambda session: session.navigate(),
+                )
+
+            self.assertEqual(
+                [item.path for item in site.primary_requests],
+                ["/location-cross"],
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        error = raised.exception
+        self.assertEqual(error.code, DynamicBrowserErrorCode.NAVIGATION_FAILED)
+        self.assertIsNotNone(error.audit)
+        assert error.audit is not None
+        self.assertTrue(error.audit.cleanup_complete)
+        self.assertTrue(
+            any(
+                event.reason == DynamicNetworkReason.REQUEST_NOT_AUTHORIZED
+                and event.path == "/location-target"
+                for event in error.audit.events
+            )
+        )
+
+    def test_real_navigation_timeout_preserves_error_and_cleanup_audit(
+        self,
+    ) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(root_url=site.slow_url)
+            try:
+                with self.assertRaises(DynamicBrowserError) as raised:
+                    PlaywrightDynamicBrowser().run(
+                        authority,
+                        lambda session: session.navigate(),
+                        policy=DynamicBrowserPolicy(
+                            navigation_timeout_seconds=0.1,
+                            request_decision_budget=10,
+                        ),
+                    )
+            finally:
+                site.release_slow.set()
+
+            self.assertTrue(site.slow_started.wait(timeout=1.0))
+            self.assertIn(
+                "/slow",
+                [item.path for item in site.primary_requests],
+            )
+
+        error = raised.exception
+        self.assertEqual(
+            error.code,
+            DynamicBrowserErrorCode.NAVIGATION_TIMEOUT,
+        )
+        self.assertEqual(error.cleanup_error_codes, ())
+        self.assertIsNotNone(error.audit)
+        assert error.audit is not None
+        self.assertTrue(error.audit.cleanup_complete)
+        self.assertEqual(error.audit.pages_closed, 1)
+        self.assertEqual(error.audit.contexts_closed, 1)
+        self.assertEqual(error.audit.browsers_closed, 1)
+        self.assertEqual(error.audit.playwright_stopped, 1)
+
+    def test_real_shared_transport_budget_stops_websocket_flood(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(
+                root_url=site.websocket_budget_url,
+            )
+            with self.assertRaises(DynamicBrowserError) as raised:
+                PlaywrightDynamicBrowser().run(
+                    authority,
+                    lambda session: session.navigate(),
+                    policy=DynamicBrowserPolicy(
+                        navigation_timeout_seconds=1.0,
+                        request_decision_budget=2,
+                    ),
+                )
+
+            self.assertIn(
+                "/websocket-budget",
+                [item.path for item in site.primary_requests],
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        error = raised.exception
+        self.assertEqual(
+            error.code,
+            DynamicBrowserErrorCode.REQUEST_DECISION_BUDGET_EXHAUSTED,
+        )
+        self.assertIsNotNone(error.audit)
+        assert error.audit is not None
+        self.assertTrue(error.audit.cleanup_complete)
+        self.assertEqual(error.audit.pages_created, 1)
+        self.assertEqual(error.audit.pages_closed, 1)
+        self.assertGreaterEqual(error.audit.websocket_attempt_count, 2)
+        self.assertEqual(
+            error.audit.websocket_blocked_count,
+            error.audit.websocket_attempt_count,
+        )
+        self.assertEqual(error.audit.websocket_connected_count, 0)
+        self.assertEqual(error.audit.request_decision_overflow_count, 1)
+        processed_decisions = (
+            error.audit.http_allowed_count
+            + error.audit.http_blocked_count
+            + error.audit.websocket_attempt_count
+        )
+        self.assertLessEqual(processed_decisions, 3)
+
+
+if __name__ == "__main__":
+    unittest.main()

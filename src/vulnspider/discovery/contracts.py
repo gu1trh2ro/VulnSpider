@@ -33,7 +33,14 @@ class DiscoveryContractError(ValueError):
 class CollectorKind(StrEnum):
     NATIVE_STATIC = "NATIVE_STATIC"
     NATIVE_DYNAMIC = "NATIVE_DYNAMIC"
+    NATIVE_COMBINED = "NATIVE_COMBINED"
     LEGACY_COMPATIBILITY = "LEGACY_COMPATIBILITY"
+
+
+class DiscoverySafetyInvariant(StrEnum):
+    SENSITIVE_FORM_PRE_CANONICAL_ELISION = (
+        "SENSITIVE_FORM_PRE_CANONICAL_ELISION"
+    )
 
 
 class ProbeReadyStatus(StrEnum):
@@ -52,6 +59,7 @@ class NonProbeReadyReason(StrEnum):
     RAW_QUERY_UNAVAILABLE = "RAW_QUERY_UNAVAILABLE"
     RAW_QUERY_ALIGNMENT_FAILED = "RAW_QUERY_ALIGNMENT_FAILED"
     UNSUPPORTED_INPUT_LOCATION = "UNSUPPORTED_INPUT_LOCATION"
+    REQUEST_NOT_AUTHORIZED = "REQUEST_NOT_AUTHORIZED"
 
 
 class DiscoverySubjectKind(StrEnum):
@@ -315,6 +323,8 @@ class CrawlStatistics:
             raise DiscoveryContractError("request budget was exceeded")
         if self.page_budget and self.pages_processed > self.page_budget:
             raise DiscoveryContractError("page budget was exceeded")
+        if self.html_pages > self.pages_processed:
+            raise DiscoveryContractError("HTML pages must not exceed processed pages")
         if self.max_depth_reached > self.depth_budget:
             raise DiscoveryContractError("depth budget was exceeded")
 
@@ -563,6 +573,36 @@ class DiscoveryWarning:
         self.validate_identity()
 
 
+def _warning_sort_key(
+    warning: DiscoveryWarning,
+    *,
+    collector_kind: CollectorKind,
+    provenance_collectors: Mapping[str, CollectorKind],
+) -> tuple[object, ...]:
+    base_key: tuple[object, ...] = (
+        warning.code,
+        warning.subject_id or "",
+        warning.provenance_id or "",
+        warning.id or "",
+    )
+    if collector_kind != CollectorKind.NATIVE_COMBINED:
+        return base_key
+    producer: CollectorKind | None = None
+    raw_producer = warning.details.get("producer_kind")
+    if type(raw_producer) is str:
+        try:
+            producer = CollectorKind(raw_producer)
+        except ValueError:
+            producer = None
+    if producer is None and warning.provenance_id is not None:
+        producer = provenance_collectors.get(warning.provenance_id)
+    producer_rank = {
+        CollectorKind.NATIVE_STATIC: 0,
+        CollectorKind.NATIVE_DYNAMIC: 1,
+    }.get(producer, 2)
+    return (producer_rank, *base_key)
+
+
 @dataclass(frozen=True, slots=True)
 class BACStaticHint:
     hint_kind: str
@@ -668,6 +708,7 @@ class CanonicalDiscoveryResult:
     crawl_provenance: tuple[DiscoveryProvenance, ...]
     bac_static_hints: tuple[BACStaticHint, ...]
     warnings: tuple[DiscoveryWarning, ...]
+    safety_invariants: tuple[DiscoverySafetyInvariant, ...] = ()
 
     @classmethod
     def create(
@@ -684,6 +725,7 @@ class CanonicalDiscoveryResult:
         crawl_provenance: Sequence[DiscoveryProvenance] = (),
         bac_static_hints: Sequence[BACStaticHint] = (),
         warnings: Sequence[DiscoveryWarning] = (),
+        safety_invariants: Sequence[DiscoverySafetyInvariant] = (),
     ) -> CanonicalDiscoveryResult:
         _require_type(discovery_metadata, DiscoveryMetadata, "discovery_metadata")
         _require_type(scope_metadata, ScopeMetadata, "scope_metadata")
@@ -720,6 +762,23 @@ class CanonicalDiscoveryResult:
             DiscoveryWarning,
             "DiscoveryWarning",
         )
+        try:
+            typed_safety_invariants = tuple(
+                DiscoverySafetyInvariant(item)
+                for item in safety_invariants
+            )
+        except (TypeError, ValueError) as exc:
+            raise DiscoveryContractError(
+                "safety invariants must contain only known canonical values"
+            ) from exc
+        if len(typed_safety_invariants) != len(set(typed_safety_invariants)):
+            raise DiscoveryContractError("safety invariants must be unique")
+        typed_safety_invariants = tuple(
+            sorted(typed_safety_invariants, key=lambda item: item.value)
+        )
+        provenance_collectors = {
+            item.id or "": item.collector_kind for item in typed_provenance
+        }
         result = cls(
             contract_version=CONTRACT_VERSION,
             discovery_run_id=discovery_run_id_for(
@@ -794,14 +853,14 @@ class CanonicalDiscoveryResult:
             warnings=tuple(
                 sorted(
                     typed_warnings,
-                    key=lambda item: (
-                        item.code,
-                        item.subject_id or "",
-                        item.provenance_id or "",
-                        item.id or "",
+                    key=lambda item: _warning_sort_key(
+                        item,
+                        collector_kind=discovery_metadata.collector_kind,
+                        provenance_collectors=provenance_collectors,
                     ),
                 )
             ),
+            safety_invariants=typed_safety_invariants,
         )
         result.validate()
         return result
@@ -811,6 +870,7 @@ class CanonicalDiscoveryResult:
         self.discovery_metadata.validate()
         self.scope_metadata.validate()
         self.crawl_statistics.validate()
+        self._validate_safety_invariants()
         if self.contract_version != CONTRACT_VERSION:
             raise DiscoveryContractError("unsupported discovery contract version")
         expected_run_id = discovery_run_id_for(
@@ -888,6 +948,24 @@ class CanonicalDiscoveryResult:
         _typed_items(self.bac_static_hints, BACStaticHint, "BACStaticHint")
         _typed_items(self.warnings, DiscoveryWarning, "DiscoveryWarning")
 
+    def _validate_safety_invariants(self) -> None:
+        if type(self.safety_invariants) is not tuple or any(
+            type(item) is not DiscoverySafetyInvariant
+            for item in self.safety_invariants
+        ):
+            raise DiscoveryContractError(
+                "safety invariants must be an immutable canonical tuple"
+            )
+        ordered = tuple(
+            sorted(self.safety_invariants, key=lambda item: item.value)
+        )
+        if self.safety_invariants != ordered:
+            raise DiscoveryContractError(
+                "safety invariant ordering is not canonical"
+            )
+        if len(self.safety_invariants) != len(set(self.safety_invariants)):
+            raise DiscoveryContractError("safety invariants must be unique")
+
     def _validate_contract_owned_records(self) -> None:
         for item in self.probe_readiness:
             item.validate()
@@ -899,6 +977,10 @@ class CanonicalDiscoveryResult:
             item.validate()
 
     def _validate_ordering(self) -> None:
+        provenance_collectors = {
+            item.id or "": item.collector_kind
+            for item in self.crawl_provenance
+        }
         checks = (
             (
                 self.endpoints,
@@ -988,11 +1070,10 @@ class CanonicalDiscoveryResult:
                 tuple(
                     sorted(
                         self.warnings,
-                        key=lambda item: (
-                            item.code,
-                            item.subject_id or "",
-                            item.provenance_id or "",
-                            item.id or "",
+                        key=lambda item: _warning_sort_key(
+                            item,
+                            collector_kind=self.discovery_metadata.collector_kind,
+                            provenance_collectors=provenance_collectors,
                         ),
                     )
                 ),
@@ -1277,7 +1358,18 @@ class CanonicalDiscoveryResult:
                 raise DiscoveryContractError(
                     "provenance does not belong to this discovery run"
                 )
-            if item.collector_kind != self.discovery_metadata.collector_kind:
+            if (
+                self.discovery_metadata.collector_kind
+                == CollectorKind.NATIVE_COMBINED
+            ):
+                if item.collector_kind not in {
+                    CollectorKind.NATIVE_STATIC,
+                    CollectorKind.NATIVE_DYNAMIC,
+                }:
+                    raise DiscoveryContractError(
+                        "aggregate provenance uses an unsupported collector kind"
+                    )
+            elif item.collector_kind != self.discovery_metadata.collector_kind:
                 raise DiscoveryContractError(
                     "provenance collector kind does not match discovery metadata"
                 )
@@ -1344,6 +1436,25 @@ class CanonicalDiscoveryResult:
                 raise DiscoveryContractError(
                     "DiscoveryWarning references missing provenance"
                 )
+            if (
+                self.discovery_metadata.collector_kind
+                == CollectorKind.NATIVE_COMBINED
+            ):
+                producer_kind = warning.details.get("producer_kind")
+                if producer_kind not in {
+                    CollectorKind.NATIVE_STATIC.value,
+                    CollectorKind.NATIVE_DYNAMIC.value,
+                }:
+                    raise DiscoveryContractError(
+                        "aggregate warning requires canonical producer attribution"
+                    )
+                if warning.provenance_id is not None and (
+                    provenance[warning.provenance_id].collector_kind.value
+                    != producer_kind
+                ):
+                    raise DiscoveryContractError(
+                        "aggregate warning producer attribution mismatch"
+                    )
 
     def _validate_counts(self) -> None:
         expected = (
@@ -1401,7 +1512,7 @@ class CanonicalDiscoveryResult:
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()
-        return {
+        result = {
             "contract_version": self.contract_version,
             "discovery_run_id": self.discovery_run_id,
             "discovery_metadata": {
@@ -1529,6 +1640,11 @@ class CanonicalDiscoveryResult:
                 for item in self.warnings
             ],
         }
+        if self.safety_invariants:
+            result["safety_invariants"] = [
+                item.value for item in self.safety_invariants
+            ]
+        return result
 
 
 def _unique_by_id(items: Sequence[Any], label: str) -> dict[str, Any]:

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from itertools import permutations
+from unittest.mock import patch
 
 from vulnspider.domain import (
     FeatureObservation,
@@ -19,7 +22,12 @@ from vulnspider.features import (
     SQL_ERROR_PATTERN,
     STATUS_CODE_CHANGED,
 )
-from vulnspider.reporting import ReportingError, build_json_report, render_json_report
+from vulnspider.reporting import (
+    ReportingError,
+    build_json_report,
+    render_json_report,
+    write_json_report,
+)
 from vulnspider.scoring import (
     SQLI_SCORER_VERSION,
     ScoringResult,
@@ -321,6 +329,29 @@ class SelectionReportingTests(unittest.TestCase):
         self.assertEqual(report["schema_version"], "0.1")
         self.assertEqual(report["summary"]["top_k_requested"], 5)
         self.assertEqual(report["summary"]["selected_results"], 1)
+
+    def test_json_write_failure_preserves_previous_result_and_removes_temp(
+        self,
+    ) -> None:
+        outcome = select_top_k((), k=1)
+        with TemporaryDirectory() as temporary_directory:
+            destination = Path(temporary_directory) / "result.json"
+            destination.write_text("previous-success\n", encoding="utf-8")
+
+            with (
+                patch(
+                    "vulnspider.reporting.json_report.os.replace",
+                    side_effect=OSError("replace failed"),
+                ),
+                self.assertRaises(OSError),
+            ):
+                write_json_report(outcome, destination)
+
+            self.assertEqual(
+                destination.read_text(encoding="utf-8"),
+                "previous-success\n",
+            )
+            self.assertEqual(tuple(Path(temporary_directory).iterdir()), (destination,))
 
 
 class SelectionTruthfulnessTests(unittest.TestCase):

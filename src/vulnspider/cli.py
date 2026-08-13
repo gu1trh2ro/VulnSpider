@@ -12,7 +12,24 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from vulnspider import __version__
-from vulnspider.discovery import CrawlPolicy, StaticCrawlerTransport
+from vulnspider.discovery import (
+    CombinedDiscoveryResult,
+    CrawlPolicy,
+    DiscoveryContractError,
+    DynamicBrowserError,
+    DynamicBrowserErrorCode,
+    DynamicCapabilityError,
+    DynamicCrawler,
+    DynamicCrawlerError,
+    DynamicCrawlPolicy,
+    DynamicIntegrityError,
+    DynamicRequestAuthority,
+    DynamicResourceGrant,
+    DynamicResourceKind,
+    StaticCrawler,
+    StaticCrawlResult,
+    StaticCrawlerTransport,
+)
 from vulnspider.domain import Endpoint
 from vulnspider.observation.executor import RequestTransport
 from vulnspider.pipeline import (
@@ -20,22 +37,87 @@ from vulnspider.pipeline import (
     analyze_legacy_records,
     analyze_url,
 )
-from vulnspider.reporting import write_html_report, write_json_report
+from vulnspider.reporting import (
+    write_analysis_report,
+    write_crawl_report,
+    write_html_report,
+    write_json_report,
+)
+
+
+_SIMPLE_DEFAULT_CRAWL_OUTPUT = Path("vulnspider-crawl.json")
+_SIMPLE_DEFAULT_ANALYSIS_OUTPUT = Path("vulnspider-analysis.json")
+_SIMPLE_DEFAULT_TOP_K = 10
+_SIMPLE_DEFAULT_DYNAMIC_MAX_DEPTH = 2
 
 
 class CLIError(ValueError):
     """Raised for normal user-facing CLI input errors."""
 
 
+class _SimpleDegradedCrawl(RuntimeError):
+    """Stop the simple adapter before probes when crawl is degraded."""
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="vulnspider",
         description="VulnSpider prototype command line interface.",
+        # Simple-mode --dynamic-allow-* options otherwise make the analyze
+        # subcommand's --dynamic an ambiguous top-level abbreviation.
+        allow_abbrev=False,
+        epilog=(
+            "Simple scan: vulnspider -u http://127.0.0.1:8080/ "
+            "[--crawl-output crawl.json] [-o analysis.json] [--static-only]. "
+            "Defaults: vulnspider-crawl.json and vulnspider-analysis.json."
+        ),
     )
     parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
+    )
+    parser.add_argument(
+        "-u",
+        "--url",
+        dest="simple_url",
+        help="Run the simple bounded scan for an authorized loopback URL.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        dest="simple_output",
+        type=Path,
+        default=None,
+        help="Analysis JSON file (default: vulnspider-analysis.json).",
+    )
+    parser.add_argument(
+        "--crawl-output",
+        dest="simple_crawl_output",
+        type=Path,
+        default=None,
+        help="Crawl JSON file (default: vulnspider-crawl.json).",
+    )
+    parser.add_argument(
+        "--static-only",
+        action="store_true",
+        help="Use Native Static Discovery only in simple URL mode.",
+    )
+    parser.add_argument(
+        "--dynamic-allow-navigation",
+        action="append",
+        default=None,
+        dest="simple_dynamic_allow_navigation",
+        metavar="URL",
+        help="Add one exact same-origin navigation grant in simple mode.",
+    )
+    parser.add_argument(
+        "--dynamic-allow-resource",
+        action="append",
+        default=None,
+        dest="simple_dynamic_allow_resource",
+        metavar="CATEGORY=URL",
+        help="Add one exact same-origin resource grant in simple mode.",
     )
     subparsers = parser.add_subparsers(dest="command")
     analyze = subparsers.add_parser(
@@ -108,6 +190,76 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Maximum redirects followed per URL for --url.",
     )
+    analyze.add_argument(
+        "--dynamic",
+        action="store_true",
+        help="Opt in to bounded combined Static and Dynamic discovery.",
+    )
+    analyze.add_argument(
+        "--dynamic-allow-navigation",
+        action="append",
+        default=None,
+        metavar="URL",
+        help="Allow one exact same-origin Dynamic navigation URL (repeatable).",
+    )
+    analyze.add_argument(
+        "--dynamic-allow-resource",
+        action="append",
+        default=None,
+        metavar="CATEGORY=URL",
+        help=(
+            "Allow one exact same-origin Dynamic resource URL in category "
+            "script, style, or fetch_xhr (repeatable)."
+        ),
+    )
+    analyze.add_argument(
+        "--dynamic-max-pages",
+        type=_positive_integer,
+        default=None,
+        help="Maximum rendered pages for combined discovery.",
+    )
+    analyze.add_argument(
+        "--dynamic-max-depth",
+        type=_non_negative_integer,
+        default=None,
+        help="Maximum Dynamic navigation depth.",
+    )
+    analyze.add_argument(
+        "--dynamic-max-navigation-attempts",
+        type=_positive_integer,
+        default=None,
+        help="Maximum Dynamic main-frame navigation attempts.",
+    )
+    analyze.add_argument(
+        "--dynamic-max-route-actions",
+        type=_positive_integer,
+        default=None,
+        help="Maximum passive route actions considered for navigation.",
+    )
+    analyze.add_argument(
+        "--dynamic-max-elapsed-seconds",
+        type=_positive_number,
+        default=None,
+        help="Hard elapsed-time limit for one Dynamic crawl.",
+    )
+    analyze.add_argument(
+        "--dynamic-navigation-timeout-seconds",
+        type=_positive_number,
+        default=None,
+        help="Timeout for each Dynamic main-frame navigation.",
+    )
+    analyze.add_argument(
+        "--dynamic-max-redirects",
+        type=_positive_integer,
+        default=None,
+        help="Maximum redirects followed per Dynamic navigation.",
+    )
+    analyze.add_argument(
+        "--dynamic-request-decision-budget",
+        type=_positive_integer,
+        default=None,
+        help="Maximum browser request-authority decisions.",
+    )
     return parser
 
 
@@ -116,15 +268,30 @@ def main(
     *,
     transport: RequestTransport | None = None,
     crawler_transport: StaticCrawlerTransport | None = None,
+    crawler: StaticCrawler | None = None,
+    dynamic_crawler: DynamicCrawler | None = None,
 ) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command is None:
+    simple_mode = args.command is None and args.simple_url is not None
+    crawl_published = False
+    if args.command is None and not simple_mode:
+        if _simple_options_without_url(args):
+            parser.error("simple scan options require -u/--url")
+        parser.print_help()
         return 0
     if args.command != "analyze":
-        parser.error(f"unsupported command: {args.command}")
+        if not simple_mode:
+            parser.error(f"unsupported command: {args.command}")
     try:
+        if simple_mode:
+            args = _simple_analysis_args(args)
         _reject_shared_report_destinations(args.output, args.html_output)
+        if simple_mode:
+            _reject_shared_crawl_analysis_destinations(
+                args.crawl_output,
+                args.output,
+            )
         if args.input is not None:
             _reject_native_policy_with_legacy_input(args)
             records = _load_legacy_records(args.input)
@@ -134,24 +301,177 @@ def main(
                 transport=transport,
             )
         else:
+            _reject_dynamic_options_without_opt_in(args)
+            dynamic_authority = (
+                _dynamic_authority_from_args(args, simple_mode=simple_mode)
+                if args.dynamic
+                else None
+            )
+            on_crawl_validated = None
+            if simple_mode:
+
+                def publish_crawl(
+                    crawl: StaticCrawlResult | CombinedDiscoveryResult,
+                ) -> None:
+                    nonlocal crawl_published
+                    write_crawl_report(crawl, args.crawl_output)
+                    crawl_published = True
+                    if (
+                        type(crawl) is CombinedDiscoveryResult
+                        and crawl.degraded
+                    ):
+                        raise _SimpleDegradedCrawl
+
+                on_crawl_validated = publish_crawl
             analysis = analyze_url(
                 args.url,
                 top_k=args.top_k,
                 crawl_policy=_crawl_policy_from_args(args),
+                crawler=crawler,
                 crawler_transport=crawler_transport,
+                dynamic_authority=dynamic_authority,
+                dynamic_policy=(
+                    _dynamic_policy_from_args(args, simple_mode=simple_mode)
+                    if args.dynamic
+                    else None
+                ),
+                dynamic_crawler=(dynamic_crawler if args.dynamic else None),
                 transport=transport,
+                on_crawl_validated=on_crawl_validated,
+                elide_sensitive_forms=simple_mode,
             )
-        write_json_report(
-            analysis.selection,
-            args.output,
-            warnings=analysis.warnings,
-        )
+            if simple_mode and not crawl_published:
+                raise CLIError("pipeline did not publish a validated crawl result")
+        if (
+            simple_mode
+            and analysis.combined_result is not None
+            and analysis.combined_result.degraded
+        ):
+            _print_partial_simple_result(args)
+            print(
+                "vulnspider: error: DYNAMIC_INCOMPLETE: "
+                "crawl result is degraded; analysis was not written",
+                file=sys.stderr,
+            )
+            return 4
+        if simple_mode:
+            write_analysis_report(analysis, args.output)
+        else:
+            write_json_report(
+                analysis.selection,
+                args.output,
+                warnings=analysis.warnings,
+            )
         if args.html_output is not None:
             _write_html_report(analysis, args.html_output)
+    except _SimpleDegradedCrawl:
+        _print_partial_simple_result(args)
+        print(
+            "vulnspider: error: DYNAMIC_INCOMPLETE: "
+            "crawl result is degraded; analysis was not written",
+            file=sys.stderr,
+        )
+        return 4
+    except (DiscoveryContractError, DynamicIntegrityError, DynamicCrawlerError):
+        if simple_mode and crawl_published:
+            _print_partial_simple_result(args)
+        print(
+            "vulnspider: error: DYNAMIC_INTEGRITY: "
+            "combined discovery failed validation",
+            file=sys.stderr,
+        )
+        return 3
+    except DynamicCapabilityError as exc:
+        if simple_mode and crawl_published:
+            _print_partial_simple_result(args)
+        print(
+            f"vulnspider: error: {exc.code.value}: {exc}; {exc.setup_hint}",
+            file=sys.stderr,
+        )
+        return 2
+    except DynamicBrowserError as exc:
+        if simple_mode and crawl_published:
+            _print_partial_simple_result(args)
+        if exc.code == DynamicBrowserErrorCode.INVALID_AUTHORITY:
+            print(
+                f"vulnspider: error: {exc.code.value}: {exc}",
+                file=sys.stderr,
+            )
+            return 2
+        print(
+            f"vulnspider: error: DYNAMIC_INCOMPLETE: {exc.code.value}",
+            file=sys.stderr,
+        )
+        return 4
     except (OSError, ValueError) as exc:
+        if simple_mode and crawl_published:
+            _print_partial_simple_result(args)
         print(f"vulnspider: error: {exc}", file=sys.stderr)
         return 2
+    if analysis.combined_result is not None and analysis.combined_result.degraded:
+        return 4
+    if simple_mode:
+        mode = "static-only" if not args.dynamic else "dynamic"
+        print(
+            "vulnspider: scan complete "
+            f"(mode={mode}, selected={analysis.selection.summary.selected_results})"
+        )
+        print(
+            "vulnspider: crawl output: "
+            f"{args.crawl_output.resolve(strict=False)}"
+        )
+        print(
+            "vulnspider: analysis output: "
+            f"{args.output.resolve(strict=False)}"
+        )
     return 0
+
+
+def _simple_options_without_url(args: argparse.Namespace) -> bool:
+    return bool(
+        args.simple_output is not None
+        or args.simple_crawl_output is not None
+        or args.static_only
+        or args.simple_dynamic_allow_navigation
+        or args.simple_dynamic_allow_resource
+    )
+
+
+def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
+    if args.static_only and (
+        args.simple_dynamic_allow_navigation
+        or args.simple_dynamic_allow_resource
+    ):
+        raise CLIError(
+            "--dynamic-allow-* cannot be combined with --static-only"
+        )
+    return argparse.Namespace(
+        command="analyze",
+        input=None,
+        url=args.simple_url,
+        top_k=_SIMPLE_DEFAULT_TOP_K,
+        output=args.simple_output or _SIMPLE_DEFAULT_ANALYSIS_OUTPUT,
+        crawl_output=(
+            args.simple_crawl_output or _SIMPLE_DEFAULT_CRAWL_OUTPUT
+        ),
+        html_output=None,
+        max_pages=None,
+        max_depth=None,
+        max_requests=None,
+        timeout_seconds=None,
+        max_redirects=None,
+        dynamic=not args.static_only,
+        dynamic_allow_navigation=args.simple_dynamic_allow_navigation,
+        dynamic_allow_resource=args.simple_dynamic_allow_resource,
+        dynamic_max_pages=None,
+        dynamic_max_depth=None,
+        dynamic_max_navigation_attempts=None,
+        dynamic_max_route_actions=None,
+        dynamic_max_elapsed_seconds=None,
+        dynamic_navigation_timeout_seconds=None,
+        dynamic_max_redirects=None,
+        dynamic_request_decision_budget=None,
+    )
 
 
 def _write_html_report(analysis: AnalysisResult, destination: Path) -> None:
@@ -162,14 +482,21 @@ def _write_html_report(analysis: AnalysisResult, destination: Path) -> None:
     endpoints = {
         endpoint.id or "": endpoint for endpoint in analysis.endpoints
     }
-    probe_runs = {
-        observation.feature_vector_id: (
-            observation.probe_plan,
-            observation.baseline_response,
-            observation.probe_response,
+    probe_runs: dict[str, Any] = {}
+    for observation in sorted(
+        analysis.probe_observations,
+        key=lambda item: item.probe_plan.id or "",
+    ):
+        # One InputPoint can own several request contexts, so show the first
+        # probe run by stable ProbePlan id rather than an arbitrary last one.
+        probe_runs.setdefault(
+            observation.feature_vector_id,
+            (
+                observation.probe_plan,
+                observation.baseline_response,
+                observation.probe_response,
+            ),
         )
-        for observation in analysis.probe_observations
-    }
     write_html_report(
         analysis.selection,
         destination,
@@ -177,6 +504,7 @@ def _write_html_report(analysis: AnalysisResult, destination: Path) -> None:
         input_points=input_points,
         endpoints=endpoints,
         probe_runs=probe_runs,
+        requests_executed=2 * len(analysis.probe_observations),
         target=_analysis_target(analysis),
         elapsed_seconds=analysis.elapsed_seconds,
     )
@@ -203,6 +531,24 @@ def _reject_shared_report_destinations(
         html_destination
     ):
         raise CLIError("--output and --html-output must refer to different files")
+
+
+def _reject_shared_crawl_analysis_destinations(
+    crawl_destination: Path,
+    analysis_destination: Path,
+) -> None:
+    if _normalized_destination(crawl_destination) == _normalized_destination(
+        analysis_destination
+    ):
+        raise CLIError("--crawl-output and --output must refer to different files")
+
+
+def _print_partial_simple_result(args: argparse.Namespace) -> None:
+    print("vulnspider: scan incomplete (crawl=created, analysis=not-written)")
+    print(
+        "vulnspider: crawl output: "
+        f"{args.crawl_output.resolve(strict=False)}"
+    )
 
 
 def _normalized_destination(destination: Path) -> str:
@@ -258,9 +604,128 @@ def _reject_native_policy_with_legacy_input(args: argparse.Namespace) -> None:
             "max_requests",
             "timeout_seconds",
             "max_redirects",
+            "dynamic_allow_navigation",
+            "dynamic_allow_resource",
+            "dynamic_max_pages",
+            "dynamic_max_depth",
+            "dynamic_max_navigation_attempts",
+            "dynamic_max_route_actions",
+            "dynamic_max_elapsed_seconds",
+            "dynamic_navigation_timeout_seconds",
+            "dynamic_max_redirects",
+            "dynamic_request_decision_budget",
         )
-    ):
+    ) or args.dynamic:
         raise CLIError("crawler policy options require --url")
+
+
+_DYNAMIC_OPTION_NAMES = (
+    "dynamic_allow_navigation",
+    "dynamic_allow_resource",
+    "dynamic_max_pages",
+    "dynamic_max_depth",
+    "dynamic_max_navigation_attempts",
+    "dynamic_max_route_actions",
+    "dynamic_max_elapsed_seconds",
+    "dynamic_navigation_timeout_seconds",
+    "dynamic_max_redirects",
+    "dynamic_request_decision_budget",
+)
+
+
+def _reject_dynamic_options_without_opt_in(args: argparse.Namespace) -> None:
+    if args.dynamic:
+        return
+    if any(getattr(args, name) is not None for name in _DYNAMIC_OPTION_NAMES):
+        raise CLIError("Dynamic policy and authority options require --dynamic")
+
+
+def _dynamic_authority_from_args(
+    args: argparse.Namespace,
+    *,
+    simple_mode: bool = False,
+) -> DynamicRequestAuthority:
+    grants: list[DynamicResourceGrant] = []
+    for value in args.dynamic_allow_resource or ():
+        category, separator, url = value.partition("=")
+        if not separator or not category or not url:
+            raise CLIError(
+                "--dynamic-allow-resource requires CATEGORY=URL"
+            )
+        try:
+            kind = DynamicResourceKind(category)
+        except ValueError:
+            allowed = ", ".join(item.value for item in DynamicResourceKind)
+            raise CLIError(
+                "--dynamic-allow-resource category must be one of: "
+                f"{allowed}"
+            ) from None
+        grants.append(DynamicResourceGrant(kind=kind, url=url))
+    return DynamicRequestAuthority(
+        root_url=args.url,
+        navigation_urls=tuple(args.dynamic_allow_navigation or ()),
+        resource_grants=tuple(grants),
+        allow_rendered_navigation=simple_mode,
+        allow_passive_same_origin_resources=simple_mode,
+    )
+
+
+def _dynamic_policy_from_args(
+    args: argparse.Namespace,
+    *,
+    simple_mode: bool = False,
+) -> DynamicCrawlPolicy:
+    defaults = DynamicCrawlPolicy()
+    try:
+        return DynamicCrawlPolicy(
+            max_pages=(
+                defaults.max_pages
+                if args.dynamic_max_pages is None
+                else args.dynamic_max_pages
+            ),
+            max_depth=(
+                (
+                    _SIMPLE_DEFAULT_DYNAMIC_MAX_DEPTH
+                    if simple_mode
+                    else defaults.max_depth
+                )
+                if args.dynamic_max_depth is None
+                else args.dynamic_max_depth
+            ),
+            max_navigation_attempts=(
+                defaults.max_navigation_attempts
+                if args.dynamic_max_navigation_attempts is None
+                else args.dynamic_max_navigation_attempts
+            ),
+            max_route_actions=(
+                defaults.max_route_actions
+                if args.dynamic_max_route_actions is None
+                else args.dynamic_max_route_actions
+            ),
+            max_elapsed_seconds=(
+                defaults.max_elapsed_seconds
+                if args.dynamic_max_elapsed_seconds is None
+                else args.dynamic_max_elapsed_seconds
+            ),
+            navigation_timeout_seconds=(
+                defaults.navigation_timeout_seconds
+                if args.dynamic_navigation_timeout_seconds is None
+                else args.dynamic_navigation_timeout_seconds
+            ),
+            max_redirects_per_navigation=(
+                defaults.max_redirects_per_navigation
+                if args.dynamic_max_redirects is None
+                else args.dynamic_max_redirects
+            ),
+            request_decision_budget=(
+                defaults.request_decision_budget
+                if args.dynamic_request_decision_budget is None
+                else args.dynamic_request_decision_budget
+            ),
+            rendered_dom_policy=defaults.rendered_dom_policy,
+        )
+    except DynamicCrawlerError as exc:
+        raise CLIError(str(exc)) from None
 
 
 def _crawl_policy_from_args(args: argparse.Namespace) -> CrawlPolicy:

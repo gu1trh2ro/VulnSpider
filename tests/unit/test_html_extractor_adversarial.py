@@ -12,12 +12,14 @@ import vulnspider.discovery.html_extractor as extractor_module
 from vulnspider.discovery import (
     NonProbeReadyReason,
     ProbeReadyStatus,
+    SensitiveFormElisionPolicy,
     extract_static_html,
 )
 from vulnspider.domain import HttpMethod, InputLocation
 
 
 SOURCE_URL = "http://example.test/root/index.html"
+SENSITIVE_FORM_POLICY = SensitiveFormElisionPolicy()
 
 
 class StaticHtmlExtractorAdversarialTests(unittest.TestCase):
@@ -347,6 +349,120 @@ class StaticHtmlExtractorAdversarialTests(unittest.TestCase):
         ]
         self.assertEqual(len(warnings), 1)
         self.assertEqual(result.discovery.crawl_statistics.skipped, 2)
+
+    def test_safe_anchor_password_form_collision_is_elided_pre_canonical(
+        self,
+    ) -> None:
+        password_sentinel = "PW_SENTINEL"
+        html = f"""
+        <a href="/search?q=safe">safe</a>
+        <form method="get" action="/search">
+          <input type="password" name="q" value="{password_sentinel}">
+        </form>
+        """
+
+        first = extract_static_html(
+            html,
+            SOURCE_URL,
+            sensitive_form_policy=SENSITIVE_FORM_POLICY,
+        )
+        second = extract_static_html(
+            html,
+            SOURCE_URL,
+            sensitive_form_policy=SENSITIVE_FORM_POLICY,
+        )
+
+        q_points = [
+            item
+            for item in first.discovery.input_points
+            if item.name == "q"
+        ]
+        self.assertEqual(len(q_points), 1)
+        q_point = q_points[0]
+        self.assertEqual(q_point.baseline_values, ("safe",))
+        self.assertEqual(q_point.type_hint, "query")
+        self.assertEqual(q_point.metadata["raw_query_token"], "q=safe")
+        self.assertEqual(q_point.metadata["origin_kinds"], ("query",))
+        self.assertEqual(
+            [
+                item
+                for item in first.discovery.request_templates
+                if item.metadata.get("context_kind") == "form"
+            ],
+            [],
+        )
+        self.assertEqual(
+            len(first.discovery.input_point_request_contexts),
+            1,
+        )
+        warnings = [
+            item
+            for item in first.warnings
+            if item.code == "SENSITIVE_FORM_ELIDED"
+        ]
+        self.assertEqual(len(warnings), 1)
+        serialized = json.dumps(first.to_dict(), sort_keys=True)
+        self.assertFalse(password_sentinel in serialized)
+        self.assertFalse(password_sentinel in repr(first))
+        self.assertEqual(first, second)
+        self.assertEqual(first.to_dict(), second.to_dict())
+        first.discovery.validate()
+
+    def test_repeated_sensitive_forms_have_deterministic_warnings(self) -> None:
+        html = """
+        <form method="post" action="/first">
+          <input type="password" name="first" value="FIRST_SENTINEL">
+        </form>
+        <form method="get" action="/second">
+          <input type=" PaSsWoRd " name="second" value="SECOND_SENTINEL">
+        </form>
+        """
+
+        first = extract_static_html(
+            html,
+            SOURCE_URL,
+            sensitive_form_policy=SENSITIVE_FORM_POLICY,
+        )
+        second = extract_static_html(
+            html,
+            SOURCE_URL,
+            sensitive_form_policy=SENSITIVE_FORM_POLICY,
+        )
+
+        first_warnings = [
+            item
+            for item in first.warnings
+            if item.code == "SENSITIVE_FORM_ELIDED"
+        ]
+        second_warnings = [
+            item
+            for item in second.warnings
+            if item.code == "SENSITIVE_FORM_ELIDED"
+        ]
+        self.assertEqual(len(first_warnings), 2)
+        self.assertEqual(
+            sorted(
+                item.details["form_occurrence_index"]
+                for item in first_warnings
+            ),
+            [0, 1],
+        )
+        self.assertEqual(first_warnings, second_warnings)
+        self.assertEqual(first, second)
+        self.assertNotIn(
+            "/first",
+            {item.path for item in first.discovery.endpoints},
+        )
+        self.assertNotIn(
+            "/second",
+            {item.path for item in first.discovery.endpoints},
+        )
+        warning_text = json.dumps(
+            first.discovery.to_dict()["warnings"],
+            sort_keys=True,
+        )
+        self.assertFalse("FIRST_SENTINEL" in warning_text)
+        self.assertFalse("SECOND_SENTINEL" in warning_text)
 
     def test_input_permutation_has_canonical_output_order(self) -> None:
         first_html = """

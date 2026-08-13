@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+import os
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+import tempfile
 from typing import Any
 
 from vulnspider.domain import ScoreEvidence
@@ -60,6 +62,14 @@ def render_json_report(
     warnings: Sequence[str] = (),
 ) -> str:
     report = build_json_report(outcome, warnings=warnings)
+    return render_json_document(report)
+
+
+def render_json_document(report: Mapping[str, Any]) -> str:
+    """Render an already-built report using the strict shared JSON policy."""
+
+    if not isinstance(report, Mapping):
+        raise ReportingError("report must be a mapping")
     try:
         return (
             json.dumps(
@@ -81,10 +91,41 @@ def write_json_report(
     *,
     warnings: Sequence[str] = (),
 ) -> None:
-    Path(destination).write_text(
-        render_json_report(outcome, warnings=warnings),
-        encoding="utf-8",
+    rendered = render_json_report(outcome, warnings=warnings)
+    write_json_document(rendered, destination)
+
+
+def write_json_document(rendered: str, destination: str | Path) -> None:
+    """Atomically publish one fully rendered JSON document."""
+
+    if type(rendered) is not str:
+        raise ReportingError("rendered report must be a string")
+    destination_path = Path(destination)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=destination_path.parent,
+        prefix=f".{destination_path.name}.",
+        suffix=".tmp",
     )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(
+            descriptor,
+            "w",
+            encoding="utf-8",
+            newline="",
+        ) as temporary_file:
+            temporary_file.write(rendered)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, destination_path)
+    except BaseException:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        raise
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def _candidate_record(
@@ -105,7 +146,7 @@ def _candidate_record(
         "raw_rank_score_max": item.raw_rank_score_max,
         "selection_priority": item.selection_priority,
         "evidence": [
-            _evidence_record(evidence)
+            score_evidence_record(evidence)
             for evidence in sorted(
                 result.evidence,
                 key=lambda evidence: evidence.feature_name,
@@ -114,7 +155,9 @@ def _candidate_record(
     }
 
 
-def _evidence_record(evidence: ScoreEvidence) -> dict[str, Any]:
+def score_evidence_record(evidence: ScoreEvidence) -> dict[str, Any]:
+    """Serialize existing authoritative score evidence consistently."""
+
     return {
         "candidate_id": evidence.candidate_id,
         "feature_vector_id": evidence.feature_vector_id,

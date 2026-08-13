@@ -2,16 +2,18 @@
 
 ## Repository status
 
-This repository is the **Completed and Frozen v0.1 checkpoint** for
-VulnSpider. It is no longer an empty starter repository.
+This repository retains the **Completed and Frozen v0.1 checkpoint** and now
+also contains the in-progress v0.2 Native Discovery implementation.
 
 - **Implemented:** the `prototype/v0.1` legacy-record analysis path, JSON
-  report, and optional HTML report.
-- **Planned for v0.2:** native discovery, BAC prioritization, and
-  LLM-assisted focused verification.
+  report, optional HTML report, Native Static Discovery, bounded combined
+  Native Static plus Native Dynamic Discovery, final loopback E2E acceptance,
+  and the simple Dynamic-first CLI adapter.
+- **Still planned for v0.2:** BAC prioritization and LLM-assisted focused
+  verification.
 - **Historical:** the Prompt 01-07 sequence that produced and reviewed v0.1.
 
-Planning documents do not imply that v0.2 production code exists.
+Planning documents do not imply that later v0.2 milestones are implemented.
 
 ## Read first
 
@@ -32,10 +34,46 @@ New contributors should read these documents in order:
 Use `docs/DOMAIN_MODEL.md`, `docs/FEATURE_SCHEMA.md`, and
 `docs/EVALUATION_PROTOCOL.md` when changing their respective boundaries.
 
-## Implemented v0.1 path
+## Implemented analysis entry points
 
-The current CLI does not crawl a target URL. It consumes an array of legacy
-crawl records, then performs authorized localhost/loopback Light Probes:
+The default user command runs the existing combined discovery and Light Probe
+pipeline and atomically writes two reports in the current directory:
+
+- `vulnspider-crawl.json`: the validated Combined Discovery result, including
+  Static/Dynamic provenance, READY/NOT_READY contexts, crawl statistics, and
+  completion state.
+- `vulnspider-analysis.json`: executed ProbePlan/response identities, retained
+  observations and features, scoring evidence, and the existing Top-K fields,
+  linked by stable InputPoint IDs to the crawl report.
+
+```powershell
+vulnspider -u http://127.0.0.1:8080/
+vulnspider -u http://127.0.0.1:8080/ --crawl-output crawl.json -o analysis.json
+vulnspider -u http://127.0.0.1:8080/ --static-only
+```
+
+Simple Dynamic mode automatically admits only rendered GET anchors on the
+exact root origin and GET script/style resources on that same origin. Existing
+page, depth, elapsed-time, navigation, and request-decision budgets remain in
+force; the simple adapter permits at most two link depths while the advanced
+Dynamic policy default remains unchanged. Fetch/XHR, WebSocket, EventSource,
+POST, form submission, popup, child
+frame traversal, cross-origin, and different-port traffic remain blocked by
+default. Existing `--dynamic-allow-navigation` and
+`--dynamic-allow-resource` flags add explicit advanced grants.
+
+Each JSON report is rendered completely into a same-directory temporary file
+and replaces its requested destination only after validation, flush, and
+`fsync`. Invalid discovery publishes neither new file. If validated crawl
+publication succeeds but probe/analysis later fails, the crawl report remains
+available and the analysis report is not published. Degraded Dynamic discovery
+publishes only a crawl report explicitly marked `DEGRADED` and exits with code
+4. Successful simple scans print only a bounded summary and the two resolved
+output paths; reports and diagnostics do not print raw DOM or sensitive form
+values.
+
+The frozen compatibility path consumes legacy crawl records, then performs
+authorized localhost/loopback Light Probes:
 
 ```text
 Legacy record JSON
@@ -63,11 +101,40 @@ the JSON path. It does not recompute scores or confirm vulnerabilities.
 Equivalent JSON and HTML output paths are rejected before either report is
 written.
 
+An authorized loopback URL uses Native Static Discovery by default. Bounded
+Native Dynamic Discovery is explicit opt-in and merges its validated result
+with the policy-bound Static result before the unchanged canonical analysis
+consumer runs:
+
+```powershell
+vulnspider analyze `
+  --url http://127.0.0.1:8080/ `
+  --dynamic `
+  --dynamic-allow-navigation http://127.0.0.1:8080/search `
+  --dynamic-allow-resource script=http://127.0.0.1:8080/app.js `
+  --top-k 10 `
+  --output result.json
+```
+
+Without `--dynamic`, `--url` remains Static-only and never requires
+Playwright. Dynamic authority and policy options are invalid without the
+opt-in flag and with `--input`. Explicit Dynamic capability/configuration,
+integrity, and validated degradation paths use exit codes 2, 3, and 4
+respectively.
+
 ## Implemented and not implemented
 
 ### Implemented
 
 - Legacy crawl-record JSON input.
+- Direct authorized URL input through bounded Native Static Discovery.
+- Explicit `--dynamic` combined Native Discovery with exact, immutable
+  navigation/resource authority and lazy Playwright capability checking.
+- Dynamic-first `vulnspider -u URL` adapter with rendered same-origin GET
+  anchor navigation, same-origin script/style loading, separately atomic crawl
+  and analysis JSON reports, and `--static-only` compatibility.
+- Combined canonical handoff to the existing READY-context analysis consumer;
+  NOT_READY contexts remain non-executable.
 - `LegacyCrawlerAdapter` normalization into canonical v0.1 domain models.
 - Deterministic probe planning and loopback-only baseline/probe execution.
 - Minimal differential, reflection, and SQL signal extraction.
@@ -78,9 +145,6 @@ written.
 
 ### Planned for v0.2, not implemented
 
-- Direct target URL input.
-- Native static crawler.
-- Native dynamic/browser crawler prototype.
 - BAC preprocessing, features, scoring, and role/session orchestration.
 - Feature cache and automated quantitative ranking evaluation.
 - GPT/Gemini comparison harness.
