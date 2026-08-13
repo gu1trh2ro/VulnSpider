@@ -457,6 +457,21 @@ def run_decide_command(
         args.output,
     )
     if args.html_output is not None:
+        probe_runs: dict[str, Any] = {}
+        for observation in sorted(
+            analysis.probe_observations,
+            key=lambda item: item.probe_plan.id or "",
+        ):
+            # One InputPoint can own several request contexts; show the first
+            # probe run by stable ProbePlan id, as the v0.1 report does.
+            probe_runs.setdefault(
+                observation.feature_vector_id,
+                (
+                    observation.probe_plan,
+                    observation.baseline_response,
+                    observation.probe_response,
+                ),
+            )
         write_decision_html_report(
             outcome,
             args.html_output,
@@ -467,6 +482,7 @@ def run_decide_command(
             endpoints={
                 endpoint.id or "": endpoint for endpoint in analysis.endpoints
             },
+            probe_runs=probe_runs,
             probabilities=probabilities,
             models=models,
             warnings=analysis.warnings,

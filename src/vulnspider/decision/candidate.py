@@ -45,10 +45,14 @@ class DecisionCandidate:
     logit_variance: float = 0.0
     selection_rank: int | None = None
     subject_ref: str = ""
-    """The InputPoint or AccessProbePlan this candidate was derived from.
+    """The InputPoint or AccessProbePlan this candidate was derived from."""
 
-    Carried forward from the handoff so a report can join a selected candidate
-    back to the request it came from. Reporting must not re-derive this
+    feature_vector_ref: str = ""
+    """The FeatureVector the probability was computed from.
+
+    Both refs are carried forward from the handoff so a report can join a
+    selected candidate back to its input point and to the baseline/probe pair
+    that was actually executed. Reporting must not re-derive either
     (ARCHITECTURE.md: reporting displays authoritative results).
     """
 
@@ -153,4 +157,5 @@ def decision_candidate_from_context(
         logit_variance=calibrated.logit_variance,
         selection_rank=context.rank,
         subject_ref=context.candidate_subject_ref,
+        feature_vector_ref=context.feature_vector_id or "",
     )
