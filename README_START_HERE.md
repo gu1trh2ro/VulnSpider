@@ -64,6 +64,12 @@ frame traversal, cross-origin, and different-port traffic remain blocked by
 default. Existing `--dynamic-allow-navigation` and
 `--dynamic-allow-resource` flags add explicit advanced grants.
 
+Dynamic browser audit evidence passively records bounded fetch/XHR request
+attempt projections separately from Guard transport decisions. It never
+replays a request and retains no raw URL, path, query value, header, cookie, or
+body. These observations remain under `dynamic_crawl.browser_audit`; they are
+not canonical endpoints or inputs and do not affect discovery snapshot IDs.
+
 Each JSON report is rendered completely into a same-directory temporary file
 and replaces its requested destination only after validation, flush, and
 `fsync`. Invalid discovery publishes neither new file. If validated crawl

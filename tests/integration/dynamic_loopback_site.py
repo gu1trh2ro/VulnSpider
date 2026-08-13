@@ -83,6 +83,11 @@ class DynamicLoopbackSite:
         self.eventsource_url = ""
         self.websocket_url = ""
         self.fetch_xhr_url = ""
+        self.network_observation_url = ""
+        self.network_observation_script_url = ""
+        self.network_observation_style_url = ""
+        self.network_observation_fetch_url = ""
+        self.network_observation_xhr_url = ""
         self.unsafe_get_url = ""
         self.autosubmit_url = ""
         self.page_close_url = ""
@@ -325,6 +330,88 @@ class DynamicLoopbackSite:
                         html.encode("utf-8"),
                         "text/html; charset=utf-8",
                     )
+                    return
+                if route == "/network-observation":
+                    html = """<!doctype html>
+                    <html>
+                      <head>
+                        <meta charset="utf-8">
+                        <link rel="icon" href="data:,">
+                        <link rel="stylesheet" href="/network-observation.css">
+                      </head>
+                      <body>
+                        <div id="network-observation-started">started</div>
+                        <script src="/network-observation.js"></script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/network-observation.js":
+                    script = f"""
+                    const attempts = [];
+                    attempts.push(fetch(
+                      "/network-observation/get-fetch"
+                        + "?alpha=FETCH_QUERY_VALUE_SECRET"
+                        + "&repeat=one&repeat=two"
+                    ));
+                    attempts.push(new Promise((resolve) => {{
+                      const xhr = new XMLHttpRequest();
+                      xhr.onload = resolve;
+                      xhr.onerror = resolve;
+                      xhr.open(
+                        "GET",
+                        "/network-observation/get-xhr"
+                          + "?beta=XHR_QUERY_VALUE_SECRET"
+                      );
+                      xhr.send();
+                    }}));
+                    attempts.push(fetch(
+                      "/network-observation/post-fetch"
+                        + "?post_name=POST_QUERY_VALUE_SECRET",
+                      {{
+                        method: "POST",
+                        headers: {{
+                          "Content-Type": "application/json",
+                          "Authorization": "Bearer AUTHORIZATION_SECRET"
+                        }},
+                        body: JSON.stringify({{
+                          password: "POST_BODY_PASSWORD_SECRET"
+                        }})
+                      }}
+                    ));
+                    attempts.push(fetch(
+                      "{site.sentinel_origin}/network-observation/off-scope"
+                        + "?outside=OFF_SCOPE_QUERY_SECRET"
+                    ));
+                    Promise.allSettled(attempts).then(() => {{
+                      const marker = document.createElement("div");
+                      marker.id = "network-observation-complete";
+                      marker.textContent = "complete";
+                      document.body.appendChild(marker);
+                    }});
+                    """
+                    self._send(
+                        200,
+                        script.encode("utf-8"),
+                        "application/javascript; charset=utf-8",
+                    )
+                    return
+                if route == "/network-observation.css":
+                    self._send(
+                        200,
+                        b"#network-observation-started { display: block; }",
+                        "text/css; charset=utf-8",
+                    )
+                    return
+                if route in {
+                    "/network-observation/get-fetch",
+                    "/network-observation/get-xhr",
+                }:
+                    self._send(200, b"ok", "text/plain; charset=utf-8")
                     return
                 if route == "/unsafe-get":
                     self._send(
@@ -1206,6 +1293,25 @@ class DynamicLoopbackSite:
         )
         self.fetch_xhr_url = (
             f"http://127.0.0.1:{self.primary_port}/fetch-xhr"
+        )
+        network_observation_origin = f"http://127.0.0.1:{self.primary_port}"
+        self.network_observation_url = (
+            network_observation_origin + "/network-observation"
+        )
+        self.network_observation_script_url = (
+            network_observation_origin + "/network-observation.js"
+        )
+        self.network_observation_style_url = (
+            network_observation_origin + "/network-observation.css"
+        )
+        self.network_observation_fetch_url = (
+            network_observation_origin
+            + "/network-observation/get-fetch"
+            + "?alpha=FETCH_QUERY_VALUE_SECRET&repeat=one&repeat=two"
+        )
+        self.network_observation_xhr_url = (
+            network_observation_origin
+            + "/network-observation/get-xhr?beta=XHR_QUERY_VALUE_SECRET"
         )
         self.unsafe_get_url = (
             f"http://127.0.0.1:{self.primary_port}/unsafe-get"

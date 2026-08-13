@@ -14,7 +14,7 @@ import re
 from threading import Lock
 from time import monotonic
 from typing import Any, Callable, Generic, Protocol, TypeVar
-from urllib.parse import parse_qsl, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote_plus, urljoin, urlsplit, urlunsplit
 
 from vulnspider.discovery.rendered_dom import (
     RENDERED_DOM_CAPTURE_SCRIPT,
@@ -24,6 +24,7 @@ from vulnspider.discovery.rendered_dom import (
     RenderedDomSnapshot,
     snapshot_from_browser_payload,
 )
+from vulnspider.domain import stable_fingerprint
 
 
 PLAYWRIGHT_REQUIREMENT = "playwright>=1.48,<2"
@@ -36,6 +37,11 @@ _RESOURCE_TYPES = frozenset({"script", "style", "fetch_xhr"})
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 _DEFAULT_NAVIGATION_TIMEOUT_SECONDS = 3.0
 _DEFAULT_REQUEST_DECISION_BUDGET = 50
+_MAX_PASSIVE_URL_CHARACTERS = 8192
+_MAX_PASSIVE_METHOD_CHARACTERS = 32
+_MAX_PASSIVE_HOST_CHARACTERS = 253
+_MAX_PASSIVE_QUERY_PARAMETER_NAMES = 64
+_MAX_PASSIVE_QUERY_NAME_CHARACTERS = 128
 _REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 
 T = TypeVar("T")
@@ -140,6 +146,13 @@ class DynamicNetworkReason(StrEnum):
     WEBSOCKET_DENIED = "WEBSOCKET_DENIED"
 
 
+class PassiveNetworkScope(StrEnum):
+    """Exact-origin classification for one passive request attempt."""
+
+    SAME_SCOPE = "SAME_SCOPE"
+    OFF_SCOPE = "OFF_SCOPE"
+
+
 class ChildFrameDocumentKind(StrEnum):
     """Secret-free classification for one child-frame document lifecycle."""
 
@@ -161,6 +174,7 @@ class DynamicBrowserErrorCode(StrEnum):
     HTTP_RESPONSE_DISPOSE_FAILED = "HTTP_RESPONSE_DISPOSE_FAILED"
     WEBSOCKET_GUARD_INSTALL_FAILED = "WEBSOCKET_GUARD_INSTALL_FAILED"
     PAGE_CREATE_FAILED = "PAGE_CREATE_FAILED"
+    PASSIVE_OBSERVER_INSTALL_FAILED = "PASSIVE_OBSERVER_INSTALL_FAILED"
     PAGE_OBSERVER_INSTALL_FAILED = "PAGE_OBSERVER_INSTALL_FAILED"
     POPUP_OBSERVER_INSTALL_FAILED = "POPUP_OBSERVER_INSTALL_FAILED"
     REQUEST_DECISION_BUDGET_EXHAUSTED = "REQUEST_DECISION_BUDGET_EXHAUSTED"
@@ -221,6 +235,77 @@ class BrowserAuditEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class PassiveNetworkObservation:
+    """Bounded, deterministic, secret-free fetch/XHR request attempt."""
+
+    method: str
+    resource_type: str
+    scheme: str
+    host: str
+    effective_port: int
+    path_fingerprint: str
+    path_segment_count: int
+    query_parameter_names: tuple[str, ...]
+    scope: PassiveNetworkScope
+    occurrence_count: int = 1
+
+    def __post_init__(self) -> None:
+        if type(self.method) is not str or not self.method:
+            raise ValueError("passive network method must not be empty")
+        if type(self.resource_type) is not str:
+            raise TypeError("passive network resource type must be a string")
+        if type(self.scheme) is not str or type(self.host) is not str:
+            raise TypeError("passive network origin fields must be strings")
+        try:
+            query_parameter_names = tuple(sorted(self.query_parameter_names))
+        except TypeError as exc:
+            raise TypeError(
+                "passive network query names must be an iterable of strings"
+            ) from exc
+        method = self.method.upper()
+        resource_type = self.resource_type.lower()
+        scheme = self.scheme.lower()
+        host = self.host.lower()
+        scope = PassiveNetworkScope(self.scope)
+        if len(method) > _MAX_PASSIVE_METHOD_CHARACTERS:
+            raise ValueError("passive network method is too long")
+        if resource_type not in {"fetch", "xhr"}:
+            raise ValueError("passive network resource type must be fetch or xhr")
+        if scheme not in _HTTP_SCHEMES or not host:
+            raise ValueError("passive network origin must be absolute HTTP(S)")
+        if len(host) > _MAX_PASSIVE_HOST_CHARACTERS:
+            raise ValueError("passive network host is too long")
+        if (
+            type(self.effective_port) is not int
+            or not 1 <= self.effective_port <= 65535
+        ):
+            raise ValueError("passive network effective port is invalid")
+        if (
+            type(self.path_fingerprint) is not str
+            or not self.path_fingerprint
+            or any(character.isspace() for character in self.path_fingerprint)
+        ):
+            raise ValueError("passive network path fingerprint is invalid")
+        if type(self.path_segment_count) is not int or self.path_segment_count < 0:
+            raise ValueError("passive network path segment count is invalid")
+        if any(type(name) is not str for name in query_parameter_names):
+            raise TypeError("passive network query names must be strings")
+        if len(query_parameter_names) > _MAX_PASSIVE_QUERY_PARAMETER_NAMES or any(
+            len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
+            for name in query_parameter_names
+        ):
+            raise ValueError("passive network query names exceed safe bounds")
+        if type(self.occurrence_count) is not int or self.occurrence_count <= 0:
+            raise ValueError("passive network occurrence count must be positive")
+        object.__setattr__(self, "method", method)
+        object.__setattr__(self, "resource_type", resource_type)
+        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "host", host)
+        object.__setattr__(self, "query_parameter_names", query_parameter_names)
+        object.__setattr__(self, "scope", scope)
+
+
+@dataclass(frozen=True, slots=True)
 class BrowserAuditSummary:
     """Immutable minimal lifecycle and transport audit."""
 
@@ -273,6 +358,10 @@ class BrowserAuditSummary:
     cleanup_error_codes: tuple[str, ...]
     cleanup_complete: bool
     events: tuple[BrowserAuditEvent, ...]
+    network_observations: tuple[PassiveNetworkObservation, ...] = field(
+        default_factory=tuple
+    )
+    network_observation_overflow_count: int = 0
 
 
 class DynamicBrowserError(RuntimeError):
@@ -932,6 +1021,84 @@ def _safe_audit_event(
     )
 
 
+def _passive_network_observation_key(
+    observation: PassiveNetworkObservation,
+) -> tuple[object, ...]:
+    return (
+        observation.method,
+        observation.resource_type,
+        observation.scheme,
+        observation.host,
+        observation.effective_port,
+        observation.path_fingerprint,
+        observation.path_segment_count,
+        observation.query_parameter_names,
+        observation.scope.value,
+    )
+
+
+def _query_parameter_names(raw_query: str) -> tuple[str, ...]:
+    names: list[str] = []
+    for token in raw_query.split("&") if raw_query else ():
+        raw_name = token.partition("=")[0]
+        name = unquote_plus(raw_name)
+        if len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS:
+            raise ValueError("passive network query name is too long")
+        names.append(name)
+        if len(names) > _MAX_PASSIVE_QUERY_PARAMETER_NAMES:
+            raise ValueError("too many passive network query names")
+    return tuple(sorted(names))
+
+
+def _safe_passive_network_observation(
+    *,
+    method: str,
+    url: str,
+    resource_type: str,
+    root_origin: tuple[str, str, int],
+) -> PassiveNetworkObservation | None:
+    if (
+        type(method) is not str
+        or type(url) is not str
+        or type(resource_type) is not str
+        or not method
+        or len(method) > _MAX_PASSIVE_METHOD_CHARACTERS
+        or len(url) > _MAX_PASSIVE_URL_CHARACTERS
+    ):
+        return None
+    normalized_resource_type = resource_type.strip().lower()
+    if normalized_resource_type not in {"fetch", "xhr"}:
+        return None
+    try:
+        parts = urlsplit(url)
+        scheme = parts.scheme.lower()
+        host = parts.hostname.lower() if parts.hostname else ""
+        effective_port = parts.port or _DEFAULT_PORTS[scheme]
+        if len(host) > _MAX_PASSIVE_HOST_CHARACTERS:
+            return None
+        query_parameter_names = _query_parameter_names(parts.query)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if scheme not in _HTTP_SCHEMES or not host:
+        return None
+    path = parts.path or "/"
+    return PassiveNetworkObservation(
+        method=method.upper(),
+        resource_type=normalized_resource_type,
+        scheme=scheme,
+        host=host,
+        effective_port=effective_port,
+        path_fingerprint=stable_fingerprint("passive-network-path", path)[:24],
+        path_segment_count=sum(1 for segment in path.split("/") if segment),
+        query_parameter_names=query_parameter_names,
+        scope=(
+            PassiveNetworkScope.SAME_SCOPE
+            if (scheme, host, effective_port) == root_origin
+            else PassiveNetworkScope.OFF_SCOPE
+        ),
+    )
+
+
 class _AuditRecorder:
     def __init__(self, *, event_limit: int) -> None:
         self._event_limit = event_limit
@@ -980,9 +1147,13 @@ class _AuditRecorder:
         self.redirect_block_count = 0
         self.redirect_followed_count = 0
         self.request_decision_overflow_count = 0
+        self.network_observation_overflow_count = 0
         self._events: list[BrowserAuditEvent] = []
         self._child_frame_commit_kinds: list[ChildFrameDocumentKind] = []
         self._child_frame_completion_kinds: list[ChildFrameDocumentKind] = []
+        self._network_observations: dict[
+            tuple[object, ...], tuple[PassiveNetworkObservation, int]
+        ] = {}
 
     def record_http(
         self,
@@ -1114,6 +1285,21 @@ class _AuditRecorder:
                 )
             )
 
+    def record_network_observation(
+        self,
+        observation: PassiveNetworkObservation,
+    ) -> None:
+        key = _passive_network_observation_key(observation)
+        with self._lock:
+            current = self._network_observations.get(key)
+            if current is not None:
+                self._network_observations[key] = (current[0], current[1] + 1)
+                return
+            if len(self._network_observations) >= self._event_limit:
+                self.network_observation_overflow_count += 1
+                return
+            self._network_observations[key] = (observation, 1)
+
     def _append_event(self, event: BrowserAuditEvent) -> None:
         if len(self._events) < self._event_limit:
             self._events.append(event)
@@ -1221,6 +1407,27 @@ class _AuditRecorder:
                 cleanup_error_codes=cleanup_error_codes,
                 cleanup_complete=cleanup_complete,
                 events=tuple(self._events),
+                network_observations=tuple(
+                    PassiveNetworkObservation(
+                        method=observation.method,
+                        resource_type=observation.resource_type,
+                        scheme=observation.scheme,
+                        host=observation.host,
+                        effective_port=observation.effective_port,
+                        path_fingerprint=observation.path_fingerprint,
+                        path_segment_count=observation.path_segment_count,
+                        query_parameter_names=observation.query_parameter_names,
+                        scope=observation.scope,
+                        occurrence_count=occurrence_count,
+                    )
+                    for observation, occurrence_count in sorted(
+                        self._network_observations.values(),
+                        key=lambda item: _passive_network_observation_key(item[0]),
+                    )
+                ),
+                network_observation_overflow_count=(
+                    self.network_observation_overflow_count
+                ),
             )
 
 
@@ -1803,6 +2010,34 @@ class _PageLifecycleObserver:
             )
 
 
+class _PassiveNetworkObserver:
+    """Read-only BrowserContext listener for safe fetch/XHR attempt evidence."""
+
+    def __init__(
+        self,
+        authority: DynamicRequestAuthority,
+        audit: _AuditRecorder,
+    ) -> None:
+        self._root_origin = _origin(authority.root_url)
+        self._audit = audit
+
+    def install(self, context: Any) -> None:
+        context.on("request", self.handle_request)
+
+    def handle_request(self, request: Any) -> None:
+        try:
+            observation = _safe_passive_network_observation(
+                method=_safe_provider_text(request, "method"),
+                url=_safe_provider_text(request, "url"),
+                resource_type=_safe_provider_text(request, "resource_type"),
+                root_origin=self._root_origin,
+            )
+            if observation is not None:
+                self._audit.record_network_observation(observation)
+        except Exception:  # noqa: BLE001 - passive observation cannot block Guard.
+            return
+
+
 def _is_child_frame(frame: Any) -> bool:
     try:
         parent = frame.parent_frame
@@ -2304,6 +2539,7 @@ class PlaywrightDynamicBrowser:
                 provider_timeout_error,
             )
             page_observer = _PageLifecycleObserver(authority, audit)
+            passive_observer = _PassiveNetworkObserver(authority, audit)
             if primary_error is None:
                 try:
                     resources.context.route("**/*", guard.handle_http)
@@ -2323,6 +2559,15 @@ class PlaywrightDynamicBrowser:
                     primary_error = DynamicBrowserError(
                         DynamicBrowserErrorCode.WEBSOCKET_GUARD_INSTALL_FAILED,
                         "WebSocket request guard could not be installed.",
+                    )
+            expire_if_needed()
+            if primary_error is None:
+                try:
+                    passive_observer.install(resources.context)
+                except Exception:  # noqa: BLE001
+                    primary_error = DynamicBrowserError(
+                        DynamicBrowserErrorCode.PASSIVE_OBSERVER_INSTALL_FAILED,
+                        "Passive browser request observer could not be installed.",
                     )
             expire_if_needed()
             if primary_error is None:

@@ -376,6 +376,26 @@ class DynamicCrawlResult:
                 "websocket_connected_count": audit.websocket_connected_count,
                 "cleanup_error_codes": list(audit.cleanup_error_codes),
                 "cleanup_complete": audit.cleanup_complete,
+                "network_observations": [
+                    {
+                        "method": observation.method,
+                        "resource_type": observation.resource_type,
+                        "scheme": observation.scheme,
+                        "host": observation.host,
+                        "effective_port": observation.effective_port,
+                        "path_fingerprint": observation.path_fingerprint,
+                        "path_segment_count": observation.path_segment_count,
+                        "query_parameter_names": list(
+                            observation.query_parameter_names
+                        ),
+                        "scope": observation.scope.value,
+                        "occurrence_count": observation.occurrence_count,
+                    }
+                    for observation in audit.network_observations
+                ],
+                "network_observation_overflow_count": (
+                    audit.network_observation_overflow_count
+                ),
             },
         }
 

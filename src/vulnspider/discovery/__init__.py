@@ -46,6 +46,8 @@ from vulnspider.discovery.dynamic_browser import (
     DynamicRequestAuthority,
     DynamicResourceGrant,
     DynamicResourceKind,
+    PassiveNetworkObservation,
+    PassiveNetworkScope,
     PlaywrightDynamicBrowser,
     preflight_dynamic_browser,
 )
@@ -148,6 +150,8 @@ __all__ = [
     "NavigableLink",
     "NativeDiscoveryOrchestrator",
     "NonProbeReadyReason",
+    "PassiveNetworkObservation",
+    "PassiveNetworkScope",
     "ProbeReadiness",
     "ProbeReadyStatus",
     "PlaywrightDynamicBrowser",

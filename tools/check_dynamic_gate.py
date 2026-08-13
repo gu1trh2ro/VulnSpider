@@ -78,6 +78,15 @@ BROWSER_LOOPBACK_CASES = (
         "Unauthorized same-authority fetch and XHR are blocked pre-transport.",
     ),
     BrowserManifestCase(
+        "passive-network-observation",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_passive_network_observation_is_bounded_and_never_replays"
+        ),
+        "Fetch/XHR attempts are observed without replay or blocked transport.",
+    ),
+    BrowserManifestCase(
         "unsafe-same-origin-get-block",
         (
             "tests.integration.test_dynamic_browser_loopback."
