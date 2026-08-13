@@ -6,6 +6,12 @@
 > versions may change through the interface review process before production
 > code is added.
 
+The implemented Probe/Feature, selected-candidate, and two-artifact handoff
+boundary is frozen separately in
+[`INTERFACE_CONTRACT_V1.md`](INTERFACE_CONTRACT_V1.md). Where this proposal is
+broader or idealized, the implemented Contract v1 is authoritative for current
+code.
+
 ## Contract principles
 
 - The producer owns construction and validation.

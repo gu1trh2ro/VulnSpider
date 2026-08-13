@@ -25,11 +25,13 @@ New contributors should read these documents in order:
    legacy path.
 3. [Prototype v0.1](docs/PROTOTYPE_V0_1.md) - the completed v0.1 checkpoint.
 4. [Prototype v0.2](docs/PROTOTYPE_V0_2.md) - the authorized v0.2 plan.
-5. [Team Interfaces v0.2](docs/TEAM_INTERFACES_V0_2.md) - proposed cross-owner
-   contracts.
-6. [Git Workflow](docs/GIT_WORKFLOW.md) - branch, PR, review, and
+5. [Interface Contract v1](docs/INTERFACE_CONTRACT_V1.md) - implemented
+   Probe/Feature, selected-candidate, and canonical-artifact handoff contract.
+6. [Team Interfaces v0.2](docs/TEAM_INTERFACES_V0_2.md) - broader proposed
+   cross-owner contracts.
+7. [Git Workflow](docs/GIT_WORKFLOW.md) - branch, PR, review, and
    secret-handling policy.
-7. [Decision Log](docs/DECISION_LOG.md) - accepted and superseded decisions.
+8. [Decision Log](docs/DECISION_LOG.md) - accepted and superseded decisions.
 
 Use `docs/DOMAIN_MODEL.md`, `docs/FEATURE_SCHEMA.md`, and
 `docs/EVALUATION_PROTOCOL.md` when changing their respective boundaries.
