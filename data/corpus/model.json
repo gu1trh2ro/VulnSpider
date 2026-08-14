@@ -6,17 +6,23 @@
       "family": "REFLECTED_XSS",
       "feature_names": [
         "marker_reflected",
-        "response_length_diff_ratio"
+        "response_length_diff_ratio",
+        "safe_html_encoding_detected",
+        "reflection_count_norm"
       ],
-      "intercept": -3.8371113150519687,
-      "intercept_variance": 0.5855011501608274,
+      "intercept": -3.549325299044331,
+      "intercept_variance": 0.554753532003485,
       "weights": [
-        3.4254055087694417,
-        0.7717506562523438
+        4.387138387793428,
+        0.7322259269881484,
+        -4.799855276720229,
+        2.1913773507690286
       ],
       "weight_variances": [
-        0.6307654510215341,
-        1.890295965677729
+        1.0897796996539328,
+        2.013452070811176,
+        1.0728838914075296,
+        1.7582190634199826
       ],
       "training_samples": 73
     },
@@ -28,17 +34,17 @@
         "response_length_diff_ratio",
         "sql_error_pattern"
       ],
-      "intercept": -1.510629768427114,
-      "intercept_variance": 0.11138826861654967,
+      "intercept": -1.5305386541358355,
+      "intercept_variance": 0.11657534528418179,
       "weights": [
-        -0.5022939502991669,
-        3.9418883636598627,
-        4.406260337157385
+        -0.40970568076422276,
+        3.579668247820805,
+        4.383568521522469
       ],
       "weight_variances": [
-        0.5827815565018424,
-        1.5717135886939717,
-        1.3324008556699272
+        0.5877990430700964,
+        1.4898017816529727,
+        1.342274245984753
       ],
       "training_samples": 73
     }

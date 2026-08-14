@@ -880,6 +880,61 @@ status·marker)의 의미는 바꾸지 않는다.
 
 ---
 
+## ADR-031 — Probe sentinel and reflection-encoding features
+
+**Status:** Accepted
+
+**Date:** 2026-08-14
+
+**Decision:** reflection marker에 위험 문자 sentinel을 붙이고, 인코딩을 관측하는
+feature를 추가한다.
+
+- `observation/planner.py`: 기본 marker 전략을 `sentinel-reflection-marker-v1`로
+  올린다. marker = 식별 토큰(`VULNSPIDER_` + 16진수, 항상 영숫자) + sentinel
+  `Z<>"'Z`. 식별 토큰과 sentinel을 **한 값에 함께** 보낸다. 기존
+  `neutral-reflection-marker-v1`은 재현성을 위해 유지한다.
+- `features/extraction.py`: `FEATURE_SCHEMA_VERSION`을 `feature-v0.2`로 올린다.
+  `marker_reflected`는 이제 식별 토큰으로 판정하고(인코딩돼도 반사로 인식),
+  `safe_html_encoding_detected`(sentinel 네 문자가 모두 entity면 1.0, 하나라도
+  원본이면 0.0, sentinel 소실이면 미관측)와 `reflection_count_norm`
+  (`min(등장/3, 1)`)을 추가한다.
+- `scoring/calibration.py`: 두 새 feature를 XSS calibration 특징공간에 넣는다
+  (`_CALIBRATION_ONLY_TERMS`). rule-based scoring 경로는 폐기됐으므로(ADR-029)
+  `scoring/engine.py`는 건드리지 않아 음수 penalty가 `selection_priority`에 새지
+  않는다.
+
+**Reason:** `feat/scoring`의 지배적 오차원은 XSS 오탐이었다. 영숫자 marker는
+이스케이프하는 안전한 앱과 원본을 출력하는 취약한 앱을 똑같이 `marker_reflected=1`
+로 만들어, **어떤 순위 알고리즘도** 반사된 34개 중 20개 오탐을 걸러낼 수 없었다.
+인코딩을 관측하려면 인코딩될 수 있는 문자를 먼저 보내야 하고, 그것은 feature
+추출이 아니라 전송 내용(planner) 변경이다. sentinel만 보내면 WAF가 그것을 잘랐을
+때 반사 자체가 사라져 후보가 안전해 보인다 — 오탐을 미탐으로 바꾸는 셈이다. 식별
+토큰을 함께 보내면 세 상태를 구분한다: 반사 안 됨 / 식별 토큰만 반사(sentinel
+소실 = 미관측) / sentinel 반사(인코딩 1.0 또는 원본 0.0).
+
+**Safety:** 전송 내용이 바뀐다. sentinel은 `<`, `>`, `"`, `'` 네 문자로 스크립트가
+아니고 파괴적이지 않으며 상태를 바꾸지 않는다. 전송 시 percent-encoding되고 서버가
+디코딩한다. 요청 수는 늘지 않고(같은 baseline/probe 쌍), 대상은 loopback 한정이며
+ADR-004(one-at-a-time)는 유지된다. 2인 리뷰 대상.
+
+**Consequences:**
+
+- 코퍼스를 feature-v0.2로 재생성했다. XSS 모델이 `safe_html_encoding_detected`
+  가중치를 데이터에서 −4.8로 학습해, 반사된 34개 중 진짜 14개와 이스케이프된
+  20개를 구분한다. out-of-fold Brier 0.133→**0.081**, 미학습 12개 앱 held-out
+  recall@5 0.91→**1.00**, in-corpus Recall@3 0.744→**0.899**.
+- `decision/`·`evaluation/`·`corpus/`는 변경이 없다(feature 개수에 무관).
+- **미완/후속:** 현재 코퍼스는 `xss_raw`(항상 원본)와 `xss_escaped`(항상 일괄
+  escape)만 있어 `safe_html_encoding_detected`가 완벽 분리자다(낙관적). 계획서 §6의
+  부분 인코딩·속성 문맥·script 문맥·필터링 사례를 추가하면 이 feature도 오차를
+  갖게 되어 더 정직해진다(ADR-030이 길이 feature에 한 것과 같은 후속). 계획서의
+  `dangerous_reflection_context`(html.parser 문맥 분류)와 정적 feature
+  (`numeric_value`, `id_like_name`)도 후속이다. 다중 probe-ready 문맥에서 penalty
+  feature의 결합 규칙(현재 존재적 max)은 단일 문맥 코퍼스에는 영향이 없으나
+  재검토 대상이다.
+
+---
+
 ## New Decision Template
 
 ```text

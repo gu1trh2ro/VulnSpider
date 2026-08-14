@@ -72,6 +72,10 @@ from typing import Any
 
 from vulnspider.access.scoring import ACCESS_TERMS
 from vulnspider.domain import FeatureObservation
+from vulnspider.features import (
+    REFLECTION_COUNT_NORM,
+    SAFE_HTML_ENCODING_DETECTED,
+)
 from vulnspider.scoring.engine import SQLI_TERMS, XSS_TERMS
 
 CALIBRATION_MODEL_VERSION = "bayesian-logistic-v1"
@@ -108,14 +112,30 @@ _MAX_LINE_SEARCH_HALVINGS = 40
 # fit saturates. Line search, not this floor, is what prevents divergence.
 _MINIMUM_WORKING_VARIANCE = 1e-10
 
+# Features that enter the calibrated model but not the heuristic engine's
+# `RankScore`. The rule-based scoring path was retired, so a feature only needs a
+# heuristic term to seed the fit's prior; keeping these out of `scoring/engine.py`
+# avoids a negative-weight penalty perturbing `selection_priority`, which still
+# seeds the handoff order. Weights follow `docs/FEATURE_SCHEMA.md` §7 and are
+# just prior means -- the corpus fits the real value (ADR-031).
+_CALIBRATION_ONLY_TERMS: dict[str, tuple[tuple[str, float], ...]] = {
+    FAMILY_REFLECTED_XSS: (
+        (SAFE_HTML_ENCODING_DETECTED, -30.0),
+        (REFLECTION_COUNT_NORM, 10.0),
+    ),
+}
+
 HEURISTIC_TERMS: dict[str, tuple[tuple[str, float], ...]] = {
-    FAMILY_SQLI: tuple((term.feature_name, term.weight) for term in SQLI_TERMS),
+    FAMILY_SQLI: tuple((term.feature_name, term.weight) for term in SQLI_TERMS)
+    + _CALIBRATION_ONLY_TERMS.get(FAMILY_SQLI, ()),
     FAMILY_REFLECTED_XSS: tuple(
         (term.feature_name, term.weight) for term in XSS_TERMS
-    ),
+    )
+    + _CALIBRATION_ONLY_TERMS.get(FAMILY_REFLECTED_XSS, ()),
     FAMILY_BROKEN_ACCESS_CONTROL: tuple(
         (term.feature_name, term.weight) for term in ACCESS_TERMS
-    ),
+    )
+    + _CALIBRATION_ONLY_TERMS.get(FAMILY_BROKEN_ACCESS_CONTROL, ()),
 }
 
 
