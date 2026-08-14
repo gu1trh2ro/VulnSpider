@@ -656,6 +656,7 @@ def _dynamic_authority_from_args(
         resource_grants=tuple(grants),
         allow_rendered_navigation=simple_mode,
         allow_passive_same_origin_resources=simple_mode,
+        allow_passive_same_origin_fetch_xhr=simple_mode,
     )
 
 

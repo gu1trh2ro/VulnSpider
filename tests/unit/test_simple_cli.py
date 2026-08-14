@@ -137,6 +137,7 @@ class SimpleCliTests(unittest.TestCase):
         authority = kwargs["dynamic_authority"]
         self.assertTrue(authority.allow_rendered_navigation)
         self.assertTrue(authority.allow_passive_same_origin_resources)
+        self.assertTrue(authority.allow_passive_same_origin_fetch_xhr)
         self.assertIn("mode=dynamic", stdout.getvalue())
         self.assertIn("vulnspider-crawl.json", stdout.getvalue())
         self.assertIn("vulnspider-analysis.json", stdout.getvalue())

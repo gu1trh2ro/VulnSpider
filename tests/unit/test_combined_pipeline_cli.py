@@ -139,6 +139,7 @@ def _empty_audit() -> BrowserAuditSummary:
         "child_frame_completion_kinds",
         "cleanup_error_codes",
         "events",
+        "network_observations",
     }
     values = {
         item.name: (

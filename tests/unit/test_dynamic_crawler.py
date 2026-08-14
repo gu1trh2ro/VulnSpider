@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+import pickle
 import unittest
 
 import vulnspider.discovery.dynamic_browser as browser_module
@@ -18,6 +19,8 @@ from vulnspider.discovery import (
     DynamicNetworkDecisionKind,
     DynamicNetworkReason,
     DynamicRequestAuthority,
+    PassiveNetworkObservation,
+    PassiveNetworkScope,
     RenderedDomPolicy,
     RenderedDomSnapshot,
 )
@@ -161,6 +164,119 @@ class FakeDynamicBrowser:
 
 
 class DynamicCrawlerTests(unittest.TestCase):
+    def test_transport_policy_bit_does_not_change_canonical_snapshot(self) -> None:
+        root = "http://127.0.0.1:8080/start"
+        snapshots = {root: rendered_snapshot(root)}
+
+        strict_result = DynamicCrawler(
+            browser=FakeDynamicBrowser(snapshots),
+            clock=lambda: 0.0,
+        ).crawl(root, DynamicCrawlPolicy(), DynamicRequestAuthority(root))
+        balanced_result = DynamicCrawler(
+            browser=FakeDynamicBrowser(snapshots),
+            clock=lambda: 0.0,
+        ).crawl(
+            root,
+            DynamicCrawlPolicy(),
+            DynamicRequestAuthority(
+                root,
+                allow_passive_same_origin_fetch_xhr=True,
+            ),
+        )
+
+        self.assertEqual(
+            balanced_result.discovery.to_dict(),
+            strict_result.discovery.to_dict(),
+        )
+
+    def test_passive_observation_serializes_only_under_audit_and_not_snapshot(
+        self,
+    ) -> None:
+        root = "http://127.0.0.1:8080/start"
+        browser = FakeDynamicBrowser({root: rendered_snapshot(root)})
+        result = DynamicCrawler(browser=browser, clock=lambda: 0.0).crawl(
+            root,
+            DynamicCrawlPolicy(),
+            DynamicRequestAuthority(root),
+        )
+        observation = browser_module._safe_passive_network_observation(
+            method="post",
+            url=(
+                "http://127.0.0.1:8080/private/raw-path-secret"
+                "?parameter_name=QUERY_VALUE_SECRET"
+            ),
+            resource_type="fetch",
+            root_origin=("http", "127.0.0.1", 8080),
+        )
+        assert observation is not None
+        audit = replace(
+            result.browser_audit,
+            network_observations=(observation,),
+            network_observation_overflow_count=3,
+        )
+        observed_result = replace(result, browser_audit=audit)
+
+        payload = observed_result.to_dict()
+        audit_payload = payload["browser_audit"]
+        self.assertEqual(
+            audit_payload["network_observations"],
+            [
+                {
+                    "method": "POST",
+                    "resource_type": "fetch",
+                    "scheme": "http",
+                    "host": "127.0.0.1",
+                    "effective_port": 8080,
+                    "path_fingerprint": observation.path_fingerprint,
+                    "path_segment_count": 2,
+                    "query_parameter_names": ["parameter_name"],
+                    "scope": "SAME_SCOPE",
+                    "occurrence_count": 1,
+                }
+            ],
+        )
+        self.assertEqual(audit_payload["network_observation_overflow_count"], 3)
+        self.assertNotIn("network_observations", payload["discovery"])
+        self.assertEqual(
+            payload["discovery"]["discovery_snapshot_id"],
+            result.discovery.to_dict()["discovery_snapshot_id"],
+        )
+        serialized = repr(payload)
+        self.assertNotIn("raw-path-secret", serialized)
+        self.assertNotIn("QUERY_VALUE_SECRET", serialized)
+        restored = pickle.loads(pickle.dumps(observed_result, protocol=5))
+        self.assertEqual(restored.browser_audit, audit)
+        self.assertEqual(
+            restored.discovery.to_dict()["discovery_snapshot_id"],
+            result.discovery.to_dict()["discovery_snapshot_id"],
+        )
+
+    def test_passive_observation_model_rejects_raw_resource_categories(self) -> None:
+        with self.assertRaises(ValueError):
+            PassiveNetworkObservation(
+                method="GET",
+                resource_type="script",
+                scheme="http",
+                host="127.0.0.1",
+                effective_port=80,
+                path_fingerprint="safe-fingerprint",
+                path_segment_count=1,
+                query_parameter_names=(),
+                scope=PassiveNetworkScope.SAME_SCOPE,
+            )
+        with self.assertRaises(ValueError):
+            PassiveNetworkObservation(
+                method="GET",
+                resource_type="fetch",
+                scheme="http",
+                host="127.0.0.1",
+                effective_port=80,
+                path_fingerprint="safe-fingerprint",
+                path_segment_count=1,
+                query_parameter_names=("q" * 129,),
+                scope=PassiveNetworkScope.SAME_SCOPE,
+            )
+
     def test_simple_authority_navigates_only_rendered_same_origin_anchors(
         self,
     ) -> None:

@@ -83,6 +83,14 @@ class DynamicLoopbackSite:
         self.eventsource_url = ""
         self.websocket_url = ""
         self.fetch_xhr_url = ""
+        self.network_observation_url = ""
+        self.network_observation_script_url = ""
+        self.network_observation_style_url = ""
+        self.network_observation_fetch_url = ""
+        self.network_observation_xhr_url = ""
+        self.balanced_fetch_xhr_url = ""
+        self.balanced_fetch_xhr_script_url = ""
+        self.balanced_fetch_xhr_style_url = ""
         self.unsafe_get_url = ""
         self.autosubmit_url = ""
         self.page_close_url = ""
@@ -174,6 +182,10 @@ class DynamicLoopbackSite:
             def do_POST(self) -> None:
                 site._record(site._sentinel_requests, "POST", self.path)
                 self._send(500, b"sentinel must not be reached", "text/plain")
+
+            def do_HEAD(self) -> None:
+                site._record(site._sentinel_requests, "HEAD", self.path)
+                self._send(500, b"", "text/plain")
 
             def _send(self, status: int, body: bytes, content_type: str) -> None:
                 self.send_response(status)
@@ -325,6 +337,178 @@ class DynamicLoopbackSite:
                         html.encode("utf-8"),
                         "text/html; charset=utf-8",
                     )
+                    return
+                if route == "/network-observation":
+                    html = """<!doctype html>
+                    <html>
+                      <head>
+                        <meta charset="utf-8">
+                        <link rel="icon" href="data:,">
+                        <link rel="stylesheet" href="/network-observation.css">
+                      </head>
+                      <body>
+                        <div id="network-observation-started">started</div>
+                        <script src="/network-observation.js"></script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/balanced-fetch-xhr":
+                    html = """<!doctype html>
+                    <html>
+                      <head>
+                        <meta charset="utf-8">
+                        <link rel="icon" href="data:,">
+                        <link rel="stylesheet" href="/balanced-fetch-xhr.css">
+                      </head>
+                      <body>
+                        <div id="balanced-started">started</div>
+                        <script src="/balanced-fetch-xhr.js"></script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/balanced-fetch-xhr.css":
+                    self._send(
+                        200,
+                        b"#balanced-started { display: block; }",
+                        "text/css; charset=utf-8",
+                    )
+                    return
+                if route == "/balanced-fetch-xhr.js":
+                    script = f"""
+                    const attempts = [];
+                    attempts.push(fetch(
+                      "/balanced/get-fetch?api_key=GET_FETCH_VALUE_SECRET"
+                    ));
+                    attempts.push(new Promise((resolve) => {{
+                      const xhr = new XMLHttpRequest();
+                      xhr.onload = resolve;
+                      xhr.onerror = resolve;
+                      xhr.open(
+                        "GET",
+                        "/balanced/get-xhr?session=GET_XHR_VALUE_SECRET"
+                      );
+                      xhr.send();
+                    }}));
+                    attempts.push(fetch(
+                      "/balanced/head-fetch?token=HEAD_VALUE_SECRET",
+                      {{method: "HEAD"}}
+                    ));
+                    attempts.push(fetch(
+                      "/balanced/post-fetch?password=POST_QUERY_VALUE_SECRET",
+                      {{
+                        method: "POST",
+                        headers: {{
+                          "Authorization": "Bearer AUTHORIZATION_VALUE_SECRET"
+                        }},
+                        body: "POST_BODY_VALUE_SECRET"
+                      }}
+                    ));
+                    attempts.push(fetch(
+                      "{site.sentinel_origin}/balanced/off-scope"
+                        + "?jwt=OFF_SCOPE_VALUE_SECRET"
+                    ));
+                    attempts.push(fetch("/balanced/redirect-same"));
+                    attempts.push(fetch("/balanced/redirect-cross"));
+                    Promise.allSettled(attempts).then(() => {{
+                      const marker = document.createElement("div");
+                      marker.id = "balanced-complete";
+                      marker.textContent = "attempts-complete";
+                      document.body.appendChild(marker);
+                    }});
+                    """
+                    self._send(
+                        200,
+                        script.encode("utf-8"),
+                        "application/javascript; charset=utf-8",
+                    )
+                    return
+                if route in {
+                    "/balanced/get-fetch",
+                    "/balanced/get-xhr",
+                    "/balanced/redirect-final",
+                }:
+                    self._send(200, b"ok", "text/plain; charset=utf-8")
+                    return
+                if route == "/balanced/redirect-same":
+                    self._send_redirect("/balanced/redirect-final")
+                    return
+                if route == "/balanced/redirect-cross":
+                    self._send_redirect(
+                        site.sentinel_origin + "/balanced/redirect-target"
+                    )
+                    return
+                if route == "/network-observation.js":
+                    script = f"""
+                    const attempts = [];
+                    attempts.push(fetch(
+                      "/network-observation/get-fetch"
+                        + "?alpha=FETCH_QUERY_VALUE_SECRET"
+                        + "&repeat=one&repeat=two"
+                    ));
+                    attempts.push(new Promise((resolve) => {{
+                      const xhr = new XMLHttpRequest();
+                      xhr.onload = resolve;
+                      xhr.onerror = resolve;
+                      xhr.open(
+                        "GET",
+                        "/network-observation/get-xhr"
+                          + "?beta=XHR_QUERY_VALUE_SECRET"
+                      );
+                      xhr.send();
+                    }}));
+                    attempts.push(fetch(
+                      "/network-observation/post-fetch"
+                        + "?post_name=POST_QUERY_VALUE_SECRET",
+                      {{
+                        method: "POST",
+                        headers: {{
+                          "Content-Type": "application/json",
+                          "Authorization": "Bearer AUTHORIZATION_SECRET"
+                        }},
+                        body: JSON.stringify({{
+                          password: "POST_BODY_PASSWORD_SECRET"
+                        }})
+                      }}
+                    ));
+                    attempts.push(fetch(
+                      "{site.sentinel_origin}/network-observation/off-scope"
+                        + "?outside=OFF_SCOPE_QUERY_SECRET"
+                    ));
+                    Promise.allSettled(attempts).then(() => {{
+                      const marker = document.createElement("div");
+                      marker.id = "network-observation-complete";
+                      marker.textContent = "complete";
+                      document.body.appendChild(marker);
+                    }});
+                    """
+                    self._send(
+                        200,
+                        script.encode("utf-8"),
+                        "application/javascript; charset=utf-8",
+                    )
+                    return
+                if route == "/network-observation.css":
+                    self._send(
+                        200,
+                        b"#network-observation-started { display: block; }",
+                        "text/css; charset=utf-8",
+                    )
+                    return
+                if route in {
+                    "/network-observation/get-fetch",
+                    "/network-observation/get-xhr",
+                }:
+                    self._send(200, b"ok", "text/plain; charset=utf-8")
                     return
                 if route == "/unsafe-get":
                     self._send(
@@ -825,10 +1009,20 @@ class DynamicLoopbackSite:
                     `;
                     root.appendChild(sensitive);
 
-                    fetch("/simple-denied-fetch").catch(() => {{}});
+                    fetch("/simple-allowed-fetch").catch(() => {{}});
                     const xhr = new XMLHttpRequest();
-                    xhr.open("GET", "/simple-denied-xhr");
+                    xhr.open("GET", "/simple-allowed-xhr");
                     xhr.send();
+                    fetch("/simple-allowed-head", {{method: "HEAD"}})
+                      .catch(() => {{}});
+                    fetch("/simple-denied-post-fetch", {{
+                      method: "POST",
+                      headers: {{"Authorization": "Bearer SIMPLE_AUTH_SECRET"}},
+                      body: "SIMPLE_POST_BODY_SECRET"
+                    }}).catch(() => {{}});
+                    fetch(
+                      "{site.sentinel_origin}/simple-denied-offscope-fetch"
+                    ).catch(() => {{}});
                     new EventSource("/simple-denied-events");
                     new WebSocket(
                       "ws://127.0.0.1:{site.primary_port}/simple-denied-socket"
@@ -855,6 +1049,9 @@ class DynamicLoopbackSite:
                         script.encode("utf-8"),
                         "application/javascript; charset=utf-8",
                     )
+                    return
+                if route in {"/simple-allowed-fetch", "/simple-allowed-xhr"}:
+                    self._send(200, b"ok", "text/plain; charset=utf-8")
                     return
                 if route == "/simple-cli/follow":
                     html = f"""<!doctype html>
@@ -1165,6 +1362,19 @@ class DynamicLoopbackSite:
                 site._record(site._primary_requests, "POST", self.path)
                 self._send(500, b"POST must not execute", "text/plain")
 
+            def do_HEAD(self) -> None:
+                site._record(site._primary_requests, "HEAD", self.path)
+                route = urlsplit(self.path).path
+                status = (
+                    200
+                    if route in {
+                        "/balanced/head-fetch",
+                        "/simple-allowed-head",
+                    }
+                    else 404
+                )
+                self._send(status, b"", "text/plain; charset=utf-8")
+
             def _send(self, status: int, body: bytes, content_type: str) -> None:
                 self.send_response(status)
                 self.send_header("Content-Type", content_type)
@@ -1206,6 +1416,34 @@ class DynamicLoopbackSite:
         )
         self.fetch_xhr_url = (
             f"http://127.0.0.1:{self.primary_port}/fetch-xhr"
+        )
+        network_observation_origin = f"http://127.0.0.1:{self.primary_port}"
+        self.network_observation_url = (
+            network_observation_origin + "/network-observation"
+        )
+        self.network_observation_script_url = (
+            network_observation_origin + "/network-observation.js"
+        )
+        self.network_observation_style_url = (
+            network_observation_origin + "/network-observation.css"
+        )
+        self.network_observation_fetch_url = (
+            network_observation_origin
+            + "/network-observation/get-fetch"
+            + "?alpha=FETCH_QUERY_VALUE_SECRET&repeat=one&repeat=two"
+        )
+        self.network_observation_xhr_url = (
+            network_observation_origin
+            + "/network-observation/get-xhr?beta=XHR_QUERY_VALUE_SECRET"
+        )
+        self.balanced_fetch_xhr_url = (
+            network_observation_origin + "/balanced-fetch-xhr"
+        )
+        self.balanced_fetch_xhr_script_url = (
+            network_observation_origin + "/balanced-fetch-xhr.js"
+        )
+        self.balanced_fetch_xhr_style_url = (
+            network_observation_origin + "/balanced-fetch-xhr.css"
         )
         self.unsafe_get_url = (
             f"http://127.0.0.1:{self.primary_port}/unsafe-get"
