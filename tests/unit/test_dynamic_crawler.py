@@ -164,6 +164,31 @@ class FakeDynamicBrowser:
 
 
 class DynamicCrawlerTests(unittest.TestCase):
+    def test_transport_policy_bit_does_not_change_canonical_snapshot(self) -> None:
+        root = "http://127.0.0.1:8080/start"
+        snapshots = {root: rendered_snapshot(root)}
+
+        strict_result = DynamicCrawler(
+            browser=FakeDynamicBrowser(snapshots),
+            clock=lambda: 0.0,
+        ).crawl(root, DynamicCrawlPolicy(), DynamicRequestAuthority(root))
+        balanced_result = DynamicCrawler(
+            browser=FakeDynamicBrowser(snapshots),
+            clock=lambda: 0.0,
+        ).crawl(
+            root,
+            DynamicCrawlPolicy(),
+            DynamicRequestAuthority(
+                root,
+                allow_passive_same_origin_fetch_xhr=True,
+            ),
+        )
+
+        self.assertEqual(
+            balanced_result.discovery.to_dict(),
+            strict_result.discovery.to_dict(),
+        )
+
     def test_passive_observation_serializes_only_under_audit_and_not_snapshot(
         self,
     ) -> None:

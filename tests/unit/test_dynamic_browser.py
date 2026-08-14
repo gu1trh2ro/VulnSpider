@@ -646,12 +646,15 @@ class DynamicRequestAuthorityTests(unittest.TestCase):
             is_primary_page=True,
             is_main_frame=True,
         )
-        fetch = authority.decide_http(
-            method="GET",
-            url="http://127.0.0.1/data",
-            resource_type="xhr",
-            is_primary_page=True,
-            is_main_frame=True,
+        fetch_xhr_decisions = tuple(
+            authority.decide_http(
+                method="GET",
+                url="http://127.0.0.1/data",
+                resource_type=resource_type,
+                is_primary_page=True,
+                is_main_frame=True,
+            )
+            for resource_type in ("fetch", "xhr")
         )
 
         self.assertEqual(root.decision, DynamicNetworkDecisionKind.ALLOW)
@@ -660,7 +663,28 @@ class DynamicRequestAuthorityTests(unittest.TestCase):
             DynamicNetworkReason.AUTHORIZED_NAVIGATION,
         )
         self.assertEqual(script.decision, DynamicNetworkDecisionKind.ALLOW)
-        self.assertEqual(fetch.decision, DynamicNetworkDecisionKind.ALLOW)
+        self.assertTrue(
+            all(
+                decision.decision == DynamicNetworkDecisionKind.ALLOW
+                and decision.reason == DynamicNetworkReason.AUTHORIZED_RESOURCE
+                for decision in fetch_xhr_decisions
+            )
+        )
+        whitespace_method = authority.decide_http(
+            method=" GET ",
+            url="http://127.0.0.1/data",
+            resource_type="fetch",
+            is_primary_page=True,
+            is_main_frame=True,
+        )
+        self.assertEqual(
+            whitespace_method.decision,
+            DynamicNetworkDecisionKind.BLOCK,
+        )
+        self.assertEqual(
+            whitespace_method.reason,
+            DynamicNetworkReason.NON_GET_METHOD,
+        )
 
     def test_simple_mode_allows_only_observed_navigation_and_passive_resources(
         self,
@@ -719,6 +743,83 @@ class DynamicRequestAuthorityTests(unittest.TestCase):
         self.assertEqual(decisions["fetch"].decision, DynamicNetworkDecisionKind.BLOCK)
         self.assertEqual(decisions["xhr"].decision, DynamicNetworkDecisionKind.BLOCK)
         self.assertEqual(cross_script.decision, DynamicNetworkDecisionKind.BLOCK)
+
+    def test_balanced_fetch_xhr_allows_only_same_origin_get_and_head(self) -> None:
+        root = "http://127.0.0.1:8080/"
+        strict = DynamicRequestAuthority(root)
+        balanced = DynamicRequestAuthority(
+            root,
+            allow_passive_same_origin_fetch_xhr=True,
+        )
+
+        strict_fetch = strict.decide_http(
+            method="GET",
+            url=root + "api",
+            resource_type="fetch",
+            is_primary_page=True,
+            is_main_frame=True,
+        )
+        self.assertFalse(strict.allow_passive_same_origin_fetch_xhr)
+        self.assertEqual(strict_fetch.decision, DynamicNetworkDecisionKind.BLOCK)
+
+        for method in ("GET", "HEAD"):
+            for resource_type in ("fetch", "xhr"):
+                with self.subTest(method=method, resource_type=resource_type):
+                    decision = balanced.decide_http(
+                        method=method,
+                        url=root + "api",
+                        resource_type=resource_type,
+                        is_primary_page=True,
+                        is_main_frame=True,
+                    )
+                    self.assertEqual(
+                        decision.decision,
+                        DynamicNetworkDecisionKind.ALLOW,
+                    )
+                    self.assertEqual(
+                        decision.reason,
+                        DynamicNetworkReason.PASSIVE_SAME_ORIGIN_FETCH_XHR,
+                    )
+
+        blocked_cases = (
+            ("POST", root + "api", "fetch", True),
+            ("PUT", root + "api", "xhr", True),
+            ("PATCH", root + "api", "fetch", True),
+            ("DELETE", root + "api", "xhr", True),
+            ("GET", "http://127.0.0.1:8081/api", "fetch", True),
+            ("GET", "http://localhost:8080/api", "xhr", True),
+            ("GET", "https://127.0.0.1:8080/api", "fetch", True),
+            ("GET", "http://127.0.0.1.evil.test:8080/api", "xhr", True),
+            ("GET", root + "api", "fetch", False),
+            ("HEAD", root + "script.js", "script", True),
+            (" HEAD ", root + "api", "fetch", True),
+            ("GET", "http://127.0.0.1:0/api", "fetch", True),
+        )
+        for method, url, resource_type, is_primary_page in blocked_cases:
+            with self.subTest(
+                method=method,
+                url=url,
+                resource_type=resource_type,
+                is_primary_page=is_primary_page,
+            ):
+                decision = balanced.decide_http(
+                    method=method,
+                    url=url,
+                    resource_type=resource_type,
+                    is_primary_page=is_primary_page,
+                    is_main_frame=True,
+                )
+                self.assertEqual(
+                    decision.decision,
+                    DynamicNetworkDecisionKind.BLOCK,
+                )
+
+    def test_balanced_fetch_xhr_flag_requires_boolean(self) -> None:
+        with self.assertRaises(DynamicBrowserError):
+            DynamicRequestAuthority(
+                "http://127.0.0.1/",
+                allow_passive_same_origin_fetch_xhr=1,  # type: ignore[arg-type]
+            )
 
     def test_blocks_cross_origin_redirect_methods_frames_and_internal_urls(
         self,
@@ -782,6 +883,7 @@ class DynamicRequestAuthorityTests(unittest.TestCase):
             lambda: DynamicRequestAuthority("https://example.com/"),
             lambda: DynamicRequestAuthority("http://user@127.0.0.1/"),
             lambda: DynamicRequestAuthority("http://127.0.0.1/#fragment"),
+            lambda: DynamicRequestAuthority("http://127.0.0.1:0/"),
             lambda: DynamicRequestAuthority(
                 "http://127.0.0.1:8080/",
                 resource_grants=(
@@ -1369,6 +1471,71 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
         self.assertEqual(script_summary.redirect_allowed_count, 1)
         self.assertEqual(script_summary.redirect_followed_count, 0)
         self.assertEqual(script_summary.main_frame_navigation_allowed_count, 0)
+
+        balanced_audit = dynamic_browser_module._AuditRecorder(event_limit=10)
+        balanced_guard = dynamic_browser_module._RouteGuard(
+            DynamicRequestAuthority(
+                root_url,
+                allow_passive_same_origin_fetch_xhr=True,
+            ),
+            DynamicBrowserPolicy(request_decision_budget=10),
+            balanced_audit,
+            lambda: None,
+        )
+        balanced_guard.set_primary_page(page)
+        balanced_route = Route([Response(302, "/api-v2"), Response(200)])
+        balanced_guard.handle_http(
+            balanced_route,
+            SimpleNamespace(
+                url="http://127.0.0.1/api",
+                resource_type="fetch",
+                method="HEAD",
+                frame=SimpleNamespace(page=page, parent_frame=None),
+            ),
+        )
+        balanced_summary = balanced_audit.snapshot(())
+        self.assertEqual(
+            balanced_route.fetch_urls,
+            ["http://127.0.0.1/api", "http://127.0.0.1/api-v2"],
+        )
+        self.assertEqual(balanced_route.fulfilled, 1)
+        self.assertEqual(balanced_route.aborted, 0)
+        self.assertEqual(balanced_summary.redirect_allowed_count, 1)
+        self.assertEqual(balanced_summary.http_allowed_count, 2)
+        self.assertEqual(balanced_summary.http_blocked_count, 0)
+        self.assertEqual(balanced_summary.request_decision_overflow_count, 0)
+
+        off_scope_audit = dynamic_browser_module._AuditRecorder(event_limit=10)
+        off_scope_guard = dynamic_browser_module._RouteGuard(
+            DynamicRequestAuthority(
+                root_url,
+                allow_passive_same_origin_fetch_xhr=True,
+            ),
+            DynamicBrowserPolicy(request_decision_budget=10),
+            off_scope_audit,
+            lambda: None,
+        )
+        off_scope_guard.set_primary_page(page)
+        off_scope_route = Route(
+            [Response(302, "http://127.0.0.1:8080/api-v2")]
+        )
+        off_scope_guard.handle_http(
+            off_scope_route,
+            SimpleNamespace(
+                url="http://127.0.0.1/api",
+                resource_type="xhr",
+                method="GET",
+                frame=SimpleNamespace(page=page, parent_frame=None),
+            ),
+        )
+        off_scope_summary = off_scope_audit.snapshot(())
+        self.assertEqual(off_scope_route.fetch_urls, ["http://127.0.0.1/api"])
+        self.assertEqual(off_scope_route.fulfilled, 0)
+        self.assertEqual(off_scope_route.aborted, 1)
+        self.assertEqual(off_scope_summary.redirect_block_count, 1)
+        self.assertEqual(off_scope_summary.http_allowed_count, 1)
+        self.assertEqual(off_scope_summary.http_blocked_count, 1)
+        self.assertEqual(off_scope_summary.request_decision_overflow_count, 0)
 
     def test_preflight_failure_starts_no_provider_resource(self) -> None:
         provider = managed_provider()

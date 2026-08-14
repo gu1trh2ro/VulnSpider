@@ -318,6 +318,120 @@ class DynamicBrowserLoopbackTests(unittest.TestCase):
             DynamicNetworkReason.REQUEST_NOT_AUTHORIZED,
         )
 
+    def test_real_balanced_fetch_xhr_allows_only_natural_same_origin_get_head(
+        self,
+    ) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(
+                root_url=site.balanced_fetch_xhr_url,
+                resource_grants=(
+                    DynamicResourceGrant(
+                        DynamicResourceKind.SCRIPT,
+                        site.balanced_fetch_xhr_script_url,
+                    ),
+                    DynamicResourceGrant(
+                        DynamicResourceKind.STYLE,
+                        site.balanced_fetch_xhr_style_url,
+                    ),
+                ),
+                allow_passive_same_origin_fetch_xhr=True,
+            )
+
+            result = DynamicCrawler().crawl(
+                site.balanced_fetch_xhr_url,
+                DynamicCrawlPolicy(
+                    max_pages=1,
+                    max_depth=0,
+                    max_navigation_attempts=1,
+                    request_decision_budget=30,
+                ),
+                authority,
+            )
+
+            request_counts = Counter(
+                (item.method, item.path) for item in site.primary_requests
+            )
+            self.assertEqual(
+                request_counts,
+                Counter(
+                    {
+                        ("GET", "/balanced-fetch-xhr"): 1,
+                        ("GET", "/balanced-fetch-xhr.js"): 1,
+                        ("GET", "/balanced-fetch-xhr.css"): 1,
+                        ("GET", "/balanced/get-fetch"): 1,
+                        ("GET", "/balanced/get-xhr"): 1,
+                        ("HEAD", "/balanced/head-fetch"): 1,
+                        ("GET", "/balanced/redirect-same"): 1,
+                        ("GET", "/balanced/redirect-final"): 1,
+                        ("GET", "/balanced/redirect-cross"): 1,
+                    }
+                ),
+            )
+            self.assertEqual(
+                request_counts[("POST", "/balanced/post-fetch")],
+                0,
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        observations = result.browser_audit.network_observations
+        self.assertEqual(len(observations), 7)
+        self.assertEqual(
+            {
+                (item.method, item.resource_type, item.scope)
+                for item in observations
+            },
+            {
+                ("GET", "fetch", PassiveNetworkScope.SAME_SCOPE),
+                ("GET", "xhr", PassiveNetworkScope.SAME_SCOPE),
+                ("HEAD", "fetch", PassiveNetworkScope.SAME_SCOPE),
+                ("POST", "fetch", PassiveNetworkScope.SAME_SCOPE),
+                ("GET", "fetch", PassiveNetworkScope.OFF_SCOPE),
+            },
+        )
+        self.assertTrue(all(item.occurrence_count == 1 for item in observations))
+        self.assertFalse(
+            {"script", "stylesheet"}
+            & {item.resource_type for item in observations}
+        )
+        self.assertIn(
+            DynamicNetworkReason.PASSIVE_SAME_ORIGIN_FETCH_XHR,
+            {
+                event.reason
+                for event in result.browser_audit.events
+                if event.decision == DynamicNetworkDecisionKind.ALLOW
+            },
+        )
+        self.assertIn(
+            DynamicNetworkReason.NON_GET_METHOD,
+            {
+                event.reason
+                for event in result.browser_audit.events
+                if event.decision == DynamicNetworkDecisionKind.BLOCK
+            },
+        )
+        serialized = json.dumps(result.to_dict(), sort_keys=True)
+        for secret in (
+            "GET_FETCH_VALUE_SECRET",
+            "GET_XHR_VALUE_SECRET",
+            "HEAD_VALUE_SECRET",
+            "POST_QUERY_VALUE_SECRET",
+            "AUTHORIZATION_VALUE_SECRET",
+            "POST_BODY_VALUE_SECRET",
+            "OFF_SCOPE_VALUE_SECRET",
+        ):
+            self.assertNotIn(secret, serialized)
+        for api_path in (
+            "/balanced/get-fetch",
+            "/balanced/get-xhr",
+            "/balanced/head-fetch",
+            "/balanced/post-fetch",
+        ):
+            self.assertNotIn(
+                api_path,
+                {endpoint.path for endpoint in result.discovery.endpoints},
+            )
+        self.assertTrue(result.browser_audit.cleanup_complete)
+
     def test_real_passive_network_observation_is_bounded_and_never_replays(
         self,
     ) -> None:

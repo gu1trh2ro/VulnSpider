@@ -207,6 +207,14 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertIn(DynamicNetworkReason.NON_PRIMARY_PAGE, blocked_reasons)
         self.assertIn(DynamicNetworkReason.EVENTSOURCE_DENIED, blocked_reasons)
         self.assertIn(DynamicNetworkReason.WEBSOCKET_DENIED, blocked_reasons)
+        self.assertIn(
+            DynamicNetworkReason.PASSIVE_SAME_ORIGIN_FETCH_XHR,
+            {
+                event.reason
+                for event in audit.events
+                if event.decision == DynamicNetworkDecisionKind.ALLOW
+            },
+        )
 
         requested_paths = {request.path for request in primary_requests}
         self.assertIn("/simple-cli.js", requested_paths)
@@ -214,21 +222,46 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertIn("/simple-cli/follow", requested_paths)
         self.assertIn("/simple-cli/page-b", requested_paths)
         self.assertIn("/simple-cli/static", requested_paths)
+        request_counts = {
+            (method, path): sum(
+                1
+                for request in primary_requests
+                if request.method == method and request.path == path
+            )
+            for method, path in (
+                ("GET", "/simple-allowed-fetch"),
+                ("GET", "/simple-allowed-xhr"),
+                ("HEAD", "/simple-allowed-head"),
+                ("POST", "/simple-denied-post-fetch"),
+            )
+        }
+        self.assertEqual(request_counts[("GET", "/simple-allowed-fetch")], 1)
+        self.assertEqual(request_counts[("GET", "/simple-allowed-xhr")], 1)
+        self.assertEqual(request_counts[("HEAD", "/simple-allowed-head")], 1)
+        self.assertEqual(request_counts[("POST", "/simple-denied-post-fetch")], 0)
         self.assertFalse(
             requested_paths
             & {
-                "/simple-denied-fetch",
-                "/simple-denied-xhr",
                 "/simple-denied-events",
                 "/simple-denied-socket",
                 "/simple-denied-frame",
                 "/simple-denied-post",
+                "/simple-denied-post-fetch",
                 "/simple-denied-popup",
             }
         )
         self.assertFalse(any(request.method == "POST" for request in primary_requests))
         self.assertEqual(sentinel_requests, ())
         self.assertFalse(any(SENTINEL in request.raw_target for request in primary_requests))
+        self.assertFalse(
+            {
+                "/simple-allowed-fetch",
+                "/simple-allowed-xhr",
+                "/simple-allowed-head",
+                "/simple-denied-post-fetch",
+            }
+            & {endpoint.path for endpoint in combined.discovery.endpoints}
+        )
 
 
 if __name__ == "__main__":

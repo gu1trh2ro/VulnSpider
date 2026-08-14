@@ -131,6 +131,7 @@ class DynamicNetworkReason(StrEnum):
 
     AUTHORIZED_NAVIGATION = "AUTHORIZED_NAVIGATION"
     AUTHORIZED_RESOURCE = "AUTHORIZED_RESOURCE"
+    PASSIVE_SAME_ORIGIN_FETCH_XHR = "PASSIVE_SAME_ORIGIN_FETCH_XHR"
     REQUEST_DECISION_BUDGET_EXHAUSTED = "REQUEST_DECISION_BUDGET_EXHAUSTED"
     NAVIGATION_BUDGET_EXHAUSTED = "NAVIGATION_BUDGET_EXHAUSTED"
     REDIRECT_BUDGET_EXHAUSTED = "REDIRECT_BUDGET_EXHAUSTED"
@@ -444,6 +445,7 @@ class DynamicRequestAuthority:
     resource_grants: tuple[DynamicResourceGrant, ...] = ()
     allow_rendered_navigation: bool = False
     allow_passive_same_origin_resources: bool = False
+    allow_passive_same_origin_fetch_xhr: bool = False
 
     def __post_init__(self) -> None:
         root_url = _canonical_authority_url(self.root_url)
@@ -463,6 +465,7 @@ class DynamicRequestAuthority:
         for name in (
             "allow_rendered_navigation",
             "allow_passive_same_origin_resources",
+            "allow_passive_same_origin_fetch_xhr",
         ):
             if type(getattr(self, name)) is not bool:
                 raise DynamicBrowserError(
@@ -543,7 +546,13 @@ class DynamicRequestAuthority:
                 None,
                 normalized_kind,
             )
-        if method.upper() != "GET":
+        normalized_method = method.upper()
+        is_balanced_fetch_xhr_method = (
+            self.allow_passive_same_origin_fetch_xhr
+            and normalized_method in {"GET", "HEAD"}
+            and normalized_kind in {"fetch", "xhr"}
+        )
+        if normalized_method != "GET" and not is_balanced_fetch_xhr_method:
             return DynamicNetworkDecision(
                 DynamicNetworkDecisionKind.BLOCK,
                 DynamicNetworkReason.NON_GET_METHOD,
@@ -612,6 +621,17 @@ class DynamicRequestAuthority:
             return DynamicNetworkDecision(
                 DynamicNetworkDecisionKind.ALLOW,
                 DynamicNetworkReason.AUTHORIZED_RESOURCE,
+                canonical,
+                normalized_kind,
+            )
+        if (
+            is_balanced_fetch_xhr_method
+            and grant_kind == DynamicResourceKind.FETCH_XHR
+            and _origin(self.root_url) == _origin(canonical)
+        ):
+            return DynamicNetworkDecision(
+                DynamicNetworkDecisionKind.ALLOW,
+                DynamicNetworkReason.PASSIVE_SAME_ORIGIN_FETCH_XHR,
                 canonical,
                 normalized_kind,
             )
@@ -913,6 +933,7 @@ def _canonical_authority_url(url: str) -> str:
     if (
         scheme not in _HTTP_SCHEMES
         or not hostname
+        or (port is not None and port <= 0)
         or parts.username is not None
         or parts.password is not None
         or parts.fragment
@@ -921,7 +942,7 @@ def _canonical_authority_url(url: str) -> str:
             DynamicBrowserErrorCode.INVALID_AUTHORITY,
             "Dynamic request authority requires a credential-free HTTP(S) URL.",
         )
-    effective_port = port or _DEFAULT_PORTS[scheme]
+    effective_port = _DEFAULT_PORTS[scheme] if port is None else port
     host_text = f"[{hostname}]" if ":" in hostname else hostname
     netloc = (
         host_text
@@ -953,7 +974,8 @@ def _origin(url: str) -> tuple[str, str, int]:
     parts = urlsplit(url)
     scheme = parts.scheme.lower()
     hostname = parts.hostname.lower() if parts.hostname else ""
-    return scheme, hostname, parts.port or _DEFAULT_PORTS[scheme]
+    port = parts.port
+    return scheme, hostname, _DEFAULT_PORTS[scheme] if port is None else port
 
 
 def _is_loopback_url(url: str) -> bool:
@@ -1000,7 +1022,8 @@ def _safe_audit_event(
         parts = urlsplit(url)
         scheme = parts.scheme.lower()
         host = parts.hostname.lower() if parts.hostname else ""
-        port = parts.port or _DEFAULT_PORTS.get(scheme)
+        parsed_port = parts.port
+        port = _DEFAULT_PORTS.get(scheme) if parsed_port is None else parsed_port
         path = parts.path or "/"
         query_name_count = len(parse_qsl(parts.query, keep_blank_values=True))
     except (TypeError, ValueError):
@@ -1073,7 +1096,12 @@ def _safe_passive_network_observation(
         parts = urlsplit(url)
         scheme = parts.scheme.lower()
         host = parts.hostname.lower() if parts.hostname else ""
-        effective_port = parts.port or _DEFAULT_PORTS[scheme]
+        parsed_port = parts.port
+        effective_port = (
+            _DEFAULT_PORTS[scheme] if parsed_port is None else parsed_port
+        )
+        if effective_port <= 0:
+            return None
         if len(host) > _MAX_PASSIVE_HOST_CHARACTERS:
             return None
         query_parameter_names = _query_parameter_names(parts.query)
@@ -1547,6 +1575,7 @@ class _RouteGuard:
             self._fulfill_allowed_http(
                 route,
                 decision,
+                method=method,
                 resource_type=resource_type,
                 is_primary_page=is_primary_page,
                 is_main_frame=is_main_frame,
@@ -1571,6 +1600,7 @@ class _RouteGuard:
         route: Any,
         decision: DynamicNetworkDecision,
         *,
+        method: str,
         resource_type: str,
         is_primary_page: bool,
         is_main_frame: bool,
@@ -1622,7 +1652,7 @@ class _RouteGuard:
                 )
                 if within_budget:
                     redirect_decision = self.authority.decide_http(
-                        method="GET",
+                        method=method,
                         url=redirect_url,
                         resource_type=resource_type,
                         is_primary_page=is_primary_page,

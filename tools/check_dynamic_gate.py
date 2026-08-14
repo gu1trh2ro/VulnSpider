@@ -78,6 +78,18 @@ BROWSER_LOOPBACK_CASES = (
         "Unauthorized same-authority fetch and XHR are blocked pre-transport.",
     ),
     BrowserManifestCase(
+        "balanced-fetch-xhr",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_balanced_fetch_xhr_allows_only_natural_same_origin_get_head"
+        ),
+        (
+            "Balanced natural same-origin GET/HEAD fetch and XHR execute once while "
+            "unsafe and off-origin attempts remain pre-transport blocked."
+        ),
+    ),
+    BrowserManifestCase(
         "passive-network-observation",
         (
             "tests.integration.test_dynamic_browser_loopback."
