@@ -406,3 +406,45 @@ unobserved_probe_runs    미관찰 run 수
 8. 사용 scorer
 9. extractor version
 10. 테스트 fixture
+11. prior weight (또는 prior를 두지 않는 이유) — §9
+12. 어느 family의 `CalibrationFeatureSpace`에 들어가는가 — §9
+13. 기존 feature와의 상관 (Naive Bayes 조건부 독립 가정에 영향) — §9
+
+---
+
+## 9. Calibrated scoring에서의 feature 취급 (ADR-022)
+
+`scoring/calibration.py`는 §7의 가중합을 대체하지 않고 그 위에 얹힌다.
+가중치는 logit 공간으로 rescale되어 Gaussian prior의 평균이 된다.
+
+```text
+prior weight_i = heuristic weight_i / prior_scale   (기본 prior_scale = 10.0)
+logit_mean     = logit(base_rate) + RankScore / prior_scale
+```
+
+즉 학습 데이터가 없으면 `logit_mean` 순서는 §7의 RankScore 순서와 정확히
+같다. feature 정의, 값 범위 `[0, 1]`, extractor version 규칙은 그대로다.
+
+### Missing feature
+
+미관측 feature는 logit 합에서 제외된다. §7의 "numeric score 합계에 0의 효과"와
+동일한 동작이며, log-odds 공간에서는 "증거 없음 → posterior가 prior에 머무름"으로
+정확히 읽힌다.
+
+**알려진 한계:** 선형 모델에서 관측된 `0.0`과 미관측은 logit 기여가 모두 0이라
+점수상 구분되지 않는다. `CalibrationEvidence.observed`와
+`CalibratedProbability.observed_feature_count`에 상태는 보존되지만 점수는
+구분하지 않는다. "관측하지 않았음을 안전함으로 해석하지 않는다"는 §7의
+규칙은 evidence 수준에서 유지되며, 점수 수준에서 구분하려면 feature별
+missingness indicator가 필요하다.
+
+### 아직 추출되지 않는 feature
+
+§7의 05C 주석은 그대로 유효하다. `numeric_value`, `reflection_count_norm`,
+`safe_html_encoding_detected`, `dangerous_reflection_context`,
+`redirect_changed`는 여전히 추출되지 않으며 값을 만들거나 0으로 가장하지
+않는다. 보정 모델의 feature space는 실제로 추출되는 feature만 포함한다.
+
+이들을 구현하면 feature 수가 4개에서 11개로 늘어난다. 학습기를 교체하는
+것보다 이쪽이 ranking 성능 기여가 클 가능성이 높으므로, 결정 계층 튜닝보다
+우선순위가 높다.

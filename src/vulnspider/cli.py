@@ -12,6 +12,18 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from vulnspider import __version__
+from vulnspider.cli_decision import (
+    CalibrationError,
+    ConformalError,
+    CorpusError,
+    CorpusFittingError,
+    DecisionCLIError,
+    GroundTruthError,
+    add_algorithm_options,
+    add_decision_subcommands,
+    analyze_and_report,
+    run_corpus_command,
+)
 from vulnspider.discovery import (
     CombinedDiscoveryResult,
     CrawlPolicy,
@@ -37,18 +49,19 @@ from vulnspider.pipeline import (
     analyze_legacy_records,
     analyze_url,
 )
-from vulnspider.reporting import (
-    write_analysis_report,
-    write_crawl_report,
-    write_html_report,
-    write_json_report,
-)
+from vulnspider.reporting import write_crawl_report
 
 
 _SIMPLE_DEFAULT_CRAWL_OUTPUT = Path("vulnspider-crawl.json")
 _SIMPLE_DEFAULT_ANALYSIS_OUTPUT = Path("vulnspider-analysis.json")
 _SIMPLE_DEFAULT_TOP_K = 10
 _SIMPLE_DEFAULT_DYNAMIC_MAX_DEPTH = 2
+
+# `analyze` and simple `-u` mode run the calibrated Top-K algorithm directly, so
+# `decide` no longer exists. This maps only the corpus-building tooling.
+_DECISION_COMMANDS = {
+    "corpus": run_corpus_command,
+}
 
 
 class CLIError(ValueError):
@@ -260,6 +273,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Maximum browser request-authority decisions.",
     )
+    add_algorithm_options(analyze)
+    add_decision_subcommands(subparsers)
     return parser
 
 
@@ -275,11 +290,34 @@ def main(
     args = parser.parse_args(argv)
     simple_mode = args.command is None and args.simple_url is not None
     crawl_published = False
+    selected_count = 0
     if args.command is None and not simple_mode:
         if _simple_options_without_url(args):
             parser.error("simple scan options require -u/--url")
         parser.print_help()
         return 0
+    if args.command in _DECISION_COMMANDS:
+        handler = _DECISION_COMMANDS[args.command]
+        try:
+            return handler(
+                args,
+                transport=transport,
+                crawler=crawler,
+                crawler_transport=crawler_transport,
+            )
+        except (
+            DecisionCLIError,
+            CorpusError,
+            CorpusFittingError,
+            GroundTruthError,
+            CalibrationError,
+            ConformalError,
+        ) as exc:
+            print(f"vulnspider: error: {exc}", file=sys.stderr)
+            return 1
+        except OSError as exc:
+            print(f"vulnspider: error: {exc}", file=sys.stderr)
+            return 1
     if args.command != "analyze":
         if not simple_mode:
             parser.error(f"unsupported command: {args.command}")
@@ -354,16 +392,16 @@ def main(
                 file=sys.stderr,
             )
             return 4
-        if simple_mode:
-            write_analysis_report(analysis, args.output)
-        else:
-            write_json_report(
-                analysis.selection,
-                args.output,
-                warnings=analysis.warnings,
-            )
-        if args.html_output is not None:
-            _write_html_report(analysis, args.html_output)
+        outcome = analyze_and_report(
+            analysis,
+            target_url=_analysis_target(analysis),
+            top_k=args.top_k,
+            model_path=args.model,
+            conformal_path=args.conformal,
+            output=args.output,
+            html_output=args.html_output,
+        )
+        selected_count = len(outcome.selected)
     except _SimpleDegradedCrawl:
         _print_partial_simple_result(args)
         print(
@@ -414,7 +452,7 @@ def main(
         mode = "static-only" if not args.dynamic else "dynamic"
         print(
             "vulnspider: scan complete "
-            f"(mode={mode}, selected={analysis.selection.summary.selected_results})"
+            f"(mode={mode}, selected={selected_count})"
         )
         print(
             "vulnspider: crawl output: "
@@ -455,6 +493,8 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
             args.simple_crawl_output or _SIMPLE_DEFAULT_CRAWL_OUTPUT
         ),
         html_output=None,
+        model=None,
+        conformal=None,
         max_pages=None,
         max_depth=None,
         max_requests=None,
@@ -471,42 +511,6 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         dynamic_navigation_timeout_seconds=None,
         dynamic_max_redirects=None,
         dynamic_request_decision_budget=None,
-    )
-
-
-def _write_html_report(analysis: AnalysisResult, destination: Path) -> None:
-    input_points = {
-        input_point.id or "": input_point
-        for input_point in analysis.input_points
-    }
-    endpoints = {
-        endpoint.id or "": endpoint for endpoint in analysis.endpoints
-    }
-    probe_runs: dict[str, Any] = {}
-    for observation in sorted(
-        analysis.probe_observations,
-        key=lambda item: item.probe_plan.id or "",
-    ):
-        # One InputPoint can own several request contexts, so show the first
-        # probe run by stable ProbePlan id rather than an arbitrary last one.
-        probe_runs.setdefault(
-            observation.feature_vector_id,
-            (
-                observation.probe_plan,
-                observation.baseline_response,
-                observation.probe_response,
-            ),
-        )
-    write_html_report(
-        analysis.selection,
-        destination,
-        warnings=analysis.warnings,
-        input_points=input_points,
-        endpoints=endpoints,
-        probe_runs=probe_runs,
-        requests_executed=2 * len(analysis.probe_observations),
-        target=_analysis_target(analysis),
-        elapsed_seconds=analysis.elapsed_seconds,
     )
 
 

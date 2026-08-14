@@ -1,0 +1,46 @@
+{
+  "fitting_version": "corpus-fitting-v1",
+  "models": {
+    "REFLECTED_XSS": {
+      "model_version": "bayesian-logistic-v1",
+      "family": "REFLECTED_XSS",
+      "feature_names": [
+        "marker_reflected",
+        "response_length_diff_ratio"
+      ],
+      "intercept": -3.8371113150519687,
+      "intercept_variance": 0.5855011501608274,
+      "weights": [
+        3.4254055087694417,
+        0.7717506562523438
+      ],
+      "weight_variances": [
+        0.6307654510215341,
+        1.890295965677729
+      ],
+      "training_samples": 73
+    },
+    "SQLI": {
+      "model_version": "bayesian-logistic-v1",
+      "family": "SQLI",
+      "feature_names": [
+        "status_code_changed",
+        "response_length_diff_ratio",
+        "sql_error_pattern"
+      ],
+      "intercept": -1.510629768427114,
+      "intercept_variance": 0.11138826861654967,
+      "weights": [
+        -0.5022939502991669,
+        3.9418883636598627,
+        4.406260337157385
+      ],
+      "weight_variances": [
+        0.5827815565018424,
+        1.5717135886939717,
+        1.3324008556699272
+      ],
+      "training_samples": 73
+    }
+  }
+}

@@ -86,13 +86,10 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertNotIn("feature_vectors", crawl_report)
         self.assertNotIn("scoring_results", crawl_report)
         self.assertNotIn("candidates", crawl_report)
-        self.assertEqual(analysis_report["report_kind"], "analysis")
-        self.assertEqual(analysis_report["summary"]["top_k_requested"], 10)
-        self.assertTrue(analysis_report["ready_context_ids"])
-        self.assertTrue(analysis_report["executed_input_point_ids"])
-        self.assertTrue(analysis_report["probe_observations"])
-        self.assertTrue(analysis_report["feature_vectors"])
-        self.assertTrue(analysis_report["scoring_results"])
+        self.assertEqual(analysis_report["report_version"], "decision-report-v1")
+        self.assertEqual(analysis_report["selection"]["top_k"], 10)
+        self.assertGreater(analysis_report["selection"]["candidates_scored"], 0)
+        self.assertTrue(analysis_report["verification_order"])
 
         analysis = captured[0]
         combined = analysis.combined_result
@@ -132,20 +129,14 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         crawl_input_ids = {
             item["id"] for item in crawl_discovery["input_points"]
         }
-        self.assertEqual(
-            set(analysis_report["crawl_reference"]["input_point_ids"]),
-            crawl_input_ids,
-        )
-        self.assertTrue(
-            set(analysis_report["executed_input_point_ids"]) <= crawl_input_ids
-        )
-        for observation in analysis_report["probe_observations"]:
-            self.assertIn(observation["input_point_id"], crawl_input_ids)
-            self.assertEqual(
-                observation["probe_plan"]["input_point_id"],
-                observation["input_point_id"],
-            )
-            self.assertTrue(observation["response_pair_ids"])
+        # The lean decision report no longer carries per-observation diagnostics;
+        # the authoritative AnalysisResult still does, so the executed input
+        # points are checked against it and against the crawl scope.
+        executed_input_ids = {
+            vector.input_point_id for vector in analysis.feature_vectors
+        }
+        self.assertTrue(executed_input_ids <= crawl_input_ids)
+        self.assertTrue(analysis.probe_observations)
         static_names = {
             item["name"]
             for item in crawl_report["crawl"]["static_crawl"]["discovery"][
@@ -178,10 +169,7 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
             input_ids_by_name["simple_dynamic"],
             input_ids_by_name["simple_page_b"],
         }
-        self.assertTrue(
-            multi_page_input_ids
-            <= set(analysis_report["executed_input_point_ids"])
-        )
+        self.assertTrue(multi_page_input_ids <= executed_input_ids)
         audit = combined.dynamic_crawl.browser_audit
         self.assertTrue(audit.cleanup_complete)
         self.assertGreaterEqual(audit.websocket_attempt_count, 1)

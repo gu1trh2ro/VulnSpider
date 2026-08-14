@@ -458,6 +458,12 @@ def _render_candidate(candidate: Mapping[str, Any]) -> str:
     candidate_id = _esc(candidate["candidate_id"])
     feature_vector_id = _esc(candidate["feature_vector_id"])
     endpoint_line = _render_endpoint_line(candidate["endpoint"])
+    # The decision-layer report reuses this renderer but scores candidates as
+    # probabilities, where "raw N / max M" would be meaningless. It supplies
+    # its own caption; the v0.1 report supplies none and keeps the old line.
+    caption = candidate.get("caption") or (
+        f"priority &middot; raw {raw_score} / max {raw_score_max}"
+    )
     evidence_html = "".join(
         _render_evidence_item(item) for item in candidate["evidence"]
     )
@@ -484,7 +490,7 @@ def _render_candidate(candidate: Mapping[str, Any]) -> str:
       <div class="meterwrap">
         <div class="prio {band}">{percent}%</div>
         <div class="meter"><i class="{band}" style="width:{percent}%"></i></div>
-        <div class="pcaption">priority &middot; raw {raw_score} / max {raw_score_max}</div>
+        <div class="pcaption">{caption}</div>
       </div>
     </div>
 
@@ -610,6 +616,7 @@ _DOCUMENT_STYLE = """
     --paper:#f6f7f9; --card:#ffffff; --ink:#12161d; --muted:#5b6472;
     --line:#e3e7ee; --accent:#2f4b7c;
     --low:#7c8798; --medium:#c08a2d; --high:#c0463b;
+    --sqli:#2f6f8f; --xss:#7a5aa8; --bac:#2f7d5f; --track:#eef1f6;
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
     --sans:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
   }
