@@ -14,19 +14,38 @@ from vulnspider.domain import (
     ResponsePair,
     ResponseSnapshot,
 )
+from vulnspider.observation.planner import (
+    SENTINEL_CHARS,
+    marker_identifier,
+)
 
-FEATURE_SCHEMA_VERSION = "feature-v0.1"
+FEATURE_SCHEMA_VERSION = "feature-v0.2"
 DIFFERENTIAL_EXTRACTOR_VERSION = "differential-v1"
 REFLECTION_EXTRACTOR_VERSION = "reflection-v1"
+ENCODING_EXTRACTOR_VERSION = "html-encoding-v1"
 SQL_EXTRACTOR_VERSION = "sql-signal-v1"
 FEATURE_AGGREGATION_VERSION = "input-point-existential-v1"
 
 STATUS_CODE_CHANGED = "status_code_changed"
 RESPONSE_LENGTH_DIFF_RATIO = "response_length_diff_ratio"
 MARKER_REFLECTED = "marker_reflected"
+SAFE_HTML_ENCODING_DETECTED = "safe_html_encoding_detected"
+REFLECTION_COUNT_NORM = "reflection_count_norm"
 SQL_ERROR_PATTERN = "sql_error_pattern"
 REQUEST_ROLE_BASELINE = "baseline"
 REQUEST_ROLE_PROBE = "probe"
+
+# Entity forms the extractor accepts as a "safely encoded" dangerous character.
+_ENTITY_MARKERS: tuple[str, ...] = (
+    "&lt;",
+    "&gt;",
+    "&quot;",
+    "&#x27;",
+    "&#39;",
+    "&apos;",
+    "&#34;",
+    "&amp;",
+)
 
 SQL_ERROR_PATTERNS: tuple[tuple[str, str], ...] = (
     ("sql_syntax", r"\bSQL syntax\b"),
@@ -93,6 +112,11 @@ def extract_minimal_features(
                 probe_response,
             ),
             MARKER_REFLECTED: _marker_reflected(probe_plan, baseline_response, probe_response),
+            SAFE_HTML_ENCODING_DETECTED: _safe_html_encoding_detected(
+                probe_plan,
+                probe_response,
+            ),
+            REFLECTION_COUNT_NORM: _reflection_count_norm(probe_plan, probe_response),
             SQL_ERROR_PATTERN: _sql_error_pattern(baseline_response, probe_response),
         }
     return FeatureVector(
@@ -381,8 +405,14 @@ def _marker_reflected(
             extractor_version=REFLECTION_EXTRACTOR_VERSION,
             details=_undecoded_body_details(baseline_text, probe_text),
         )
-    baseline_contains = marker in baseline_text
-    probe_contains = marker in probe_text
+    # Detect the alphanumeric identifier, not the full marker: a sentinel marker
+    # carries `<`, `>`, `"`, `'`, and an app that entity-encodes them would drop
+    # the raw marker from the body and read as "not reflected". The identifier
+    # survives encoding, so reflection is judged on it and the encoding question
+    # is answered separately by safe_html_encoding_detected.
+    identifier = marker_identifier(marker)
+    baseline_contains = identifier in baseline_text
+    probe_contains = identifier in probe_text
     value = 1.0 if probe_contains and not baseline_contains else 0.0
     return FeatureObservation(
         name=MARKER_REFLECTED,
@@ -392,10 +422,140 @@ def _marker_reflected(
         extractor_version=REFLECTION_EXTRACTOR_VERSION,
         details={
             "marker": marker,
+            "identifier": identifier,
             "baseline_contains_marker": baseline_contains,
             "probe_contains_marker": probe_contains,
         },
     )
+
+
+def _safe_html_encoding_detected(
+    probe_plan: ProbePlan,
+    probe_response: ResponseSnapshot,
+) -> FeatureObservation:
+    """Whether the reflected sentinel's dangerous characters were entity-encoded.
+
+    Three states beyond the value (domain rule 8: missing is not observed 0):
+
+    * marker has no sentinel (neutral strategy) -> unobserved.
+    * identifier reflected but sentinel region absent -> filtered -> unobserved.
+    * sentinel present -> 1.0 if every dangerous character is an entity, 0.0 if
+      any survives raw. Partial encoding is 0.0: one raw character is enough to
+      break out.
+    """
+
+    marker = probe_plan.probe_marker
+    if not marker or "Z" not in marker:
+        return FeatureObservation.missing(
+            SAFE_HTML_ENCODING_DETECTED,
+            source="reflection_encoding_probe",
+            extractor_version=ENCODING_EXTRACTOR_VERSION,
+            details={"reason": "marker-has-no-sentinel"},
+        )
+    probe_text = probe_response.decoded_text
+    if probe_text is None:
+        return FeatureObservation.missing(
+            SAFE_HTML_ENCODING_DETECTED,
+            source="reflection_encoding_probe",
+            extractor_version=ENCODING_EXTRACTOR_VERSION,
+            details=_undecoded_body_details(probe_text, probe_text),
+        )
+    identifier = marker_identifier(marker)
+    regions = _sentinel_regions(probe_text, identifier)
+    if not regions:
+        return FeatureObservation.missing(
+            SAFE_HTML_ENCODING_DETECTED,
+            source="reflection_encoding_probe",
+            extractor_version=ENCODING_EXTRACTOR_VERSION,
+            details={"reason": "sentinel-filtered-or-not-reflected"},
+        )
+    raw_chars = sorted(
+        {char for region in regions for char in SENTINEL_CHARS if char in region}
+    )
+    has_entity = any(
+        entity in region for region in regions for entity in _ENTITY_MARKERS
+    )
+    if raw_chars:
+        value = 0.0
+    elif has_entity:
+        value = 1.0
+    else:
+        return FeatureObservation.missing(
+            SAFE_HTML_ENCODING_DETECTED,
+            source="reflection_encoding_probe",
+            extractor_version=ENCODING_EXTRACTOR_VERSION,
+            details={"reason": "sentinel-stripped", "regions": tuple(regions)},
+        )
+    return FeatureObservation(
+        name=SAFE_HTML_ENCODING_DETECTED,
+        value=value,
+        observed=True,
+        source="reflection_encoding_probe",
+        extractor_version=ENCODING_EXTRACTOR_VERSION,
+        details={
+            "regions": tuple(regions),
+            "raw_characters": tuple(raw_chars),
+            "any_entity_encoded": has_entity,
+        },
+    )
+
+
+def _reflection_count_norm(
+    probe_plan: ProbePlan,
+    probe_response: ResponseSnapshot,
+) -> FeatureObservation:
+    """``min(identifier occurrences / 3, 1.0)`` in the probe response."""
+
+    marker = probe_plan.probe_marker
+    probe_text = probe_response.decoded_text
+    if not marker or probe_text is None:
+        return FeatureObservation.missing(
+            REFLECTION_COUNT_NORM,
+            source="reflection_marker_probe",
+            extractor_version=REFLECTION_EXTRACTOR_VERSION,
+            details=(
+                {"reason": "probe-marker-missing"}
+                if not marker
+                else _undecoded_body_details(probe_text, probe_text)
+            ),
+        )
+    identifier = marker_identifier(marker)
+    count = probe_text.count(identifier)
+    value = min(count / 3.0, 1.0)
+    return FeatureObservation(
+        name=REFLECTION_COUNT_NORM,
+        value=value,
+        observed=True,
+        source="reflection_marker_probe",
+        extractor_version=REFLECTION_EXTRACTOR_VERSION,
+        details={"identifier": identifier, "occurrences": count},
+    )
+
+
+def _sentinel_regions(text: str, identifier: str) -> tuple[str, ...]:
+    """Return the substrings between the sentinel's ``Z`` delimiters.
+
+    The reflected value is ``identifier + "Z" + <chars> + "Z"``, contiguous even
+    when the characters are entity-encoded (the delimiters are alphanumeric).
+    Anchoring on ``identifier + "Z"`` guarantees the leading delimiter belongs to
+    this reflection rather than to unrelated body text.
+    """
+
+    anchor = identifier + "Z"
+    regions: list[str] = []
+    start = 0
+    while True:
+        opened = text.find(anchor, start)
+        if opened == -1:
+            break
+        content_start = opened + len(anchor)
+        closed = text.find("Z", content_start)
+        if closed != -1:
+            regions.append(text[content_start:closed])
+            start = closed + 1
+        else:
+            start = content_start
+    return tuple(regions)
 
 
 def _sql_error_pattern(
@@ -455,6 +615,18 @@ def _missing_features_for_execution_error(
         ),
         MARKER_REFLECTED: FeatureObservation.missing(
             MARKER_REFLECTED,
+            source="reflection_marker_probe",
+            extractor_version=REFLECTION_EXTRACTOR_VERSION,
+            details=details,
+        ),
+        SAFE_HTML_ENCODING_DETECTED: FeatureObservation.missing(
+            SAFE_HTML_ENCODING_DETECTED,
+            source="reflection_encoding_probe",
+            extractor_version=ENCODING_EXTRACTOR_VERSION,
+            details=details,
+        ),
+        REFLECTION_COUNT_NORM: FeatureObservation.missing(
+            REFLECTION_COUNT_NORM,
             source="reflection_marker_probe",
             extractor_version=REFLECTION_EXTRACTOR_VERSION,
             details=details,
