@@ -4,6 +4,7 @@ import pickle
 import unittest
 
 from vulnspider.discovery import (
+    BlockedPostJsonCandidate,
     CollectorKind,
     DiscoveryMergePolicy,
     DiscoveryMetadata,
@@ -11,6 +12,7 @@ from vulnspider.discovery import (
     NetworkDiscoveryCollection,
     NetworkDiscoveryDisposition,
     NetworkDiscoveryElisionReason,
+    PostJsonSkipReason,
     ProbeReadyStatus,
     ScopeMetadata,
     canonicalize_network_discovery,
@@ -20,7 +22,12 @@ from vulnspider.discovery import (
     scope_id_for_root,
 )
 from vulnspider.discovery import dynamic_browser as browser_module
-from vulnspider.domain import validate_input_point_request_context
+from vulnspider.domain import (
+    HttpMethod,
+    InputLocation,
+    validate_input_point_request_context,
+)
+from vulnspider.pipeline import analyze_discovery_result
 
 
 ROOT = "http://127.0.0.1:8080/"
@@ -70,6 +77,45 @@ def _candidate(
 def _canonical(*candidates):
     components = canonicalize_network_discovery(
         NetworkDiscoveryCollection(candidates=tuple(candidates)),
+        discovery_metadata=_metadata(CollectorKind.NATIVE_DYNAMIC),
+        scope_metadata=_scope(),
+    )
+    if len(components) != 1:
+        raise AssertionError("expected one source-page component")
+    return components[0]
+
+
+def _post_candidate(
+    body: bytes,
+    *,
+    url: str = "http://127.0.0.1:8080/api/search",
+    resource_type: str = "fetch",
+    content_type: str = "application/json; charset=UTF-8",
+    credential_header_present: bool = False,
+) -> BlockedPostJsonCandidate:
+    candidate, reason = browser_module._safe_blocked_post_json_candidate(
+        method="POST",
+        url=url,
+        resource_type=resource_type,
+        source_url=ROOT,
+        root_origin=ORIGIN,
+        content_type=content_type,
+        credential_header_present=credential_header_present,
+        body=body,
+    )
+    if reason is not None:
+        raise AssertionError(reason)
+    if candidate is None:
+        raise AssertionError("expected a POST JSON candidate")
+    return candidate
+
+
+def _canonical_post(*candidates, skipped_counts=()):
+    components = canonicalize_network_discovery(
+        NetworkDiscoveryCollection(
+            post_json_candidates=tuple(candidates),
+            post_json_skipped_counts=tuple(skipped_counts),
+        ),
         discovery_metadata=_metadata(CollectorKind.NATIVE_DYNAMIC),
         scope_metadata=_scope(),
     )
@@ -516,6 +562,452 @@ class NetworkCanonicalizationTests(unittest.TestCase):
                 discovery_metadata=_metadata(CollectorKind.NATIVE_DYNAMIC),
                 scope_metadata=_scope(),
             )
+
+
+class PostJsonCanonicalizationTests(unittest.TestCase):
+    def test_blocked_post_json_builds_only_not_ready_structure(self) -> None:
+        raw_value = "POST_PHONE_VALUE_SENTINEL"
+        candidate = _post_candidate(
+            ('{"keyword":"' + raw_value + '","page":1}').encode()
+        )
+        self.assertEqual(candidate.member_names, ("keyword", "page"))
+        self.assertNotIn(raw_value, repr(candidate))
+        self.assertNotIn(raw_value.encode(), pickle.dumps(candidate, protocol=5))
+
+        result = _canonical_post(candidate)
+        endpoint = result.endpoints[0]
+        self.assertEqual(endpoint.method, HttpMethod.POST)
+        self.assertEqual(endpoint.path, "/api/search")
+        self.assertEqual(
+            sorted((item.name, item.location) for item in result.input_points),
+            [
+                ("keyword", InputLocation.JSON_BODY),
+                ("page", InputLocation.JSON_BODY),
+            ],
+        )
+        self.assertTrue(
+            all(item.baseline_value is None for item in result.input_points)
+        )
+        self.assertTrue(
+            all(
+                "network_fetch" in item.metadata["origin_kinds"]
+                for item in result.input_points
+            )
+        )
+        self.assertEqual(result.request_templates, ())
+        self.assertEqual(result.input_point_request_contexts, ())
+        self.assertEqual(result.ready_contexts(), ())
+        self.assertTrue(
+            all(
+                item.status == ProbeReadyStatus.NOT_READY
+                and item.request_context_id is None
+                for item in result.probe_readiness
+            )
+        )
+        self.assertNotIn(raw_value, repr(result.to_dict()))
+
+        class TrapTransport:
+            def request(self, *_args, **_kwargs):
+                raise AssertionError("structural POST must never execute")
+
+        analysis = analyze_discovery_result(
+            result,
+            top_k=2,
+            transport=TrapTransport(),
+        )
+        self.assertEqual(analysis.probe_observations, ())
+        self.assertEqual(analysis.feature_vectors, ())
+        self.assertEqual(analysis.selection.selected, ())
+
+    def test_route_guard_collects_primary_post_then_aborts_without_fetch(self) -> None:
+        class Page:
+            url = ROOT
+
+        primary_page = Page()
+
+        class Frame:
+            parent_frame = None
+
+            def __init__(self, page):
+                self.page = page
+
+        class Request:
+            def __init__(
+                self,
+                *,
+                url,
+                page,
+                body,
+                content_type="application/json",
+                extra_headers=None,
+            ):
+                self.method = "POST"
+                self.url = url
+                self.resource_type = "fetch"
+                self.frame = Frame(page)
+                self.post_data_buffer = body
+                self.content_type = content_type
+                self.extra_headers = extra_headers or {}
+
+            def all_headers(self):
+                return {
+                    "Content-Type": self.content_type,
+                    **self.extra_headers,
+                }
+
+        class Route:
+            def __init__(self):
+                self.fetch_count = 0
+                self.abort_count = 0
+
+            def fetch(self, **_kwargs):
+                self.fetch_count += 1
+                raise AssertionError("blocked POST reached route.fetch")
+
+            def abort(self, **_kwargs):
+                self.abort_count += 1
+
+        recorder = browser_module._NetworkDiscoveryRecorder(candidate_limit=8)
+        guard = browser_module._RouteGuard(
+            browser_module.DynamicRequestAuthority(
+                ROOT,
+                allow_passive_same_origin_fetch_xhr=True,
+            ),
+            browser_module.DynamicBrowserPolicy(request_decision_budget=8),
+            browser_module._AuditRecorder(event_limit=8),
+            lambda: None,
+            network_discovery=recorder,
+        )
+        guard.set_primary_page(primary_page)
+        secret = "ROUTE_POST_VALUE_SENTINEL"
+        route = Route()
+        guard.handle_http(
+            route,
+            Request(
+                url="http://127.0.0.1:8080/api/search",
+                page=primary_page,
+                body=(f'{{"keyword":"{secret}","page":1}}').encode(),
+            ),
+        )
+        guard.handle_http(
+            Route(),
+            Request(
+                url="http://127.0.0.1:8081/api/off-scope",
+                page=primary_page,
+                body=b'{"keyword":"off"}',
+            ),
+        )
+        guard.handle_http(
+            Route(),
+            Request(
+                url="http://127.0.0.1:8080/api/frame",
+                page=Page(),
+                body=b'{"keyword":"frame"}',
+            ),
+        )
+        guard.handle_http(
+            Route(),
+            Request(
+                url="http://127.0.0.1:8080/api/form-like",
+                page=primary_page,
+                body=b"keyword=phone",
+                content_type="application/x-www-form-urlencoded",
+            ),
+        )
+        header_secret = "Bearer NONSTANDARD_HEADER_SECRET_SENTINEL"
+        guard.handle_http(
+            Route(),
+            Request(
+                url="http://127.0.0.1:8080/api/header-secret",
+                page=primary_page,
+                body=b'{"keyword":"safe"}',
+                extra_headers={"X-Trace": header_secret},
+            ),
+        )
+        collection = recorder.snapshot()
+        self.assertEqual(route.abort_count, 1)
+        self.assertEqual(route.fetch_count, 0)
+        self.assertEqual(len(collection.post_json_candidates), 1)
+        self.assertEqual(
+            collection.post_json_skipped_counts,
+            ((ROOT, PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED, 1),),
+        )
+        self.assertEqual(
+            collection.post_json_candidates[0].base_url,
+            "http://127.0.0.1:8080/api/search",
+        )
+        self.assertNotIn(secret, repr(collection))
+        self.assertNotIn(secret.encode(), pickle.dumps(collection, protocol=5))
+        self.assertNotIn(header_secret, repr(collection))
+        self.assertNotIn(
+            header_secret.encode(),
+            pickle.dumps(collection, protocol=5),
+        )
+
+    def test_post_json_rejections_fail_closed_without_secret_retention(self) -> None:
+        oversized = b'{"field":"' + b"x" * 17000 + b'"}'
+        jwt = "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0."
+        cases = (
+            (b'{"keyword":', PostJsonSkipReason.JSON_MALFORMED),
+            (b'["keyword"]', PostJsonSkipReason.JSON_TOP_LEVEL_NOT_OBJECT),
+            (
+                b'{"keyword":"one","keyword":"two"}',
+                PostJsonSkipReason.JSON_DUPLICATE_KEY,
+            ),
+            (oversized, PostJsonSkipReason.BODY_TOO_LARGE),
+            (
+                b'{"password":"PASSWORD_VALUE_SENTINEL"}',
+                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+            ),
+            (
+                b'{"password":null}',
+                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+            ),
+            (
+                b'{"api_key":"sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAA"}',
+                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+            ),
+            (
+                b'{"token":"POST_TOKEN_VALUE_SENTINEL"}',
+                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+            ),
+            (
+                b'{"sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAA":null}',
+                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+            ),
+            (
+                b'{"eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.":null}',
+                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+            ),
+            (
+                ('{"note":"' + jwt + '"}').encode(),
+                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+            ),
+        )
+        for body, expected in cases:
+            with self.subTest(expected=expected):
+                candidate, reason = (
+                    browser_module._safe_blocked_post_json_candidate(
+                        method="POST",
+                        url="http://127.0.0.1:8080/api/search",
+                        resource_type="fetch",
+                        source_url=ROOT,
+                        root_origin=ORIGIN,
+                        content_type="application/json",
+                        credential_header_present=False,
+                        body=body,
+                    )
+                )
+                self.assertIsNone(candidate)
+                self.assertEqual(reason, expected)
+
+        credential_candidate, credential_reason = (
+            browser_module._safe_blocked_post_json_candidate(
+                method="POST",
+                url="http://127.0.0.1:8080/api/search",
+                resource_type="xhr",
+                source_url=ROOT,
+                root_origin=ORIGIN,
+                content_type="application/json",
+                credential_header_present=True,
+                body=None,
+            )
+        )
+        self.assertIsNone(credential_candidate)
+        self.assertEqual(
+            credential_reason,
+            PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+        )
+        collection = NetworkDiscoveryCollection(
+            post_json_skipped_counts=(
+                (ROOT, PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED, 3),
+            )
+        )
+        serialized = pickle.dumps(collection, protocol=5)
+        for secret in (
+            b"PASSWORD_VALUE_SENTINEL",
+            jwt.encode(),
+            b"Authorization",
+            b"api_key",
+        ):
+            self.assertNotIn(secret, serialized)
+
+    def test_post_json_eligibility_and_budgets_are_bounded(self) -> None:
+        ineligible = (
+            ("GET", "http://127.0.0.1:8080/api", "fetch"),
+            ("post", "http://127.0.0.1:8080/api", "fetch"),
+            ("PUT", "http://127.0.0.1:8080/api", "fetch"),
+            ("POST", "http://127.0.0.1:8081/api", "xhr"),
+            ("POST", "http://localhost:8080/api", "fetch"),
+            ("POST", "https://127.0.0.1:8080/api", "fetch"),
+            ("POST", "http://127.0.0.1.evil.test:8080/api", "xhr"),
+            ("POST", "http://user@127.0.0.1:8080/api", "fetch"),
+            ("POST", "http://127.0.0.1:8080/api", "script"),
+        )
+        for method, url, resource_type in ineligible:
+            with self.subTest(method=method, url=url, resource_type=resource_type):
+                candidate, reason = (
+                    browser_module._safe_blocked_post_json_candidate(
+                        method=method,
+                        url=url,
+                        resource_type=resource_type,
+                        source_url=ROOT,
+                        root_origin=ORIGIN,
+                        content_type="application/json",
+                        credential_header_present=False,
+                        body=b'{"keyword":"phone"}',
+                    )
+                )
+                self.assertIsNone(candidate)
+                self.assertIsNone(reason)
+
+        for content_type in ("text/json", "application/problem+json", ""):
+            with self.subTest(content_type=content_type):
+                candidate, reason = (
+                    browser_module._safe_blocked_post_json_candidate(
+                        method="POST",
+                        url="http://127.0.0.1:8080/api",
+                        resource_type="fetch",
+                        source_url=ROOT,
+                        root_origin=ORIGIN,
+                        content_type=content_type,
+                        credential_header_present=False,
+                        body=b'{"keyword":"phone"}',
+                    )
+                )
+                self.assertIsNone(candidate)
+                self.assertEqual(
+                    reason,
+                    PostJsonSkipReason.CONTENT_TYPE_UNSUPPORTED,
+                )
+
+        too_many_body = (
+            "{" + ",".join(f'"field_{index}":{index}' for index in range(65)) + "}"
+        ).encode()
+        candidate, reason = browser_module._safe_blocked_post_json_candidate(
+            method="POST",
+            url="http://127.0.0.1:8080/api",
+            resource_type="fetch",
+            source_url=ROOT,
+            root_origin=ORIGIN,
+            content_type="application/json; charset=utf-8",
+            credential_header_present=False,
+            body=too_many_body,
+        )
+        self.assertIsNone(candidate)
+        self.assertEqual(reason, PostJsonSkipReason.JSON_MEMBER_LIMIT_EXCEEDED)
+
+        first = _post_candidate(b'{"page":1,"keyword":"phone"}')
+        second = _post_candidate(b'{"keyword":"other","page":2}')
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(first, second)
+
+        recorder = browser_module._NetworkDiscoveryRecorder(candidate_limit=1)
+        for path in ("a", "b"):
+            recorder.record_blocked_post_json(
+                method="POST",
+                url=f"http://127.0.0.1:8080/api/{path}",
+                resource_type="fetch",
+                source_url=ROOT,
+                root_origin=ORIGIN,
+                content_type="application/json",
+                credential_header_present=False,
+                headers_available=True,
+                body=b'{"keyword":"phone"}',
+            )
+        snapshot = recorder.snapshot()
+        self.assertEqual(len(snapshot.post_json_candidates), 1)
+        self.assertEqual(
+            snapshot.post_json_skipped_counts,
+            ((ROOT, PostJsonSkipReason.CANDIDATE_LIMIT_EXCEEDED, 1),),
+        )
+
+        def limited_snapshot(order):
+            limited = browser_module._NetworkDiscoveryRecorder(candidate_limit=1)
+            for path in order:
+                limited.record_blocked_post_json(
+                    method="POST",
+                    url=f"http://127.0.0.1:8080/api/{path}",
+                    resource_type="fetch",
+                    source_url=f"http://127.0.0.1:8080/source-{path}",
+                    root_origin=ORIGIN,
+                    content_type="application/json",
+                    credential_header_present=False,
+                    headers_available=True,
+                    body=b'{"keyword":"phone"}',
+                )
+            return limited.snapshot()
+
+        self.assertEqual(
+            limited_snapshot(("a", "a", "b")),
+            limited_snapshot(("b", "a", "a")),
+        )
+        with self.assertRaises(ValueError):
+            NetworkDiscoveryCollection(
+                post_json_skipped_counts=(
+                    (
+                        ROOT + "?token=FORGED_SECRET",
+                        PostJsonSkipReason.JSON_MALFORMED,
+                        1,
+                    ),
+                )
+            )
+
+    def test_post_json_snapshot_and_pickle_are_deterministic(self) -> None:
+        fetch = _post_candidate(b'{"keyword":"phone","page":1}')
+        xhr = _post_candidate(
+            b'{"category":"book"}',
+            url="http://127.0.0.1:8080/api/filter",
+            resource_type="xhr",
+        )
+        forward = NetworkDiscoveryCollection(post_json_candidates=(fetch, xhr))
+        reverse = NetworkDiscoveryCollection(post_json_candidates=(xhr, fetch))
+        self.assertEqual(forward, reverse)
+        self.assertEqual(pickle.loads(pickle.dumps(forward, protocol=5)), forward)
+        first = _canonical_post(fetch, xhr)
+        second = _canonical_post(xhr, fetch)
+        self.assertEqual(first, second)
+        self.assertEqual(
+            discovery_snapshot_id_for(first.to_dict()),
+            discovery_snapshot_id_for(second.to_dict()),
+        )
+
+    def test_dom_post_endpoint_merges_with_network_post_provenance(self) -> None:
+        static = extract_static_html_with_sensitive_form_elision(
+            '<form method="post" action="/api/search">'
+            '<input name="keyword" value="phone"></form>',
+            ROOT,
+            discovery_metadata=_metadata(CollectorKind.NATIVE_STATIC),
+            scope_metadata=_scope(),
+            parent_url=None,
+            depth=0,
+        ).discovery
+        dynamic = _canonical_post(
+            _post_candidate(b'{"keyword":"phone","page":1}')
+        )
+        merged = merge_discovery_results(static, dynamic, DiscoveryMergePolicy())
+        endpoints = [item for item in merged.endpoints if item.path == "/api/search"]
+        self.assertEqual(len(endpoints), 1)
+        endpoint = endpoints[0]
+        self.assertEqual(endpoint.method, HttpMethod.POST)
+        points = [item for item in merged.input_points if item.endpoint_id == endpoint.id]
+        self.assertEqual(
+            {(item.name, item.location) for item in points},
+            {
+                ("keyword", InputLocation.FORM),
+                ("keyword", InputLocation.JSON_BODY),
+                ("page", InputLocation.JSON_BODY),
+            },
+        )
+        endpoint_collectors = {
+            item.collector_kind
+            for item in merged.crawl_provenance
+            if item.subject_id == endpoint.id
+        }
+        self.assertEqual(
+            endpoint_collectors,
+            {CollectorKind.NATIVE_STATIC, CollectorKind.NATIVE_DYNAMIC},
+        )
 
 
 if __name__ == "__main__":

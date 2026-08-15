@@ -67,8 +67,8 @@ Target URL
 
 ### 4.1 Native discovery
 
-**Implemented through final Dynamic loopback E2E acceptance and observed GET API
-canonicalization**
+**Implemented through final Dynamic loopback E2E acceptance, observed GET API
+canonicalization, and blocked POST JSON structural canonicalization**
 
 - Direct authorized target URL input.
 - Scope allowlist and final redirect-target validation.
@@ -81,6 +81,9 @@ canonicalization**
 - Transport-free canonicalization of already-authorized, naturally emitted,
   exact-origin GET fetch/XHR, with credential-bearing values elided before
   canonical construction.
+- Structural-only canonicalization of primary-page exact-origin POST fetch/XHR
+  JSON attempts while the Guard continues to block their transport. Only
+  bounded top-level member names are retained as NOT_READY JSON_BODY points.
 
 The native Static crawler and explicit opt-in combined Dynamic path are
 implemented against one validated canonical schema. Dynamic collection cannot
@@ -163,8 +166,9 @@ forms, and network-visible input surfaces. It must:
 - Obey the same scope and budget authority.
 - Avoid executing application actions that modify state.
 - Deduplicate against static discovery through canonical identity.
-- Build network-visible canonical surfaces only from the Guard's already-allowed
-  original GET request, never from audit fingerprints and never through replay.
+- Build network-visible canonical surfaces only from the Guard's original GET
+  allow decision or eligible POST block decision, never from audit fingerprints
+  and never through replay.
 - Emit value-bearing READY contexts only for credential-free requests; otherwise
   retain at most value-free structure with explicit NOT_READY ownership.
 

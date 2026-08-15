@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 import json
 import os
+import pickle
 import socket
 import tempfile
 import unittest
@@ -28,10 +29,15 @@ from vulnspider.discovery import (
     DynamicRequestAuthority,
     DynamicResourceGrant,
     DynamicResourceKind,
+    ProbeReadyStatus,
     PassiveNetworkScope,
     PlaywrightDynamicBrowser,
+    discovery_snapshot_id_for,
     preflight_dynamic_browser,
 )
+from vulnspider.domain import HttpMethod, InputLocation
+from vulnspider.pipeline import analyze_discovery_result
+from vulnspider.reporting import build_analysis_report
 
 
 class DynamicLoopbackHarnessTests(unittest.TestCase):
@@ -594,6 +600,113 @@ class DynamicBrowserLoopbackTests(unittest.TestCase):
         ):
             self.assertNotIn(secret, serialized)
         self.assertNotIn("network_discovery", result.to_dict()["browser_audit"])
+        self.assertTrue(result.browser_audit.cleanup_complete)
+
+    def test_real_blocked_post_json_is_structural_and_never_executes(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(
+                root_url=site.observed_post_json_url,
+                allow_passive_same_origin_fetch_xhr=True,
+            )
+            result = DynamicCrawler().crawl(
+                site.observed_post_json_url,
+                DynamicCrawlPolicy(
+                    max_pages=1,
+                    max_depth=0,
+                    max_navigation_attempts=1,
+                    request_decision_budget=20,
+                ),
+                authority,
+            )
+            request_counts = Counter(
+                (item.method, item.path) for item in site.primary_requests
+            )
+            self.assertEqual(
+                request_counts,
+                Counter({("GET", "/observed-post-json"): 1}),
+            )
+            self.assertFalse(any(method == "POST" for method, _ in request_counts))
+            self.assertEqual(site.sentinel_requests, ())
+
+        endpoints = tuple(
+            item for item in result.discovery.endpoints if item.path == "/api/search"
+        )
+        self.assertEqual(len(endpoints), 1)
+        endpoint = endpoints[0]
+        self.assertEqual(endpoint.method, HttpMethod.POST)
+        points = tuple(
+            item
+            for item in result.discovery.input_points
+            if item.endpoint_id == endpoint.id
+        )
+        self.assertEqual(
+            {(item.name, item.location) for item in points},
+            {
+                ("keyword", InputLocation.JSON_BODY),
+                ("page", InputLocation.JSON_BODY),
+            },
+        )
+        readiness = {
+            item.input_point_id: item for item in result.discovery.probe_readiness
+        }
+        self.assertTrue(
+            all(
+                readiness[item.id or ""].status == ProbeReadyStatus.NOT_READY
+                and readiness[item.id or ""].request_context_id is None
+                for item in points
+            )
+        )
+        self.assertEqual(result.discovery.request_templates, ())
+        self.assertEqual(result.discovery.input_point_request_contexts, ())
+
+        class TrapTransport:
+            def request(self, *_args, **_kwargs):
+                raise AssertionError("blocked structural POST reached executor")
+
+        analysis = analyze_discovery_result(
+            result.discovery,
+            top_k=2,
+            transport=TrapTransport(),
+        )
+        analysis_report = build_analysis_report(analysis)
+        self.assertEqual(analysis_report["executed_input_point_ids"], [])
+        self.assertEqual(analysis_report["probe_observations"], [])
+        self.assertEqual(analysis.probe_observations, ())
+        self.assertEqual(
+            analysis_report["crawl_reference"]["discovery_snapshot_id"],
+            discovery_snapshot_id_for(result.discovery.to_dict()),
+        )
+
+        serialized = json.dumps(result.to_dict(), sort_keys=True)
+        pickled = pickle.dumps(result, protocol=5)
+        for secret in (
+            "phone",
+            "POST_AUTHORIZATION_VALUE_SENTINEL",
+            "POST_PASSWORD_VALUE_SENTINEL",
+            "POST_API_KEY_VALUE_SENTINEL",
+            "POST_TOKEN_VALUE_SENTINEL",
+            "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.",
+        ):
+            self.assertNotIn(secret, serialized)
+            self.assertNotIn(secret.encode(), pickled)
+        canonical_paths = {
+            item.path for item in result.discovery.endpoints
+        }
+        for rejected in (
+            "/api/secret",
+            "/api/malformed",
+            "/api/array",
+            "/api/duplicate",
+            "/api/oversized",
+            "/api/off-scope-post",
+        ):
+            self.assertNotIn(rejected, canonical_paths)
+        warning = next(
+            item
+            for item in result.discovery.warnings
+            if item.code == "NETWORK_POST_JSON_SKIPPED"
+        )
+        self.assertEqual(warning.details["skipped_attempt_count"], 5)
         self.assertTrue(result.browser_audit.cleanup_complete)
 
     def test_real_passive_network_observation_is_bounded_and_never_replays(

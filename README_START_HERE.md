@@ -8,7 +8,8 @@ also contains the in-progress v0.2 Native Discovery implementation.
 - **Implemented:** the `prototype/v0.1` legacy-record analysis path, JSON
   report, optional HTML report, Native Static Discovery, bounded combined
   Native Static plus Native Dynamic Discovery, final loopback E2E acceptance,
-  and the simple Dynamic-first CLI adapter.
+  observed GET/blocked POST JSON canonicalization, and the simple Dynamic-first
+  CLI adapter.
 - **Still planned for v0.2:** BAC prioritization and LLM-assisted focused
   verification.
 - **Historical:** the Prompt 01-07 sequence that produced and reviewed v0.1.
@@ -74,7 +75,12 @@ from the Guard's original request into canonical discovery without another
 request. Credential-free query values produce ordinary READY GET contexts;
 credential-bearing requests retain at most Endpoint and ordered query-name
 InputPoints, with no values/template/context and explicit NOT_READY status.
-HEAD, non-GET, blocked, and off-scope attempts never enter canonical discovery.
+Separately, an exact-origin primary-page POST fetch/XHR with `application/json`
+may retain only a POST Endpoint and top-level `JSON_BODY` member names at the
+same Guard decision seam. The POST remains blocked before transport and is
+always NOT_READY, with no template/context or value. HEAD, other methods,
+non-JSON, malformed, sensitive, non-primary, and off-scope attempts do not
+produce this structure.
 
 Each JSON report is rendered completely into a same-directory temporary file
 and replaces its requested destination only after validation, flush, and
@@ -149,6 +155,8 @@ respectively.
   and analysis JSON reports, and `--static-only` compatibility.
 - Combined canonical handoff to the existing READY-context analysis consumer;
   NOT_READY contexts remain non-executable.
+- Guard-owned, transport-free observed GET and blocked POST JSON canonical
+  discovery with bounded credential elision.
 - `LegacyCrawlerAdapter` normalization into canonical v0.1 domain models.
 - Deterministic probe planning and loopback-only baseline/probe execution.
 - Minimal differential, reflection, and SQL signal extraction.

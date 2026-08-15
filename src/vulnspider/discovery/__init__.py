@@ -27,6 +27,7 @@ from vulnspider.discovery.combined import (
     discover_native_combined,
 )
 from vulnspider.discovery.dynamic_browser import (
+    BlockedPostJsonCandidate,
     PLAYWRIGHT_REQUIREMENT,
     BrowserAuditEvent,
     BrowserAuditSummary,
@@ -51,6 +52,7 @@ from vulnspider.discovery.dynamic_browser import (
     NetworkDiscoveryDisposition,
     NetworkDiscoveryElisionReason,
     NetworkDiscoverySkipReason,
+    PostJsonSkipReason,
     PassiveNetworkObservation,
     PassiveNetworkScope,
     PlaywrightDynamicBrowser,
@@ -152,6 +154,7 @@ __all__ = [
     "DynamicRequestAuthority",
     "DynamicResourceGrant",
     "DynamicResourceKind",
+    "BlockedPostJsonCandidate",
     "LegacyAdapterResult",
     "LegacyCrawlerAdapter",
     "LegacyCrawlRecord",
@@ -162,6 +165,7 @@ __all__ = [
     "NetworkDiscoveryDisposition",
     "NetworkDiscoveryElisionReason",
     "NetworkDiscoverySkipReason",
+    "PostJsonSkipReason",
     "NonProbeReadyReason",
     "PassiveNetworkObservation",
     "PassiveNetworkScope",

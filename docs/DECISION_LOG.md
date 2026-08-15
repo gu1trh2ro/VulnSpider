@@ -384,6 +384,39 @@ baseline/probe pair, but canonicalization itself causes no transport.
 
 ---
 
+## ADR-022 - Retain blocked POST JSON as structural-only discovery
+
+**Status:** Accepted
+
+**Date:** 2026-08-15
+
+**Decision:** At the existing Guard scope/resource/method decision seam, inspect
+only naturally attempted primary-page, exact-origin POST fetch/XHR requests with
+`application/json` and an optional UTF-8 charset. The Guard still blocks the
+request before transport. A bounded transient parser accepts only a top-level
+object, rejects malformed/array/duplicate/oversized input, applies the shared
+credential-material policy to the complete parsed tree, then discards every
+value. A safe attempt retains only canonical source/endpoint URLs, resource
+kind, and sorted top-level names. The existing builder emits a POST Endpoint and
+JSON_BODY InputPoints with network provenance, no RequestTemplate/context, and
+NOT_READY ownership.
+
+**Reason:** A page's natural POST attempt reveals attack-surface structure even
+when state-changing transport is prohibited. Capturing at the Guard preserves
+authoritative primary-page and exact-origin evidence; reading passive audit
+would require unsafe reconstruction. A value-free candidate supports canonical
+identity and deterministic merge without creating replay authority or retaining
+body/header secrets.
+
+**Consequences:** POST remains non-executable in both browser transport and the
+READY-GET-only analysis pipeline. Candidate/field/body bounds and sanitized
+reason counts are deterministic. Sensitive material elides the whole candidate.
+Malformed, non-object, duplicate-key, non-JSON, off-origin, non-primary, and
+other-method attempts create no canonical surface. Safe structural objects
+participate in the existing discovery snapshot and crawl/analysis binding.
+
+---
+
 ## New Decision Template
 
 ```text
