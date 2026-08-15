@@ -40,7 +40,11 @@ from vulnspider.discovery.dynamic_browser import (
     DynamicNetworkDecisionKind,
     DynamicNetworkReason,
     DynamicRequestAuthority,
+    NetworkDiscoveryCollection,
     PlaywrightDynamicBrowser,
+)
+from vulnspider.discovery.network_canonicalization import (
+    canonicalize_network_discovery,
 )
 from vulnspider.discovery.rendered_dom import (
     RenderedDomExtractionResult,
@@ -627,10 +631,14 @@ class DynamicCrawler:
             if exc.audit is None:
                 raise
             audit = exc.audit
+            network_discovery = (
+                exc.network_discovery or NetworkDiscoveryCollection()
+            )
             if state.last_failure_code != exc.code.value:
                 self._record_browser_failure(state, exc)
         else:
             audit = run.audit
+            network_discovery = run.network_discovery
 
         if state.integrity_error is not None:
             raise state.integrity_error
@@ -657,6 +665,7 @@ class DynamicCrawler:
         discovery = _build_dynamic_discovery(
             state,
             audit=audit,
+            network_discovery=network_discovery,
             elapsed_ms=elapsed_seconds * 1000.0,
         )
         termination = self._termination_reason(state)
@@ -989,6 +998,7 @@ def _build_dynamic_discovery(
     state: _CrawlState,
     *,
     audit: BrowserAuditSummary,
+    network_discovery: NetworkDiscoveryCollection,
     elapsed_ms: float,
 ) -> CanonicalDiscoveryResult:
     endpoints: dict[str, Endpoint] = {}
@@ -1003,8 +1013,16 @@ def _build_dynamic_discovery(
     forms_discovered = 0
     skipped = state.skipped
 
-    for page_result in state.pages:
-        component = page_result.component.discovery
+    network_components = canonicalize_network_discovery(
+        network_discovery,
+        discovery_metadata=state.metadata,
+        scope_metadata=state.scope,
+    )
+    components = (
+        *(page_result.component.discovery for page_result in state.pages),
+        *network_components,
+    )
+    for component in components:
         component.validate()
         if component.discovery_metadata != state.metadata:
             raise DynamicCrawlerError("Dynamic page metadata changed during crawl")

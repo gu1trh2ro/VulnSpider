@@ -10,7 +10,11 @@ from http.client import HTTPConnection
 from pathlib import Path
 from urllib.request import urlopen
 
-from tests.integration.dynamic_loopback_site import DynamicLoopbackSite
+from tests.integration.dynamic_loopback_site import (
+    NETWORK_API_KEY_SENTINEL,
+    NETWORK_JWT_SENTINEL,
+    DynamicLoopbackSite,
+)
 from vulnspider.discovery import (
     ChildFrameDocumentKind,
     DynamicBrowserError,
@@ -420,16 +424,176 @@ class DynamicBrowserLoopbackTests(unittest.TestCase):
             "OFF_SCOPE_VALUE_SECRET",
         ):
             self.assertNotIn(secret, serialized)
-        for api_path in (
-            "/balanced/get-fetch",
-            "/balanced/get-xhr",
-            "/balanced/head-fetch",
-            "/balanced/post-fetch",
-        ):
-            self.assertNotIn(
-                api_path,
-                {endpoint.path for endpoint in result.discovery.endpoints},
+        endpoints = {item.path: item for item in result.discovery.endpoints}
+        self.assertTrue(
+            {"/balanced/get-fetch", "/balanced/get-xhr"} <= set(endpoints)
+        )
+        self.assertNotIn("/balanced/head-fetch", endpoints)
+        self.assertNotIn("/balanced/post-fetch", endpoints)
+        sensitive_ids = {
+            endpoints["/balanced/get-fetch"].id,
+            endpoints["/balanced/get-xhr"].id,
+        }
+        sensitive_points = tuple(
+            item
+            for item in result.discovery.input_points
+            if item.endpoint_id in sensitive_ids
+        )
+        self.assertEqual(
+            {item.name for item in sensitive_points},
+            {"api_key", "session"},
+        )
+        self.assertTrue(
+            all(item.baseline_value is None for item in sensitive_points)
+        )
+        readiness = {
+            item.input_point_id: item for item in result.discovery.probe_readiness
+        }
+        self.assertTrue(
+            all(
+                readiness[item.id or ""].status.value == "NOT_READY"
+                for item in sensitive_points
             )
+        )
+        self.assertFalse(
+            {
+                item.id
+                for item in result.discovery.request_templates
+                if item.endpoint_id in sensitive_ids
+            }
+        )
+        self.assertTrue(result.browser_audit.cleanup_complete)
+
+    def test_real_observed_get_api_canonicalization_is_transport_free(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(
+                root_url=site.network_canonicalization_url,
+                resource_grants=(
+                    DynamicResourceGrant(
+                        DynamicResourceKind.SCRIPT,
+                        site.network_canonicalization_script_url,
+                    ),
+                    DynamicResourceGrant(
+                        DynamicResourceKind.STYLE,
+                        site.network_canonicalization_style_url,
+                    ),
+                ),
+                allow_passive_same_origin_fetch_xhr=True,
+            )
+
+            result = DynamicCrawler().crawl(
+                site.network_canonicalization_url,
+                DynamicCrawlPolicy(
+                    max_pages=1,
+                    max_depth=0,
+                    max_navigation_attempts=1,
+                    request_decision_budget=20,
+                ),
+                authority,
+            )
+
+            request_counts = Counter(
+                (item.method, item.path) for item in site.primary_requests
+            )
+            self.assertEqual(
+                request_counts,
+                Counter(
+                    {
+                        ("GET", "/network-canonicalization"): 1,
+                        ("GET", "/network-canonicalization.js"): 1,
+                        ("GET", "/network-canonicalization.css"): 1,
+                        ("GET", "/api/search"): 1,
+                        ("GET", "/api/filter"): 1,
+                        ("GET", "/api/private"): 1,
+                        ("HEAD", "/api/head"): 1,
+                    }
+                ),
+            )
+            self.assertEqual(request_counts[("POST", "/api/post")], 0)
+            self.assertEqual(site.sentinel_requests, ())
+
+        endpoints = {item.path: item for item in result.discovery.endpoints}
+        self.assertIn("/api/search", endpoints)
+        self.assertIn("/api/filter", endpoints)
+        self.assertIn("/api/private", endpoints)
+        for excluded in ("/api/head", "/api/post", "/api/off-scope"):
+            self.assertNotIn(excluded, endpoints)
+        api_endpoint_ids = {
+            endpoints["/api/search"].id,
+            endpoints["/api/filter"].id,
+        }
+        api_points = tuple(
+            item
+            for item in result.discovery.input_points
+            if item.endpoint_id in api_endpoint_ids
+        )
+        self.assertEqual(
+            sorted((item.name, item.occurrence_index) for item in api_points),
+            [
+                ("category", None),
+                ("keyword", None),
+                ("page", None),
+                ("tag", 0),
+                ("tag", 1),
+            ],
+        )
+        self.assertEqual(len(result.discovery.ready_contexts()), 5)
+        self.assertEqual(len(result.discovery.request_templates), 2)
+        self.assertEqual(len(result.discovery.input_point_request_contexts), 5)
+        private_endpoint = endpoints["/api/private"]
+        private_points = tuple(
+            item
+            for item in result.discovery.input_points
+            if item.endpoint_id == private_endpoint.id
+        )
+        self.assertEqual(
+            [(item.name, item.baseline_value) for item in private_points],
+            [("page", None)],
+        )
+        readiness = {
+            item.input_point_id: item for item in result.discovery.probe_readiness
+        }
+        self.assertEqual(readiness[private_points[0].id or ""].status.value, "NOT_READY")
+        self.assertFalse(
+            any(
+                item.endpoint_id == private_endpoint.id
+                for item in result.discovery.request_templates
+            )
+        )
+        warning = next(
+            item
+            for item in result.discovery.warnings
+            if item.code == "NETWORK_GET_VALUES_ELIDED"
+        )
+        self.assertEqual(warning.details["elided_candidate_count"], 1)
+        self.assertEqual(warning.details["structural_candidate_count"], 1)
+        self.assertEqual(
+            {
+                item.discovered_by
+                for item in endpoints.values()
+                if item.id in api_endpoint_ids
+            },
+            {"native_dynamic_network"},
+        )
+        self.assertEqual(
+            {
+                origin
+                for point in api_points
+                for origin in point.metadata["origin_kinds"]
+            },
+            {"network_fetch", "network_xhr"},
+        )
+        serialized = json.dumps(result.to_dict(), sort_keys=True)
+        for secret in (
+            "HEAD_CANONICALIZATION_SECRET",
+            "POST_CANONICALIZATION_SECRET",
+            "POST_AUTHORIZATION_SECRET",
+            "GET_AUTHORIZATION_CANONICALIZATION_SECRET",
+            "POST_BODY_CANONICALIZATION_SECRET",
+            "OFF_SCOPE_CANONICALIZATION_SECRET",
+        ):
+            self.assertNotIn(secret, serialized)
+        self.assertNotIn("network_discovery", result.to_dict()["browser_audit"])
         self.assertTrue(result.browser_audit.cleanup_complete)
 
     def test_real_passive_network_observation_is_bounded_and_never_replays(
@@ -545,14 +709,45 @@ class DynamicBrowserLoopbackTests(unittest.TestCase):
         )
         serialized = json.dumps(result.to_dict(), sort_keys=True)
         for secret in (
-            "FETCH_QUERY_VALUE_SECRET",
-            "XHR_QUERY_VALUE_SECRET",
+            NETWORK_API_KEY_SENTINEL,
+            NETWORK_JWT_SENTINEL,
             "POST_QUERY_VALUE_SECRET",
             "OFF_SCOPE_QUERY_SECRET",
             "AUTHORIZATION_SECRET",
             "POST_BODY_PASSWORD_SECRET",
         ):
             self.assertNotIn(secret, serialized)
+        endpoints = {item.path: item for item in result.discovery.endpoints}
+        network_paths = {
+            "/network-observation/get-fetch",
+            "/network-observation/get-xhr",
+        }
+        self.assertTrue(network_paths <= set(endpoints))
+        network_endpoint_ids = {endpoints[path].id for path in network_paths}
+        network_points = tuple(
+            item
+            for item in result.discovery.input_points
+            if item.endpoint_id in network_endpoint_ids
+        )
+        self.assertEqual(
+            sorted((item.name, item.occurrence_index) for item in network_points),
+            [("alpha", None), ("beta", None), ("repeat", 0), ("repeat", 1)],
+        )
+        self.assertTrue(all(item.baseline_value is None for item in network_points))
+        self.assertFalse(
+            any(
+                item.endpoint_id in network_endpoint_ids
+                for item in result.discovery.request_templates
+            )
+        )
+        warning = next(
+            item
+            for item in result.discovery.warnings
+            if item.code == "NETWORK_GET_VALUES_ELIDED"
+        )
+        self.assertEqual(warning.details["elided_candidate_count"], 2)
+        self.assertEqual(warning.details["structural_candidate_count"], 2)
+        self.assertEqual(warning.details["audit_only_candidate_count"], 0)
         self.assertTrue(result.browser_audit.cleanup_complete)
 
     def test_real_unauthorized_same_origin_get_is_blocked(self) -> None:

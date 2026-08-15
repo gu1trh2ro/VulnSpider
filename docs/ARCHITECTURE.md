@@ -130,9 +130,16 @@ authority, pre-canonical sensitive-form elision for combined mode, and a
 deterministic Static-first merge. The advanced `analyze --dynamic` boundary
 keeps exact caller grants. The simple adapter additionally permits only an
 exact same-origin GET URL already extracted from a rendered anchor, for that
-single crawler navigation, plus same-origin GET script/style resources.
-Fetch/XHR, WebSocket, EventSource, POST, popup, and child-frame documents stay
-blocked by default. `pipeline.analyze_url()` sends the validated combined
+single crawler navigation, same-origin GET script/style resources, and naturally
+emitted same-origin GET/HEAD fetch/XHR. Only an already-allowed primary-page GET
+fetch/XHR can enter the separate network canonicalization path; this path never
+reconstructs from passive audit, never replays transport, and never retains raw
+credential headers/cookies or sensitive query values. Safe query occurrences
+produce normal READY contexts. Credential-bearing requests produce at most
+value-free Endpoint/InputPoint structure with NOT_READY ownership and no
+RequestTemplate/context. WebSocket, EventSource, POST, popup, child-frame
+documents, cross-origin, and different-port traffic stay blocked.
+`pipeline.analyze_url()` sends the validated combined
 `CombinedDiscoveryResult.discovery` to the unchanged
 `analyze_discovery_result()` consumer. Advanced plain `analyze --url` and
 simple `--static-only` stay Static-only, while legacy `--input` cannot activate

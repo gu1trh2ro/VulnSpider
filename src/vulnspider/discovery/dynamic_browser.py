@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from ipaddress import ip_address
@@ -14,7 +15,14 @@ import re
 from threading import Lock
 from time import monotonic
 from typing import Any, Callable, Generic, Protocol, TypeVar
-from urllib.parse import parse_qsl, unquote_plus, urljoin, urlsplit, urlunsplit
+from urllib.parse import (
+    parse_qsl,
+    unquote_plus,
+    urlencode,
+    urljoin,
+    urlsplit,
+    urlunsplit,
+)
 
 from vulnspider.discovery.rendered_dom import (
     RENDERED_DOM_CAPTURE_SCRIPT,
@@ -25,6 +33,7 @@ from vulnspider.discovery.rendered_dom import (
     snapshot_from_browser_payload,
 )
 from vulnspider.domain import stable_fingerprint
+from vulnspider.sensitive import contains_credential_material, credential_field_name
 
 
 PLAYWRIGHT_REQUIREMENT = "playwright>=1.48,<2"
@@ -42,6 +51,9 @@ _MAX_PASSIVE_METHOD_CHARACTERS = 32
 _MAX_PASSIVE_HOST_CHARACTERS = 253
 _MAX_PASSIVE_QUERY_PARAMETER_NAMES = 64
 _MAX_PASSIVE_QUERY_NAME_CHARACTERS = 128
+_MAX_NETWORK_PATH_CHARACTERS = 2048
+_MAX_NETWORK_QUERY_CHARACTERS = 4096
+_MAX_NETWORK_QUERY_VALUE_CHARACTERS = 2048
 _REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 
 T = TypeVar("T")
@@ -152,6 +164,31 @@ class PassiveNetworkScope(StrEnum):
 
     SAME_SCOPE = "SAME_SCOPE"
     OFF_SCOPE = "OFF_SCOPE"
+
+
+class NetworkDiscoveryDisposition(StrEnum):
+    """Whether an allowed GET retains an executable value-bearing context."""
+
+    SAFE = "SAFE"
+    STRUCTURAL_ELIDED = "STRUCTURAL_ELIDED"
+
+
+class NetworkDiscoveryElisionReason(StrEnum):
+    """Stable reasons for discarding all request values before retention."""
+
+    SENSITIVE_QUERY = "SENSITIVE_QUERY"
+    CREDENTIAL_HEADER = "CREDENTIAL_HEADER"
+
+
+class NetworkDiscoverySkipReason(StrEnum):
+    """Bounded internal counters for allowed GETs that fail canonicalization."""
+
+    INVALID_URL = "INVALID_URL"
+    URL_TOO_LARGE = "URL_TOO_LARGE"
+    PATH_TOO_LARGE = "PATH_TOO_LARGE"
+    QUERY_TOO_LARGE = "QUERY_TOO_LARGE"
+    QUERY_NAME_INVALID = "QUERY_NAME_INVALID"
+    QUERY_VALUE_TOO_LARGE = "QUERY_VALUE_TOO_LARGE"
 
 
 class ChildFrameDocumentKind(StrEnum):
@@ -307,6 +344,152 @@ class PassiveNetworkObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class NetworkDiscoveryCandidate:
+    """Bounded internal projection of one already-authorized GET fetch/XHR."""
+
+    resource_type: str
+    source_url: str
+    base_url: str
+    query_parameter_names: tuple[str, ...]
+    query_pairs: tuple[tuple[str, str], ...]
+    disposition: NetworkDiscoveryDisposition
+    elision_reasons: tuple[NetworkDiscoveryElisionReason, ...] = ()
+    id: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        resource_type = self.resource_type.strip().lower()
+        disposition = NetworkDiscoveryDisposition(self.disposition)
+        query_parameter_names = tuple(self.query_parameter_names)
+        query_pairs = tuple(tuple(pair) for pair in self.query_pairs)
+        reasons = tuple(
+            sorted(
+                (NetworkDiscoveryElisionReason(reason) for reason in self.elision_reasons),
+                key=lambda item: item.value,
+            )
+        )
+        if resource_type not in {"fetch", "xhr"}:
+            raise ValueError("network discovery resource type must be fetch or xhr")
+        if len(reasons) != len(set(reasons)):
+            raise ValueError("network discovery elision reasons must be unique")
+        if any(type(name) is not str or not name for name in query_parameter_names):
+            raise ValueError("network discovery query names must not be empty")
+        if any(
+            len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
+            for name in query_parameter_names
+        ):
+            raise ValueError("network discovery query name is too long")
+        if len(query_parameter_names) > _MAX_PASSIVE_QUERY_PARAMETER_NAMES:
+            raise ValueError("network discovery has too many query names")
+        if any(
+            len(pair) != 2
+            or type(pair[0]) is not str
+            or type(pair[1]) is not str
+            for pair in query_pairs
+        ):
+            raise TypeError("network discovery query pairs must contain strings")
+        if any(
+            len(value) > _MAX_NETWORK_QUERY_VALUE_CHARACTERS
+            for _, value in query_pairs
+        ):
+            raise ValueError("network discovery query value is too long")
+        if disposition == NetworkDiscoveryDisposition.SAFE:
+            if reasons or tuple(name for name, _ in query_pairs) != query_parameter_names:
+                raise ValueError("safe network discovery query structure is invalid")
+            if contains_credential_material(query_pairs):
+                raise ValueError("safe network discovery contains credential material")
+        elif query_pairs or not reasons:
+            raise ValueError("elided network discovery must retain names only")
+        canonical_urls: dict[str, str] = {}
+        for label, url in (("source", self.source_url), ("base", self.base_url)):
+            try:
+                canonical = _canonical_request_url(url)
+            except DynamicBrowserError:
+                raise ValueError(
+                    f"network discovery {label} URL must be canonical"
+                ) from None
+            parts = urlsplit(canonical)
+            if canonical != url or parts.query or parts.fragment:
+                raise ValueError(
+                    f"network discovery {label} URL must be query-free canonical"
+                )
+            if len(parts.path or "/") > _MAX_NETWORK_PATH_CHARACTERS:
+                raise ValueError(f"network discovery {label} path is too long")
+            canonical_urls[label] = canonical
+        if _origin(canonical_urls["source"]) != _origin(canonical_urls["base"]):
+            raise ValueError("network discovery candidate escaped source origin")
+        encoded_query = urlencode(query_pairs)
+        if len(encoded_query) > _MAX_NETWORK_QUERY_CHARACTERS:
+            raise ValueError("network discovery encoded query is too long")
+        if len(self.base_url) + len(encoded_query) + 1 > _MAX_PASSIVE_URL_CHARACTERS:
+            raise ValueError("network discovery canonical URL is too long")
+        fingerprint = stable_fingerprint(
+            "network-discovery-candidate",
+            resource_type,
+            self.source_url,
+            self.base_url,
+            query_parameter_names,
+            query_pairs,
+            disposition.value,
+            tuple(reason.value for reason in reasons),
+        )
+        object.__setattr__(self, "resource_type", resource_type)
+        object.__setattr__(self, "query_parameter_names", query_parameter_names)
+        object.__setattr__(self, "query_pairs", query_pairs)
+        object.__setattr__(self, "disposition", disposition)
+        object.__setattr__(self, "elision_reasons", reasons)
+        object.__setattr__(self, "id", f"netcand_{fingerprint[:24]}")
+
+    @property
+    def canonical_url(self) -> str | None:
+        if self.disposition != NetworkDiscoveryDisposition.SAFE:
+            return None
+        parts = urlsplit(self.base_url)
+        return urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                parts.path or "/",
+                urlencode(self.query_pairs),
+                "",
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class NetworkDiscoveryCollection:
+    """Internal candidate set kept separate from passive browser audit evidence."""
+
+    candidates: tuple[NetworkDiscoveryCandidate, ...] = ()
+    skipped_counts: tuple[tuple[NetworkDiscoverySkipReason, int], ...] = ()
+    overflow_count: int = 0
+
+    def __post_init__(self) -> None:
+        raw_candidates = tuple(self.candidates)
+        if any(type(item) is not NetworkDiscoveryCandidate for item in raw_candidates):
+            raise TypeError("network discovery candidates must be canonical")
+        candidates = tuple(sorted(raw_candidates, key=lambda item: item.id))
+        if len({item.id for item in candidates}) != len(candidates):
+            raise ValueError("network discovery candidates must be unique")
+        counts = tuple(
+            sorted(
+                (
+                    (NetworkDiscoverySkipReason(reason), count)
+                    for reason, count in self.skipped_counts
+                ),
+                key=lambda item: item[0].value,
+            )
+        )
+        if any(type(count) is not int or count <= 0 for _, count in counts):
+            raise ValueError("network discovery skipped counts must be positive")
+        if len({reason for reason, _ in counts}) != len(counts):
+            raise ValueError("network discovery skipped reasons must be unique")
+        if type(self.overflow_count) is not int or self.overflow_count < 0:
+            raise ValueError("network discovery overflow count must be non-negative")
+        object.__setattr__(self, "candidates", candidates)
+        object.__setattr__(self, "skipped_counts", counts)
+
+
+@dataclass(frozen=True, slots=True)
 class BrowserAuditSummary:
     """Immutable minimal lifecycle and transport audit."""
 
@@ -375,11 +558,13 @@ class DynamicBrowserError(RuntimeError):
         *,
         cleanup_error_codes: tuple[str, ...] = (),
         audit: BrowserAuditSummary | None = None,
+        network_discovery: NetworkDiscoveryCollection | None = None,
     ) -> None:
         super().__init__(message)
         self.code = DynamicBrowserErrorCode(code)
         self.cleanup_error_codes = tuple(cleanup_error_codes)
         self.audit = audit
+        self.network_discovery = network_discovery
 
 
 @dataclass(frozen=True, slots=True)
@@ -695,6 +880,9 @@ class DynamicBrowserRunResult(Generic[T]):
 
     value: T
     audit: BrowserAuditSummary
+    network_discovery: NetworkDiscoveryCollection = field(
+        default_factory=NetworkDiscoveryCollection
+    )
 
 
 def _load_playwright_sync_api() -> tuple[type[Any], Callable[[], Any]]:
@@ -1127,6 +1315,184 @@ def _safe_passive_network_observation(
     )
 
 
+def _safe_network_discovery_candidate(
+    *,
+    method: str,
+    url: str,
+    resource_type: str,
+    source_url: str,
+    root_origin: tuple[str, str, int],
+    credential_header_present: bool,
+) -> tuple[NetworkDiscoveryCandidate | None, NetworkDiscoverySkipReason | None]:
+    """Project one allowed GET without retaining an unsafe request value."""
+
+    if (
+        type(method) is not str
+        or type(url) is not str
+        or type(resource_type) is not str
+        or method.upper() != "GET"
+        or resource_type.strip().lower() not in {"fetch", "xhr"}
+    ):
+        return None, None
+    if len(url) > _MAX_PASSIVE_URL_CHARACTERS:
+        return None, NetworkDiscoverySkipReason.URL_TOO_LARGE
+    if (
+        not url
+        or url != url.strip()
+        or any(character in url for character in "\r\n\t")
+    ):
+        return None, NetworkDiscoverySkipReason.INVALID_URL
+    try:
+        canonical = _canonical_request_url(url)
+        parts = urlsplit(canonical)
+    except (DynamicBrowserError, TypeError, ValueError):
+        return None, NetworkDiscoverySkipReason.INVALID_URL
+    if _origin(canonical) != root_origin:
+        return None, None
+    path = parts.path or "/"
+    if len(path) > _MAX_NETWORK_PATH_CHARACTERS:
+        return None, NetworkDiscoverySkipReason.PATH_TOO_LARGE
+    if len(parts.query) > _MAX_NETWORK_QUERY_CHARACTERS:
+        return None, NetworkDiscoverySkipReason.QUERY_TOO_LARGE
+    if _invalid_percent_encoding(parts.query):
+        return None, NetworkDiscoverySkipReason.INVALID_URL
+    try:
+        query_pairs = tuple(parse_qsl(parts.query, keep_blank_values=True))
+    except (TypeError, ValueError):
+        return None, NetworkDiscoverySkipReason.INVALID_URL
+    if len(query_pairs) > _MAX_PASSIVE_QUERY_PARAMETER_NAMES:
+        return None, NetworkDiscoverySkipReason.QUERY_TOO_LARGE
+    if any(
+        not name.strip() or len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
+        for name, _ in query_pairs
+    ):
+        return None, NetworkDiscoverySkipReason.QUERY_NAME_INVALID
+    if any(len(value) > _MAX_NETWORK_QUERY_VALUE_CHARACTERS for _, value in query_pairs):
+        return None, NetworkDiscoverySkipReason.QUERY_VALUE_TOO_LARGE
+    try:
+        canonical_source = _query_free_network_url(source_url, root_origin=root_origin)
+    except ValueError:
+        return None, NetworkDiscoverySkipReason.INVALID_URL
+    base_url = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+    sensitive_query = contains_credential_material(query_pairs)
+    reasons: list[NetworkDiscoveryElisionReason] = []
+    if sensitive_query:
+        reasons.append(NetworkDiscoveryElisionReason.SENSITIVE_QUERY)
+    if credential_header_present:
+        reasons.append(NetworkDiscoveryElisionReason.CREDENTIAL_HEADER)
+    disposition = (
+        NetworkDiscoveryDisposition.STRUCTURAL_ELIDED
+        if reasons
+        else NetworkDiscoveryDisposition.SAFE
+    )
+    return (
+        NetworkDiscoveryCandidate(
+            resource_type=resource_type,
+            source_url=canonical_source,
+            base_url=base_url,
+            query_parameter_names=tuple(name for name, _ in query_pairs),
+            query_pairs=(
+                ()
+                if disposition == NetworkDiscoveryDisposition.STRUCTURAL_ELIDED
+                else query_pairs
+            ),
+            disposition=disposition,
+            elision_reasons=tuple(reasons),
+        ),
+        None,
+    )
+
+
+def _invalid_percent_encoding(value: str) -> bool:
+    index = 0
+    while index < len(value):
+        if value[index] != "%":
+            index += 1
+            continue
+        if index + 2 >= len(value) or any(
+            character not in "0123456789abcdefABCDEF"
+            for character in value[index + 1 : index + 3]
+        ):
+            return True
+        index += 3
+    return False
+
+
+def _query_free_network_url(
+    url: str,
+    *,
+    root_origin: tuple[str, str, int],
+) -> str:
+    canonical = _canonical_request_url(url)
+    if _origin(canonical) != root_origin:
+        raise ValueError("network discovery source escaped root origin")
+    parts = urlsplit(canonical)
+    if len(parts.path or "/") > _MAX_NETWORK_PATH_CHARACTERS:
+        raise ValueError("network discovery source path is too large")
+    return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", "", ""))
+
+
+def _request_has_credential_headers(request: Any) -> bool:
+    """Inspect provider header names transiently and fail closed on ambiguity."""
+
+    try:
+        provider = getattr(request, "all_headers", None)
+        headers = provider() if callable(provider) else getattr(request, "headers")
+    except Exception:  # noqa: BLE001 - no header value or diagnostic may escape.
+        return True
+    if not isinstance(headers, Mapping):
+        return True
+    return any(credential_field_name(name) for name in headers)
+
+
+class _NetworkDiscoveryRecorder:
+    def __init__(self, *, candidate_limit: int) -> None:
+        self._candidate_limit = candidate_limit
+        self._lock = Lock()
+        self._candidates: dict[str, NetworkDiscoveryCandidate] = {}
+        self._skipped_counts: dict[NetworkDiscoverySkipReason, int] = {}
+        self._overflow_count = 0
+
+    def record_allowed_get(
+        self,
+        *,
+        method: str,
+        url: str,
+        resource_type: str,
+        source_url: str,
+        root_origin: tuple[str, str, int],
+        credential_header_present: bool,
+    ) -> None:
+        candidate, skip_reason = _safe_network_discovery_candidate(
+            method=method,
+            url=url,
+            resource_type=resource_type,
+            source_url=source_url,
+            root_origin=root_origin,
+            credential_header_present=credential_header_present,
+        )
+        with self._lock:
+            if skip_reason is not None:
+                self._skipped_counts[skip_reason] = (
+                    self._skipped_counts.get(skip_reason, 0) + 1
+                )
+                return
+            if candidate is None or candidate.id in self._candidates:
+                return
+            if len(self._candidates) >= self._candidate_limit:
+                self._overflow_count += 1
+                return
+            self._candidates[candidate.id] = candidate
+
+    def snapshot(self) -> NetworkDiscoveryCollection:
+        with self._lock:
+            return NetworkDiscoveryCollection(
+                candidates=tuple(self._candidates.values()),
+                skipped_counts=tuple(self._skipped_counts.items()),
+                overflow_count=self._overflow_count,
+            )
+
+
 class _AuditRecorder:
     def __init__(self, *, event_limit: int) -> None:
         self._event_limit = event_limit
@@ -1467,12 +1833,17 @@ class _RouteGuard:
         audit: _AuditRecorder,
         stop_active_page: Callable[[], None],
         provider_timeout_error: type[Exception] = TimeoutError,
+        network_discovery: _NetworkDiscoveryRecorder | None = None,
     ) -> None:
         self.authority = authority
         self.policy = policy
         self.audit = audit
         self.stop_active_page = stop_active_page
         self.provider_timeout_error = provider_timeout_error
+        self.network_discovery = network_discovery or _NetworkDiscoveryRecorder(
+            candidate_limit=policy.request_decision_budget
+        )
+        self._root_origin = _origin(authority.root_url)
         self.primary_page: Any | None = None
         self.decision_count = 0
         self._decision_lock = Lock()
@@ -1558,6 +1929,20 @@ class _RouteGuard:
                     decision.canonical_url,
                     resource_type,
                 )
+        if (
+            decision.decision == DynamicNetworkDecisionKind.ALLOW
+            and method.upper() == "GET"
+            and resource_type.strip().lower() in {"fetch", "xhr"}
+            and is_primary_page
+        ):
+            self.network_discovery.record_allowed_get(
+                method=method,
+                url=url,
+                resource_type=resource_type,
+                source_url=self._network_source_url(),
+                root_origin=self._root_origin,
+                credential_header_present=_request_has_credential_headers(request),
+            )
         if should_record:
             self.audit.record_http(
                 decision,
@@ -1594,6 +1979,18 @@ class _RouteGuard:
             self.stop_active_page()
         if navigation_budget_first_exhaustion:
             self.stop_active_page()
+
+    def _network_source_url(self) -> str:
+        raw_url = _safe_provider_text(self.primary_page, "url")
+        for candidate in (raw_url, self.authority.root_url):
+            try:
+                return _query_free_network_url(
+                    candidate,
+                    root_origin=self._root_origin,
+                )
+            except (DynamicBrowserError, ValueError):
+                continue
+        return self.authority.root_url
 
     def _fulfill_allowed_http(
         self,
@@ -2500,6 +2897,9 @@ class PlaywrightDynamicBrowser:
         audit = _AuditRecorder(
             event_limit=active_policy.request_decision_budget,
         )
+        network_discovery = _NetworkDiscoveryRecorder(
+            candidate_limit=active_policy.request_decision_budget,
+        )
         preflight_timeout = _remaining_deadline_seconds(active_policy)
         if preflight_timeout is None:
             preflight_dynamic_browser()
@@ -2567,6 +2967,7 @@ class PlaywrightDynamicBrowser:
                 audit,
                 resources.request_page_stop,
                 provider_timeout_error,
+                network_discovery,
             )
             page_observer = _PageLifecycleObserver(authority, audit)
             passive_observer = _PassiveNetworkObserver(authority, audit)
@@ -2670,12 +3071,14 @@ class PlaywrightDynamicBrowser:
             expire_if_needed()
 
         summary = audit.snapshot(cleanup_error_codes)
+        network_summary = network_discovery.snapshot()
         if primary_error is not None:
             raise DynamicBrowserError(
                 primary_error.code,
                 str(primary_error),
                 cleanup_error_codes=cleanup_error_codes,
                 audit=summary,
+                network_discovery=network_summary,
             ) from None
         if cleanup_error_codes:
             raise DynamicBrowserError(
@@ -2683,11 +3086,17 @@ class PlaywrightDynamicBrowser:
                 "Managed browser cleanup did not complete.",
                 cleanup_error_codes=cleanup_error_codes,
                 audit=summary,
+                network_discovery=network_summary,
             )
         if not value_set:
             raise DynamicBrowserError(
                 DynamicBrowserErrorCode.OPERATION_FAILED,
                 "Managed browser operation did not produce a result.",
                 audit=summary,
+                network_discovery=network_summary,
             )
-        return DynamicBrowserRunResult(value=value, audit=summary)
+        return DynamicBrowserRunResult(
+            value=value,
+            audit=summary,
+            network_discovery=network_summary,
+        )

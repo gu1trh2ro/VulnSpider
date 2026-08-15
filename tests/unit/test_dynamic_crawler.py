@@ -19,6 +19,7 @@ from vulnspider.discovery import (
     DynamicNetworkDecisionKind,
     DynamicNetworkReason,
     DynamicRequestAuthority,
+    NetworkDiscoveryCollection,
     PassiveNetworkObservation,
     PassiveNetworkScope,
     RenderedDomPolicy,
@@ -139,6 +140,9 @@ class FakeDynamicBrowser:
     statuses: dict[str, int] = field(default_factory=dict)
     redirects: dict[str, str] = field(default_factory=dict)
     errors: dict[str, DynamicBrowserErrorCode] = field(default_factory=dict)
+    network_discovery: NetworkDiscoveryCollection = field(
+        default_factory=NetworkDiscoveryCollection
+    )
     session: FakeDynamicSession | None = None
 
     def run(self, authority, operation, *, policy=None):
@@ -159,11 +163,64 @@ class FakeDynamicBrowser:
             value = operation(session)
         except DynamicBrowserError as exc:
             audit = recorder.snapshot(())
-            raise DynamicBrowserError(exc.code, str(exc), audit=audit) from None
-        return DynamicBrowserRunResult(value=value, audit=recorder.snapshot(()))
+            raise DynamicBrowserError(
+                exc.code,
+                str(exc),
+                audit=audit,
+                network_discovery=self.network_discovery,
+            ) from None
+        return DynamicBrowserRunResult(
+            value=value,
+            audit=recorder.snapshot(()),
+            network_discovery=self.network_discovery,
+        )
 
 
 class DynamicCrawlerTests(unittest.TestCase):
+    def test_allowed_network_candidate_enters_dynamic_canonical_discovery(self) -> None:
+        root = "http://127.0.0.1:8080/start"
+        candidate, reason = browser_module._safe_network_discovery_candidate(
+            method="GET",
+            url=(
+                "http://127.0.0.1:8080/api/search"
+                "?keyword=phone&page=1&tag=a&tag=b"
+            ),
+            resource_type="fetch",
+            source_url=root,
+            root_origin=("http", "127.0.0.1", 8080),
+            credential_header_present=False,
+        )
+        self.assertIsNone(reason)
+        assert candidate is not None
+        snapshots = {root: rendered_snapshot(root)}
+        static_dynamic = DynamicCrawler(
+            browser=FakeDynamicBrowser(snapshots),
+            clock=lambda: 0.0,
+        ).crawl(root, DynamicCrawlPolicy(), DynamicRequestAuthority(root))
+        observed = DynamicCrawler(
+            browser=FakeDynamicBrowser(
+                snapshots,
+                network_discovery=NetworkDiscoveryCollection(
+                    candidates=(candidate,)
+                ),
+            ),
+            clock=lambda: 0.0,
+        ).crawl(root, DynamicCrawlPolicy(), DynamicRequestAuthority(root))
+
+        endpoint = next(
+            item for item in observed.discovery.endpoints if item.path == "/api/search"
+        )
+        self.assertEqual(
+            {item.name for item in observed.discovery.input_points if item.endpoint_id == endpoint.id},
+            {"keyword", "page", "tag"},
+        )
+        self.assertEqual(len(observed.discovery.ready_contexts()), 4)
+        self.assertNotEqual(
+            observed.discovery.to_dict()["discovery_snapshot_id"],
+            static_dynamic.discovery.to_dict()["discovery_snapshot_id"],
+        )
+        self.assertNotIn("network_discovery", observed.to_dict()["browser_audit"])
+
     def test_transport_policy_bit_does_not_change_canonical_snapshot(self) -> None:
         root = "http://127.0.0.1:8080/start"
         snapshots = {root: rendered_snapshot(root)}
