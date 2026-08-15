@@ -8,6 +8,12 @@ from threading import Event, Lock, Thread
 from urllib.parse import urlsplit
 
 
+NETWORK_API_KEY_SENTINEL = "sk-NETWORKOBSERVATIONVALUE0123456789"
+NETWORK_JWT_SENTINEL = (
+    "eyJhbGciOiJub25lIn0.eyJzdWIiOiJuZXR3b3JrLW9ic2VydmF0aW9uIn0."
+)
+
+
 @dataclass(frozen=True, slots=True)
 class LoopbackRequest:
     method: str
@@ -91,6 +97,9 @@ class DynamicLoopbackSite:
         self.balanced_fetch_xhr_url = ""
         self.balanced_fetch_xhr_script_url = ""
         self.balanced_fetch_xhr_style_url = ""
+        self.network_canonicalization_url = ""
+        self.network_canonicalization_script_url = ""
+        self.network_canonicalization_style_url = ""
         self.unsafe_get_url = ""
         self.autosubmit_url = ""
         self.page_close_url = ""
@@ -383,6 +392,89 @@ class DynamicLoopbackSite:
                         "text/css; charset=utf-8",
                     )
                     return
+                if route == "/network-canonicalization":
+                    html = """<!doctype html>
+                    <html>
+                      <head>
+                        <meta charset="utf-8">
+                        <link rel="icon" href="data:,">
+                        <link rel="stylesheet" href="/network-canonicalization.css">
+                      </head>
+                      <body>
+                        <div id="network-canonicalization-started">started</div>
+                        <script src="/network-canonicalization.js"></script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/network-canonicalization.css":
+                    self._send(
+                        200,
+                        b"#network-canonicalization-started { display: block; }",
+                        "text/css; charset=utf-8",
+                    )
+                    return
+                if route == "/network-canonicalization.js":
+                    script = f"""
+                    const attempts = [];
+                    attempts.push(fetch(
+                      "/api/search?keyword=phone&page=1"
+                    ));
+                    attempts.push(new Promise((resolve) => {{
+                      const xhr = new XMLHttpRequest();
+                      xhr.onload = resolve;
+                      xhr.onerror = resolve;
+                      xhr.open(
+                        "GET",
+                        "/api/filter?category=book&tag=a&tag=b"
+                      );
+                      xhr.send();
+                    }}));
+                    attempts.push(fetch(
+                      "/api/private?page=1",
+                      {{headers: {{
+                        "Authorization":
+                          "Bearer GET_AUTHORIZATION_CANONICALIZATION_SECRET"
+                      }}}}
+                    ));
+                    attempts.push(fetch(
+                      "/api/head?head_secret=HEAD_CANONICALIZATION_SECRET",
+                      {{method: "HEAD"}}
+                    ));
+                    attempts.push(fetch(
+                      "/api/post?post_secret=POST_CANONICALIZATION_SECRET",
+                      {{
+                        method: "POST",
+                        headers: {{
+                          "Authorization": "Bearer POST_AUTHORIZATION_SECRET"
+                        }},
+                        body: "POST_BODY_CANONICALIZATION_SECRET"
+                      }}
+                    ));
+                    attempts.push(fetch(
+                      "{site.sentinel_origin}/api/off-scope"
+                        + "?off_secret=OFF_SCOPE_CANONICALIZATION_SECRET"
+                    ));
+                    Promise.allSettled(attempts).then(() => {{
+                      const marker = document.createElement("div");
+                      marker.id = "network-canonicalization-complete";
+                      marker.textContent = "attempts-complete";
+                      document.body.appendChild(marker);
+                    }});
+                    """
+                    self._send(
+                        200,
+                        script.encode("utf-8"),
+                        "application/javascript; charset=utf-8",
+                    )
+                    return
+                if route in {"/api/search", "/api/filter", "/api/private"}:
+                    self._send(200, b"ok", "text/plain; charset=utf-8")
+                    return
                 if route == "/balanced-fetch-xhr.js":
                     script = f"""
                     const attempts = [];
@@ -452,7 +544,7 @@ class DynamicLoopbackSite:
                     const attempts = [];
                     attempts.push(fetch(
                       "/network-observation/get-fetch"
-                        + "?alpha=FETCH_QUERY_VALUE_SECRET"
+                        + "?alpha={NETWORK_API_KEY_SENTINEL}"
                         + "&repeat=one&repeat=two"
                     ));
                     attempts.push(new Promise((resolve) => {{
@@ -462,7 +554,7 @@ class DynamicLoopbackSite:
                       xhr.open(
                         "GET",
                         "/network-observation/get-xhr"
-                          + "?beta=XHR_QUERY_VALUE_SECRET"
+                          + "?beta={NETWORK_JWT_SENTINEL}"
                       );
                       xhr.send();
                     }}));
@@ -1009,10 +1101,21 @@ class DynamicLoopbackSite:
                     `;
                     root.appendChild(sensitive);
 
-                    fetch("/simple-allowed-fetch").catch(() => {{}});
+                    fetch(
+                      "/simple-allowed-fetch?keyword=phone&page=1"
+                    ).catch(() => {{}});
                     const xhr = new XMLHttpRequest();
-                    xhr.open("GET", "/simple-allowed-xhr");
+                    xhr.open(
+                      "GET",
+                      "/simple-allowed-xhr?category=book&tag=a&tag=b"
+                    );
                     xhr.send();
+                    fetch(
+                      "/simple-allowed-private?page=1",
+                      {{headers: {{
+                        "Authorization": "Bearer SIMPLE_GET_AUTH_SECRET"
+                      }}}}
+                    ).catch(() => {{}});
                     fetch("/simple-allowed-head", {{method: "HEAD"}})
                       .catch(() => {{}});
                     fetch("/simple-denied-post-fetch", {{
@@ -1050,7 +1153,11 @@ class DynamicLoopbackSite:
                         "application/javascript; charset=utf-8",
                     )
                     return
-                if route in {"/simple-allowed-fetch", "/simple-allowed-xhr"}:
+                if route in {
+                    "/simple-allowed-fetch",
+                    "/simple-allowed-xhr",
+                    "/simple-allowed-private",
+                }:
                     self._send(200, b"ok", "text/plain; charset=utf-8")
                     return
                 if route == "/simple-cli/follow":
@@ -1369,6 +1476,7 @@ class DynamicLoopbackSite:
                     200
                     if route in {
                         "/balanced/head-fetch",
+                        "/api/head",
                         "/simple-allowed-head",
                     }
                     else 404
@@ -1430,11 +1538,11 @@ class DynamicLoopbackSite:
         self.network_observation_fetch_url = (
             network_observation_origin
             + "/network-observation/get-fetch"
-            + "?alpha=FETCH_QUERY_VALUE_SECRET&repeat=one&repeat=two"
+            + f"?alpha={NETWORK_API_KEY_SENTINEL}&repeat=one&repeat=two"
         )
         self.network_observation_xhr_url = (
             network_observation_origin
-            + "/network-observation/get-xhr?beta=XHR_QUERY_VALUE_SECRET"
+            + f"/network-observation/get-xhr?beta={NETWORK_JWT_SENTINEL}"
         )
         self.balanced_fetch_xhr_url = (
             network_observation_origin + "/balanced-fetch-xhr"
@@ -1444,6 +1552,15 @@ class DynamicLoopbackSite:
         )
         self.balanced_fetch_xhr_style_url = (
             network_observation_origin + "/balanced-fetch-xhr.css"
+        )
+        self.network_canonicalization_url = (
+            network_observation_origin + "/network-canonicalization"
+        )
+        self.network_canonicalization_script_url = (
+            network_observation_origin + "/network-canonicalization.js"
+        )
+        self.network_canonicalization_style_url = (
+            network_observation_origin + "/network-canonicalization.css"
         )
         self.unsafe_get_url = (
             f"http://127.0.0.1:{self.primary_port}/unsafe-get"

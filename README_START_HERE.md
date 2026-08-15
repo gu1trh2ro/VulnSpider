@@ -58,17 +58,23 @@ Simple Dynamic mode automatically admits only rendered GET anchors on the
 exact root origin and GET script/style resources on that same origin. Existing
 page, depth, elapsed-time, navigation, and request-decision budgets remain in
 force; the simple adapter permits at most two link depths while the advanced
-Dynamic policy default remains unchanged. Fetch/XHR, WebSocket, EventSource,
-POST, form submission, popup, child
-frame traversal, cross-origin, and different-port traffic remain blocked by
-default. Existing `--dynamic-allow-navigation` and
+Dynamic policy default remains unchanged. The simple adapter also permits only
+naturally emitted same-origin GET/HEAD fetch/XHR; POST, form submission,
+WebSocket, EventSource, popup, child-frame traversal, cross-origin, and
+different-port traffic remain blocked. Existing `--dynamic-allow-navigation` and
 `--dynamic-allow-resource` flags add explicit advanced grants.
 
 Dynamic browser audit evidence passively records bounded fetch/XHR request
 attempt projections separately from Guard transport decisions. It never
 replays a request and retains no raw URL, path, query value, header, cookie, or
-body. These observations remain under `dynamic_crawl.browser_audit`; they are
-not canonical endpoints or inputs and do not affect discovery snapshot IDs.
+body. These observations remain audit-only under
+`dynamic_crawl.browser_audit` and do not affect discovery snapshot IDs.
+Separately, an already-allowed exact-origin GET fetch/XHR is projected directly
+from the Guard's original request into canonical discovery without another
+request. Credential-free query values produce ordinary READY GET contexts;
+credential-bearing requests retain at most Endpoint and ordered query-name
+InputPoints, with no values/template/context and explicit NOT_READY status.
+HEAD, non-GET, blocked, and off-scope attempts never enter canonical discovery.
 
 Each JSON report is rendered completely into a same-directory temporary file
 and replaces its requested destination only after validation, flush, and

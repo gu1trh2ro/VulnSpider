@@ -312,11 +312,12 @@ needed to render those anchors. The advanced
 surfaces without requiring users to predict those URLs, while page code must
 not gain general navigation or active-transport authority.
 
-**Consequences:** Fetch/XHR, WebSocket, EventSource, POST, form submission,
-popup, child-frame documents, cross-origin, and different-port traffic remain
-blocked unless an existing explicit advanced grant category permits it. JSON
-publication uses same-directory temporary output plus atomic replacement, and
-failed or degraded simple scans do not publish a new result.
+**Consequences:** Naturally emitted same-origin GET/HEAD fetch/XHR use the existing
+bounded simple-mode authority; WebSocket, EventSource, POST, form
+submission, popup, child-frame documents, cross-origin, and different-port
+traffic remain blocked unless an existing explicit advanced grant category
+permits it. JSON publication uses same-directory temporary output plus atomic
+replacement, and failed or degraded simple scans do not publish a new result.
 
 ---
 
@@ -347,6 +348,39 @@ same snapshot reference. Non-decision elapsed-time telemetry is normalized out
 of that binding. The handoff recalculates the binding and validates
 serialized FeatureVectors, scoring evidence, and selection through the existing
 scorers and Top-K implementation rather than trusting duplicated report values.
+
+---
+
+## ADR-021 - Canonicalize only already-allowed observed GET APIs
+
+**Status:** Accepted
+
+**Date:** 2026-08-14
+
+**Decision:** Keep `PassiveNetworkObservation` as bounded audit-only evidence.
+At the Guard decision seam, separately project only naturally emitted,
+primary-page, exact-origin GET fetch/XHR requests that the existing Authority has
+already allowed. Canonicalization consumes that internal candidate without
+issuing, replaying, retrying, or reconstructing a request. Credential-free query
+pairs produce ordinary Endpoint, QUERY InputPoint, RequestTemplate, and READY
+request-context records through the existing canonical builder. A sensitive
+query name/value or credential-bearing request header discards all values before
+candidate retention and produces at most Endpoint plus ordered query-name
+InputPoints with NOT_READY status and no template/context.
+
+**Reason:** The Guard owns the original request and authoritative allow/scope
+decision. Audit projections intentionally omit raw URLs and values, so rebuilding
+from them would create false precision. Reusing existing canonical identities and
+merge paths preserves deterministic DOM/network deduplication and lets the
+unchanged ProbePlanner consume only validated READY contexts.
+
+**Consequences:** HEAD, non-GET, blocked, off-scope, malformed, userinfo-bearing,
+and oversized requests never become canonical. Raw authorization/cookie values,
+JWTs, and sensitive query values are never retained by the candidate, audit, or
+canonical artifacts. Canonical network objects participate in the existing
+`discovery_snapshot_id`; audit-only occurrence changes do not. Safe READY
+contexts may cause the existing analysis phase to send its normal attributed
+baseline/probe pair, but canonicalization itself causes no transport.
 
 ---
 

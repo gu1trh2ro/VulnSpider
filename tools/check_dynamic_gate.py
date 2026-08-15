@@ -90,6 +90,18 @@ BROWSER_LOOPBACK_CASES = (
         ),
     ),
     BrowserManifestCase(
+        "network-get-canonicalization",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_observed_get_api_canonicalization_is_transport_free"
+        ),
+        (
+            "Allowed natural same-origin GET fetch/XHR become canonical probe-ready "
+            "contracts without replay; HEAD, POST, and off-origin attempts do not."
+        ),
+    ),
+    BrowserManifestCase(
         "passive-network-observation",
         (
             "tests.integration.test_dynamic_browser_loopback."

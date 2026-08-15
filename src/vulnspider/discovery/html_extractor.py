@@ -600,7 +600,7 @@ class _StaticHtmlParser(HTMLParser):
         self.warnings.append((code, message, details))
 
 
-class _CanonicalBuilder:
+class CanonicalDiscoveryBuilder:
     def __init__(
         self,
         *,
@@ -610,6 +610,7 @@ class _CanonicalBuilder:
         parent_url: str | None,
         depth: int,
         request_authorizer: Callable[[str], bool] | None,
+        discovered_by: str | None = None,
     ) -> None:
         self.source_url = source_url
         self.metadata = metadata
@@ -622,7 +623,7 @@ class _CanonicalBuilder:
             if metadata.collector_kind == CollectorKind.NATIVE_DYNAMIC
             else "native_static"
         )
-        self.discovered_by = (
+        self.discovered_by = discovered_by or (
             "native_dynamic_rendered_dom"
             if metadata.collector_kind == CollectorKind.NATIVE_DYNAMIC
             else "native_static_html"
@@ -662,6 +663,7 @@ class _CanonicalBuilder:
         url: str,
         *,
         observation_key: str,
+        query_origin_kind: str = "query",
     ) -> None:
         endpoint = self._add_endpoint(
             url,
@@ -690,7 +692,78 @@ class _CanonicalBuilder:
             observation_key=f"query:{observation_key}",
             ready=True,
             not_ready_reasons=(),
+            query_origin_kind=query_origin_kind,
         )
+
+    def add_structural_query_surface(
+        self,
+        url: str,
+        *,
+        query_parameter_names: Sequence[str],
+        observation_key: str,
+        not_ready_reasons: Sequence[NonProbeReadyReason],
+        query_origin_kind: str,
+    ) -> None:
+        """Add value-free query structure with no executable request context."""
+
+        endpoint = self._add_endpoint(
+            url,
+            method=HttpMethod.GET,
+            observation_key=observation_key,
+        )
+        canonical_names = tuple(
+            _canonical_input_name(name) for name in query_parameter_names
+        )
+        counts = Counter(name for name in canonical_names if name)
+        seen: dict[str, int] = {}
+        for pair_index, canonical_name in enumerate(canonical_names):
+            if not canonical_name:
+                self.add_warning(
+                    "QUERY_PARAMETER_NAME_MISSING",
+                    "query occurrence without a name was not made injectable",
+                    {"pair_index": pair_index},
+                )
+                continue
+            occurrence_index = (
+                seen.get(canonical_name, 0) if counts[canonical_name] > 1 else None
+            )
+            seen[canonical_name] = seen.get(canonical_name, 0) + 1
+            point = InputPoint(
+                endpoint_id=endpoint.id or "",
+                endpoint_fingerprint=endpoint.fingerprint,
+                location=InputLocation.QUERY,
+                name=canonical_name,
+                occurrence_index=occurrence_index,
+                baseline_value=None,
+                type_hint="query",
+                source_page=self.source_url,
+                metadata={
+                    self.native_metadata_key: True,
+                    "hidden": False,
+                    "visibility": "visible",
+                    "value_state": "elided",
+                },
+            )
+            self._remember_point(
+                point,
+                raw_query_token=None,
+                origin_kind=query_origin_kind,
+                pair_index=pair_index,
+                control_index=-1,
+                hidden=False,
+            )
+            status = ProbeReadiness(
+                input_point_id=point.id or "",
+                request_context_id=None,
+                status=ProbeReadyStatus.NOT_READY,
+                reasons=tuple(not_ready_reasons),
+            )
+            self.readiness.setdefault(status.id or "", status)
+            self._observe(
+                DiscoverySubjectKind.INPUT_POINT,
+                point.id or "",
+                f"input:{observation_key}:query:{pair_index}",
+            )
 
     def add_form(
         self,
@@ -850,6 +923,8 @@ class _CanonicalBuilder:
         link_count: int,
         form_count: int,
         safety_invariants: Sequence[DiscoverySafetyInvariant] = (),
+        pages_processed: int = 1,
+        html_pages: int = 1,
     ) -> CanonicalDiscoveryResult:
         points = self._finalize_points()
         provenance: list[DiscoveryProvenance] = []
@@ -871,8 +946,8 @@ class _CanonicalBuilder:
                     )
                 )
         statistics = CrawlStatistics(
-            pages_processed=1,
-            html_pages=1,
+            pages_processed=pages_processed,
+            html_pages=html_pages,
             links_discovered=link_count,
             forms_discovered=form_count,
             skipped=self.skipped_observations,
@@ -936,6 +1011,7 @@ class _CanonicalBuilder:
         ready: bool,
         not_ready_reasons: Sequence[NonProbeReadyReason],
         control_types: tuple[tuple[str, bool, int], ...] = (),
+        query_origin_kind: str | None = None,
     ) -> None:
         context_complete = ready
         effective_reasons = tuple(not_ready_reasons)
@@ -1035,9 +1111,12 @@ class _CanonicalBuilder:
                 point,
                 raw_query_token=raw_token,
                 origin_kind=(
-                    "form"
-                    if metadata.get("context_kind") == "form"
-                    else "query"
+                    query_origin_kind
+                    or (
+                        "form"
+                        if metadata.get("context_kind") == "form"
+                        else "query"
+                    )
                 ),
                 pair_index=pair_index,
                 control_index=control_index,
@@ -1289,7 +1368,7 @@ def extract_static_html(
             "sensitive form classification did not align with canonical parsing"
         )
 
-    builder = _CanonicalBuilder(
+    builder = CanonicalDiscoveryBuilder(
         source_url=canonical_source,
         metadata=metadata,
         scope=scope,

@@ -46,6 +46,11 @@ from vulnspider.discovery.dynamic_browser import (
     DynamicRequestAuthority,
     DynamicResourceGrant,
     DynamicResourceKind,
+    NetworkDiscoveryCandidate,
+    NetworkDiscoveryCollection,
+    NetworkDiscoveryDisposition,
+    NetworkDiscoveryElisionReason,
+    NetworkDiscoverySkipReason,
     PassiveNetworkObservation,
     PassiveNetworkScope,
     PlaywrightDynamicBrowser,
@@ -77,6 +82,9 @@ from vulnspider.discovery.merge import (
     DiscoveryMergePolicy,
     DynamicIntegrityError,
     merge_discovery_results,
+)
+from vulnspider.discovery.network_canonicalization import (
+    canonicalize_network_discovery,
 )
 from vulnspider.discovery.rendered_dom import (
     RENDERED_DOM_VERSION,
@@ -149,6 +157,11 @@ __all__ = [
     "LegacyCrawlRecord",
     "NavigableLink",
     "NativeDiscoveryOrchestrator",
+    "NetworkDiscoveryCandidate",
+    "NetworkDiscoveryCollection",
+    "NetworkDiscoveryDisposition",
+    "NetworkDiscoveryElisionReason",
+    "NetworkDiscoverySkipReason",
     "NonProbeReadyReason",
     "PassiveNetworkObservation",
     "PassiveNetworkScope",
@@ -174,6 +187,7 @@ __all__ = [
     "StaticExtractionResult",
     "UrlLibStaticCrawlerTransport",
     "canonicalize_crawl_url",
+    "canonicalize_network_discovery",
     "discovery_run_id_for",
     "discovery_snapshot_id_for",
     "discover_native_combined",
