@@ -1032,6 +1032,70 @@ ADR-004(one-at-a-time)는 유지된다. 2인 리뷰 대상.
 
 ---
 
+## ADR-032 — Focused verification과 rule-based confidence update
+
+**Status:** Accepted
+
+**Date:** 2026-08-18
+
+**Decision:** 랭킹된 Top-K 위에 마지막 파이프라인 단계인 focused verification을
+추가한다. 각 상위 후보에 대해 같은 계열의 *변형* 페이로드를 제안하고
+(`verification/proposal.py`), 결정적 validator로 반드시 게이트한 뒤
+(`verification/validator.py`), 승인된 것만 loopback 대상에 재전송해 feature
+vector를 다시 수집하고(`planner.py` + 기존 executor/extractor), baseline vector와
+차분해(`delta.py`), 검토된 규칙으로 confidence를 갱신한다(`confidence.py`). 결과는
+`VerificationResult` 레코드(`docs/TEAM_INTERFACES_V0_2.md` §3)로 직렬화한다. CLI는
+opt-in `--verify`/`--verify-output`로 별도 `vulnspider-verification.json`만 쓰며,
+frozen v0.1 출력·분석 리포트·decision 리포트는 바뀌지 않는다.
+
+**Context:** `docs/PROTOTYPE_V0_2.md` §4.3–4.4가 남긴 마지막 milestone(석현
+소유). `AnalysisResult`는 이미 InputPoint별 baseline `FeatureVector`와 실행된
+`ProbePlan`(baseline `RequestInstance` 포함)을 보존하므로, discovery를 건드리지
+않고 재탐색을 계획할 수 있다.
+
+**규칙(요지):**
+
+- 차이가 작으면(discriminating feature 이동 없음, 관측 플립은 0값 아티팩트 제외)
+  → **UNCHANGED**, prior 유지.
+- 유형별 신호가 재현되면(baseline도 이미 의심) → **SUPPORTED(keep)**, prior 유지
+  ("차이가 크지 않으면 confidence 유지").
+- baseline이 놓친 신호가 새로 드러나면(예: sentinel `'`로는 안 났는데 out-of-range
+  `-1`에서 SQL 에러) → **SUPPORTED(raise)** ("baseline으로는 의심이 크지 않았지만
+  실제 취약 지점").
+- 반사되지만 안전하게 entity-encoding됨 → **WEAKENED(lower)**.
+- 응답은 크게 바뀌었지만 유형별 신호가 없음 → **INCONCLUSIVE_ERROR**, prior 유지
+  ("단순 에러"). BOUNDARY 페이로드에서 흔하다.
+
+**Safety:** 네트워크·페이로드 실행 변경이라 2인 리뷰 대상. 모델 출력은 신뢰하지
+않으며 validator 승인 전에는 전송되지 않고(거부된 제안은 실행 provenance가 존재할
+수 없게 `from_objects`에서 강제), 페이로드는 read-only(스택 쿼리·파괴적 키워드
+금지, 상태 변경 없음)이고 loopback 한정이며 ADR-004(one-at-a-time)를 유지한다.
+prior는 `RankScore`가 아니라 calibrated probability(ADR-022의 pre-verification
+prior)에서 시작하므로 도메인 규칙 6·7을 지킨다.
+
+**Alternatives:**
+
+- 변화 크기만으로 취약/에러 판정 → 기각. 길이·상태는 어떤 페이로드에서도 흔들려
+  구분자가 못 된다. `sql_error_pattern`(SQLi)과 raw 반사(XSS)만이 구분자다.
+- RankScore를 confidence로 합산/대체 → 기각(규칙 6·7, contract forbidden
+  reconstruction).
+- 실제 LLM 클라이언트 즉시 구현 → 보류. provider-neutral 경계 + 결정적 기본
+  proposer만 구현하고, GPT/Gemini는 같은 validator 게이트 뒤에 끼우는 후속
+  milestone(API 비교 하니스·키 취급 필요)으로 둔다.
+
+**Consequences:**
+
+- 새 패키지 `src/vulnspider/verification/`(proposal/validator/planner/delta/
+  confidence/result/focused)와 opt-in CLI 플래그, `test_verification.py`·
+  `test_verification_cli.py` 추가. 전체 unit 682개 + format/lint/type green.
+- `VerificationResult`는 이제 구현된 producer 레코드다. `VerificationEvidence`
+  세부 스키마·confidence 임계값은 규칙 v1로 고정했고 팀 리뷰 대상이다.
+- **미완/후속:** 실제 GPT/Gemini proposer, HTML verification 리포트, decision
+  리포트와의 결합, per-payload 재현 시 소폭 가점 여부(현재 strict keep), FORM/POST
+  대상 확대 검증.
+
+---
+
 ## New Decision Template
 
 ```text

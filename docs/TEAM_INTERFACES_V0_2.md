@@ -231,7 +231,14 @@ The calibrated probability it computes is a **pre-verification prior**, not a
 
 ## 3. VerificationResult
 
-**Status:** Proposed Contract
+**Status:** Proposed Contract — first producer implemented in
+`vulnspider.verification` (ADR-032). The implemented record realizes this
+contract's required fields (`verification_result_id`, `candidate_id`,
+`provider`, `proposal_id`, `validator_policy_version`, `validator_decision`,
+`validated_payload_ref` as `validated_payload_id`, `execution_refs`,
+`verification_evidence` inside the confidence block, `confidence_rule_version`,
+`verification_confidence`, `outcome_status`, `warnings`); a real GPT/Gemini
+`provider` is still pending.
 
 ### Purpose
 

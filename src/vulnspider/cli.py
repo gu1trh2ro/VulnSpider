@@ -50,10 +50,13 @@ from vulnspider.pipeline import (
     analyze_url,
 )
 from vulnspider.reporting import write_crawl_report
+from vulnspider.reporting.json_report import write_json_document
+from vulnspider.verification import VerificationConfig, verify_analysis
 
 
 _SIMPLE_DEFAULT_CRAWL_OUTPUT = Path("vulnspider-crawl.json")
 _SIMPLE_DEFAULT_ANALYSIS_OUTPUT = Path("vulnspider-analysis.json")
+_DEFAULT_VERIFICATION_OUTPUT = Path("vulnspider-verification.json")
 _SIMPLE_DEFAULT_TOP_K = 10
 _SIMPLE_DEFAULT_DYNAMIC_MAX_DEPTH = 2
 
@@ -131,6 +134,22 @@ def build_parser() -> argparse.ArgumentParser:
         dest="simple_dynamic_allow_resource",
         metavar="CATEGORY=URL",
         help="Add one exact same-origin resource grant in simple mode.",
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        dest="simple_verify",
+        help="Run focused verification and write a verification JSON report.",
+    )
+    parser.add_argument(
+        "--verify-output",
+        type=Path,
+        default=None,
+        dest="simple_verify_output",
+        help=(
+            "Verification JSON file in simple mode (implies --verify; "
+            f"default: {_DEFAULT_VERIFICATION_OUTPUT})."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command")
     analyze = subparsers.add_parser(
@@ -274,6 +293,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum browser request-authority decisions.",
     )
     add_algorithm_options(analyze)
+    analyze.add_argument(
+        "--verify",
+        action="store_true",
+        help=(
+            "After ranking, run focused verification over the Top-K: propose "
+            "validated variant payloads, re-probe the loopback target, and "
+            "update each candidate's confidence by the reviewed rule set."
+        ),
+    )
+    analyze.add_argument(
+        "--verify-output",
+        type=Path,
+        default=None,
+        help=(
+            "Destination for the verification JSON report (implies --verify; "
+            f"default: {_DEFAULT_VERIFICATION_OUTPUT})."
+        ),
+    )
     add_decision_subcommands(subparsers)
     return parser
 
@@ -291,6 +328,7 @@ def main(
     simple_mode = args.command is None and args.simple_url is not None
     crawl_published = False
     selected_count = 0
+    verification_output: Path | None = None
     if args.command is None and not simple_mode:
         if _simple_options_without_url(args):
             parser.error("simple scan options require -u/--url")
@@ -402,6 +440,17 @@ def main(
             html_output=args.html_output,
         )
         selected_count = len(outcome.selected)
+        if args.verify or args.verify_output is not None:
+            verification_output = _run_verification(
+                analysis,
+                destination=args.verify_output or _DEFAULT_VERIFICATION_OUTPUT,
+                other_destinations=(
+                    args.output,
+                    args.html_output,
+                    args.crawl_output if simple_mode else None,
+                ),
+                transport=transport,
+            )
     except _SimpleDegradedCrawl:
         _print_partial_simple_result(args)
         print(
@@ -462,6 +511,11 @@ def main(
             "vulnspider: analysis output: "
             f"{args.output.resolve(strict=False)}"
         )
+        if verification_output is not None:
+            print(
+                "vulnspider: verification output: "
+                f"{verification_output.resolve(strict=False)}"
+            )
     return 0
 
 
@@ -472,6 +526,8 @@ def _simple_options_without_url(args: argparse.Namespace) -> bool:
         or args.static_only
         or args.simple_dynamic_allow_navigation
         or args.simple_dynamic_allow_resource
+        or args.simple_verify
+        or args.simple_verify_output is not None
     )
 
 
@@ -495,6 +551,8 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         html_output=None,
         model=None,
         conformal=None,
+        verify=args.simple_verify or args.simple_verify_output is not None,
+        verify_output=args.simple_verify_output,
         max_pages=None,
         max_depth=None,
         max_requests=None,
@@ -512,6 +570,38 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         dynamic_max_redirects=None,
         dynamic_request_decision_budget=None,
     )
+
+
+def _run_verification(
+    analysis: AnalysisResult,
+    *,
+    destination: Path,
+    other_destinations: Sequence[Path | None],
+    transport: RequestTransport | None,
+) -> Path:
+    """Run focused verification and atomically publish its JSON report."""
+
+    normalized = _normalized_destination(destination)
+    for other in other_destinations:
+        if other is not None and _normalized_destination(other) == normalized:
+            raise CLIError(
+                "--verify-output must differ from the analysis, HTML, and "
+                "crawl report destinations"
+            )
+    run = verify_analysis(
+        analysis,
+        config=VerificationConfig(transport=transport),
+    )
+    write_json_document(
+        json.dumps(
+            run.to_dict(target_url=_analysis_target(analysis)),
+            indent=2,
+            sort_keys=False,
+        )
+        + "\n",
+        destination,
+    )
+    return destination
 
 
 def _analysis_target(analysis: AnalysisResult) -> str:
