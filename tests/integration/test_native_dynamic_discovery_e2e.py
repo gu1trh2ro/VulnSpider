@@ -237,18 +237,18 @@ def _stable_discovery_json(analysis: AnalysisResult) -> str:
 
 def _stable_report_fields(report: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schema_version": report["schema_version"],
-        "ranking_policy": report["ranking_policy"],
-        "summary": report["summary"],
+        "report_version": report["report_version"],
+        "policy_version": report["policy_version"],
+        "selection": report["selection"],
         "warnings": report["warnings"],
         "candidate_identity": tuple(
             (
+                item["order"],
                 item["candidate_id"],
-                item["input_point_id"],
-                item["vulnerability_type"],
-                item["scorer_version"],
+                item["family"],
+                item["selection_rank"],
             )
-            for item in report["candidates"]
+            for item in report["verification_order"]
         ),
     }
 
@@ -402,15 +402,17 @@ class NativeDynamicDiscoveryE2ETests(unittest.TestCase):
         for evidence in (self.first, self.second):
             report = evidence.json_report
             candidate_ids = [
-                item["candidate_id"] for item in report["candidates"]
+                item["candidate_id"] for item in report["verification_order"]
             ]
-            authoritative_ids = [
-                item.scoring_result.candidate.id
-                for item in evidence.analysis.selection.selected
-            ]
-            self.assertEqual(candidate_ids, authoritative_ids)
+            scored_ids = {
+                result.candidate.id
+                for result in evidence.analysis.scoring_results
+            }
+            # The decision layer selects from the authoritative scoring results
+            # and invents no candidate of its own.
+            self.assertTrue(set(candidate_ids) <= scored_ids)
             self.assertEqual(
-                report["summary"]["selected_results"],
+                report["selection"]["selected"],
                 len(candidate_ids),
             )
             self.assertEqual(
@@ -422,7 +424,7 @@ class NativeDynamicDiscoveryE2ETests(unittest.TestCase):
             for warning in report["warnings"]:
                 self.assertIn(escape(warning), evidence.html_text)
             candidate_surface = json.dumps(
-                report["candidates"], sort_keys=True
+                report["verification_order"], sort_keys=True
             )
             self.assertNotIn("SENSITIVE_FORM_ELIDED", candidate_surface)
             self.assertNotIn(PASSWORD_SENTINEL, candidate_surface)

@@ -126,8 +126,8 @@ class SimpleCliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(crawl_report["report_kind"], "crawl")
-        self.assertEqual(analysis_report["report_kind"], "analysis")
-        self.assertEqual(analysis_report["summary"]["top_k_requested"], 10)
+        self.assertEqual(analysis_report["report_version"], "decision-report-v1")
+        self.assertEqual(analysis_report["selection"]["top_k"], 10)
         analyze.assert_called_once()
         args, kwargs = analyze.call_args
         self.assertEqual(args, (ROOT_URL,))
@@ -208,9 +208,8 @@ class SimpleCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(crawl_report["crawl_mode"], "static_only")
         self.assertEqual(crawl_report["completion"], "COMPLETE")
-        self.assertTrue(analysis_report["probe_observations"])
-        self.assertTrue(analysis_report["feature_vectors"])
-        self.assertTrue(analysis_report["scoring_results"])
+        self.assertGreater(analysis_report["selection"]["candidates_scored"], 0)
+        self.assertTrue(analysis_report["verification_order"])
         self.assertNotIn(STATIC_SECRET_SENTINEL, crawl_text)
         self.assertNotIn(STATIC_SECRET_SENTINEL, analysis_text)
 
@@ -418,7 +417,7 @@ class SimpleCliTests(unittest.TestCase):
                 ),
                 patch.object(
                     cli_module,
-                    "write_analysis_report",
+                    "analyze_and_report",
                     side_effect=OSError("analysis replace failed"),
                 ),
                 redirect_stderr(stderr),

@@ -1,5 +1,16 @@
 """Core domain model package."""
 
+from vulnspider.domain.access import (
+    ACCESS_REQUEST_ROLE_COMPARISON,
+    ACCESS_REQUEST_ROLE_REFERENCE,
+    AccessCandidate,
+    AccessCheckKind,
+    AccessPlanningError,
+    AccessProbePlan,
+    AccessScoreEvidence,
+    AccessScoringResult,
+    AccessSubjectContext,
+)
 from vulnspider.domain.models import (
     Endpoint,
     FeatureObservation,
@@ -27,6 +38,15 @@ from vulnspider.domain.models import (
 )
 
 __all__ = [
+    "ACCESS_REQUEST_ROLE_COMPARISON",
+    "ACCESS_REQUEST_ROLE_REFERENCE",
+    "AccessCandidate",
+    "AccessCheckKind",
+    "AccessPlanningError",
+    "AccessProbePlan",
+    "AccessScoreEvidence",
+    "AccessScoringResult",
+    "AccessSubjectContext",
     "Endpoint",
     "FeatureObservation",
     "FeatureVector",

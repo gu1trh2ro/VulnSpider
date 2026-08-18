@@ -27,6 +27,18 @@ class Handler(BaseHTTPRequestHandler):
         parts = urlsplit(self.path)
         query = parse_qs(parts.query)
 
+        if parts.path in ("/", "/index.html"):
+            # The static crawler starts here and follows links to discover the
+            # input points, so the root has to advertise them.
+            body = (
+                b"<html><body><h1>demo target</h1><ul>"
+                b'<li><a href="/product?id=1">product</a></li>'
+                b'<li><a href="/search?q=hello">search</a></li>'
+                b"</ul></body></html>"
+            )
+            self._respond(200, body)
+            return
+
         if parts.path == "/product":
             value = query.get("id", [""])[0]
             if value.isdigit():

@@ -20,9 +20,25 @@ from vulnspider.domain import (
     validate_input_point_request_context,
 )
 
-DEFAULT_MARKER_STRATEGY = "neutral-reflection-marker-v1"
+# The neutral strategy sends only the alphanumeric identifier token. The
+# sentinel strategy appends four HTML-significant characters so the extractor can
+# observe whether a reflection is entity-encoded (safe) or raw (dangerous) --
+# the distinction the alphanumeric marker alone cannot make (ADR-031). The
+# neutral strategy is retained so an old corpus reproduces byte-for-byte.
+NEUTRAL_MARKER_STRATEGY = "neutral-reflection-marker-v1"
+SENTINEL_MARKER_STRATEGY = "sentinel-reflection-marker-v1"
+DEFAULT_MARKER_STRATEGY = SENTINEL_MARKER_STRATEGY
 MARKER_PREFIX = "VULNSPIDER_"
 MARKER_TOKEN_LENGTH = 16
+
+# `<`, `>`, `"`, `'` bracketed by an alphanumeric `Z` delimiter. The delimiter
+# survives entity-encoding, so the extractor can find the sentinel region even
+# when its characters became `&lt;` etc. This is a reflection-context probe, not
+# a script and not destructive: it does not carry an executable payload, it does
+# not change server state, and ADR-004 (one-at-a-time) is preserved.
+SENTINEL_CHARS = "<>\"'"
+PROBE_SENTINEL = f"Z{SENTINEL_CHARS}Z"
+
 RAW_QUERY_ALIGNMENT_FAILED = "raw-query-alignment-failed"
 
 
@@ -138,10 +154,25 @@ def deterministic_probe_marker(
             input_point.occurrence_index,
             nonce,
         )
-        marker = f"{MARKER_PREFIX}{fingerprint[:MARKER_TOKEN_LENGTH].upper()}"
-        if marker != baseline_value:
-            return marker
+        identifier = f"{MARKER_PREFIX}{fingerprint[:MARKER_TOKEN_LENGTH].upper()}"
+        if identifier == baseline_value:
+            continue
+        if marker_strategy == SENTINEL_MARKER_STRATEGY:
+            return identifier + PROBE_SENTINEL
+        return identifier
     raise ProbePlanningError("could not generate a marker distinct from baseline")
+
+
+def marker_identifier(marker: str) -> str:
+    """Return the alphanumeric identifier token, stripped of any sentinel.
+
+    The identifier never contains ``Z`` (it is ``VULNSPIDER_`` plus uppercase
+    hex), and the sentinel is introduced by a ``Z`` delimiter, so splitting on
+    the first ``Z`` recovers the identifier for both marker strategies -- a
+    neutral marker has no ``Z`` and is returned unchanged.
+    """
+
+    return marker.split("Z", 1)[0]
 
 
 def _validate_planning_inputs(

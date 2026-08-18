@@ -127,8 +127,8 @@ def _validated_probe_observations(
 ) -> tuple[ProbeObservation, ...]:
     result: list[ProbeObservation] = []
     seen_plans: set[str] = set()
-    seen_feature_vectors: set[str] = set()
     seen_response_pairs: set[str] = set()
+    owned_response_pairs: dict[str, set[str]] = {}
     for item in values:
         if type(item) is not ProbeObservation:
             raise ReportingError("analysis contains an invalid ProbeObservation")
@@ -153,18 +153,17 @@ def _validated_probe_observations(
                 "probe observation response pairing failed revalidation"
             ) from exc
         pair_id = response_pair.id or ""
-        if vector.probe_run_ids != (pair_id,):
+        if pair_id not in vector.probe_run_ids:
             raise ReportingError("FeatureVector ResponsePair ownership mismatch")
-        if item.feature_vector_id in seen_feature_vectors:
-            raise ReportingError(
-                "probe observations require unique FeatureVector ownership"
-            )
         if pair_id in seen_response_pairs:
             raise ReportingError("probe observations require unique ResponsePair ids")
         seen_plans.add(plan_id)
-        seen_feature_vectors.add(item.feature_vector_id)
         seen_response_pairs.add(pair_id)
+        owned_response_pairs.setdefault(item.feature_vector_id, set()).add(pair_id)
         result.append(item)
+    for vector_id, pair_ids in owned_response_pairs.items():
+        if set(feature_vectors[vector_id].probe_run_ids) != pair_ids:
+            raise ReportingError("FeatureVector ResponsePair ownership mismatch")
     return tuple(sorted(result, key=lambda value: value.probe_plan.id or ""))
 
 

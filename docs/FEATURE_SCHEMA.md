@@ -318,6 +318,78 @@ available range: 0..45
 - score evidence에 `observed=false`, `feature_value=null`,
   `contribution=null` 상태를 기록한다.
 
+응답 본문이 디코딩되지 않은 경우(`ResponseSnapshot.decoded_text is None`)
+본문 기반 feature(`marker_reflected`, `sql_error_pattern`)는 관찰된 `0.0`이
+아니라 미관찰로 기록한다. `details.reason`은 `response-body-not-decoded`다.
+
+---
+
+## 7-1. Multi-context InputPoint 합성
+
+aggregation version:
+
+```text
+input-point-existential-v1
+```
+
+### 왜 필요한가
+
+`FeatureVector`는 probe run 하나가 아니라 **InputPoint 하나**에 귀속된다
+(`docs/DOMAIN_MODEL.md` §9). Native Static 단일 시드 크롤에서는 InputPoint 하나가
+probe-ready request context를 하나만 갖는 경우가 대부분이어서 두 단위가
+우연히 일치했다.
+
+Native Dynamic / Combined 수집은 같은 endpoint의 같은 파라미터를 서로 다른
+값으로 여러 번 관측한다. 예를 들어 static이 `/search?q=one`을, 렌더링된 링크가
+`/search?q=two`를 발견하면 `Endpoint`와 `InputPoint` fingerprint는 같고
+`RequestTemplate`만 달라져 probe-ready context가 2개가 된다.
+
+이때 probe run마다 `FeatureVector`를 만들면 같은 candidate id
+(`InputPoint x VulnerabilityType`, ADR-002)가 한 번의 분석에서 여러 번
+생성되어 Top-K 요약과 evidence 소유 관계가 어긋난다.
+
+### 합성 규칙
+
+같은 InputPoint의 probe run 결과들을 feature 단위로 합성한다.
+
+```text
+for each feature name:
+    entries  = 그 InputPoint의 모든 probe run 관측
+    observed = [e for e in entries if e.observed]
+
+    if not observed:
+        observed=false, value=null
+        details.reason = "no-observed-probe-run"
+    else:
+        value = max(e.value for e in observed)
+        동점이면 probe_run_id 오름차순으로 결정
+```
+
+- probe run이 하나뿐이면 원본 `FeatureVector`를 그대로 사용한다.
+- `probe_run_ids`에는 그 InputPoint를 관측한 모든 `ResponsePair` id가 들어간다.
+- `details`에 다음을 남긴다.
+
+```text
+aggregation              합성 정책 버전
+aggregated_probe_run_ids 합성에 참여한 probe run
+selected_probe_run_id    채택된 값을 만든 probe run
+probe_run_values         run별 값 (미관찰이면 null)
+unobserved_probe_runs    미관찰 run 수
+```
+
+### 근거와 주의
+
+- `RankScore`는 취약 확률이 아니라 검증 우선순위다(ADR-003, 도메인 규칙 6).
+  같은 InputPoint를 여러 request context로 관측했을 때 그중 하나에서라도
+  신호가 보였다면 그 InputPoint의 검증 우선순위는 올라가야 한다.
+- 미관찰 run은 관찰된 run을 가리지 못한다. 반대로 모든 run이 미관찰이면
+  feature는 미관찰로 남는다(도메인 규칙 8).
+- 서로 다른 run에서 온 값이 하나의 벡터에 모일 수 있으므로, 합성된 feature
+  값은 단일 요청 한 쌍의 재현이 아니다. 어떤 run에서 왔는지는 항상
+  `selected_probe_run_id`로 설명 가능해야 한다.
+- 서로 다른 extractor version이 같은 feature 이름을 만들면 합성하지 않고
+  실패한다.
+
 ---
 
 ## 8. Feature 추가 규칙
@@ -334,3 +406,45 @@ available range: 0..45
 8. 사용 scorer
 9. extractor version
 10. 테스트 fixture
+11. prior weight (또는 prior를 두지 않는 이유) — §9
+12. 어느 family의 `CalibrationFeatureSpace`에 들어가는가 — §9
+13. 기존 feature와의 상관 (Naive Bayes 조건부 독립 가정에 영향) — §9
+
+---
+
+## 9. Calibrated scoring에서의 feature 취급 (ADR-022)
+
+`scoring/calibration.py`는 §7의 가중합을 대체하지 않고 그 위에 얹힌다.
+가중치는 logit 공간으로 rescale되어 Gaussian prior의 평균이 된다.
+
+```text
+prior weight_i = heuristic weight_i / prior_scale   (기본 prior_scale = 10.0)
+logit_mean     = logit(base_rate) + RankScore / prior_scale
+```
+
+즉 학습 데이터가 없으면 `logit_mean` 순서는 §7의 RankScore 순서와 정확히
+같다. feature 정의, 값 범위 `[0, 1]`, extractor version 규칙은 그대로다.
+
+### Missing feature
+
+미관측 feature는 logit 합에서 제외된다. §7의 "numeric score 합계에 0의 효과"와
+동일한 동작이며, log-odds 공간에서는 "증거 없음 → posterior가 prior에 머무름"으로
+정확히 읽힌다.
+
+**알려진 한계:** 선형 모델에서 관측된 `0.0`과 미관측은 logit 기여가 모두 0이라
+점수상 구분되지 않는다. `CalibrationEvidence.observed`와
+`CalibratedProbability.observed_feature_count`에 상태는 보존되지만 점수는
+구분하지 않는다. "관측하지 않았음을 안전함으로 해석하지 않는다"는 §7의
+규칙은 evidence 수준에서 유지되며, 점수 수준에서 구분하려면 feature별
+missingness indicator가 필요하다.
+
+### 아직 추출되지 않는 feature
+
+§7의 05C 주석은 그대로 유효하다. `numeric_value`, `reflection_count_norm`,
+`safe_html_encoding_detected`, `dangerous_reflection_context`,
+`redirect_changed`는 여전히 추출되지 않으며 값을 만들거나 0으로 가장하지
+않는다. 보정 모델의 feature space는 실제로 추출되는 feature만 포함한다.
+
+이들을 구현하면 feature 수가 4개에서 11개로 늘어난다. 학습기를 교체하는
+것보다 이쪽이 ranking 성능 기여가 클 가능성이 높으므로, 결정 계층 튜닝보다
+우선순위가 높다.

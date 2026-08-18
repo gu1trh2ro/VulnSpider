@@ -17,7 +17,9 @@ from vulnspider.discovery import (
 )
 from vulnspider.domain import HttpMethod, RequestInstance
 from vulnspider.observation import TransportResponse
+from vulnspider.observation.executor import RequestExecutionError
 from vulnspider.pipeline import analyze_discovery_result
+from vulnspider.reporting import build_analysis_report
 
 
 ROOT_URL = "http://127.0.0.1/"
@@ -87,6 +89,26 @@ class MarkerTransport:
         )
 
 
+@dataclass
+class PartiallyFailingMarkerTransport(MarkerTransport):
+    """Fail every request derived from one request template."""
+
+    failing_baseline_value: str = ""
+
+    def send(
+        self,
+        request: RequestInstance,
+        *,
+        timeout_seconds: float,
+    ) -> TransportResponse:
+        if self.failing_baseline_value and any(
+            value == self.failing_baseline_value for _name, value in request.query
+        ):
+            self.requests.append(request)
+            raise RequestExecutionError("timeout")
+        return super().send(request, timeout_seconds=timeout_seconds)
+
+
 class NativePipelineTests(unittest.TestCase):
     def test_canonical_analysis_executes_only_ready_get_contexts(self) -> None:
         discovery = extract_static_html(
@@ -125,10 +147,106 @@ class NativePipelineTests(unittest.TestCase):
         self.assertTrue(
             any("executes GET request contexts only" in item for item in analysis.warnings)
         )
+        self.assertTrue(
+            any(
+                "NATIVE_STATIC analysis executes GET request contexts only" in item
+                for item in analysis.warnings
+            )
+        )
         self.assertEqual(
             analysis.selection.summary.total_scoring_results,
             2,
         )
+
+    def test_repeated_contexts_produce_one_feature_vector_per_input_point(
+        self,
+    ) -> None:
+        discovery = extract_static_html(
+            """
+            <a href="/search?q=one">one</a>
+            <a href="/search?q=two">two</a>
+            """,
+            ROOT_URL,
+        ).discovery
+        transport = MarkerTransport()
+        input_point_ids = {item.id for item in discovery.input_points}
+        self.assertEqual(len(input_point_ids), 1)
+        self.assertEqual(len(discovery.ready_contexts()), 2)
+
+        analysis = analyze_discovery_result(
+            discovery,
+            top_k=5,
+            transport=transport,
+        )
+
+        self.assertEqual(len(transport.requests), 4)
+        self.assertEqual(len(analysis.feature_vectors), 1)
+        vector = analysis.feature_vectors[0]
+        self.assertIn(vector.input_point_id, input_point_ids)
+        self.assertEqual(len(vector.probe_run_ids), 2)
+        self.assertEqual(len(analysis.probe_observations), 2)
+        self.assertEqual(
+            {item.feature_vector_id for item in analysis.probe_observations},
+            {vector.id},
+        )
+        self.assertEqual(len(analysis.scoring_results), 2)
+        candidate_ids = [item.candidate.id for item in analysis.scoring_results]
+        self.assertEqual(len(candidate_ids), len(set(candidate_ids)))
+        summary = analysis.selection.summary
+        self.assertEqual(summary.total_scoring_results, 2)
+        self.assertEqual(summary.selected_results, 2)
+        selected_ids = {
+            item.scoring_result.candidate.id
+            for item in analysis.selection.selected
+        }
+        unrankable_ids = {
+            item.candidate.id for item in analysis.selection.unrankable
+        }
+        self.assertEqual(selected_ids & unrankable_ids, set())
+
+        report = build_analysis_report(analysis)
+        self.assertEqual(len(report["feature_vectors"]), 1)
+        self.assertEqual(len(report["probe_observations"]), 2)
+        self.assertEqual(
+            {item["feature_vector_id"] for item in report["probe_observations"]},
+            {vector.id},
+        )
+        self.assertEqual(
+            sorted(report["feature_vectors"][0]["probe_run_ids"]),
+            sorted(vector.probe_run_ids),
+        )
+
+    def test_failed_context_cannot_mask_an_observed_sibling_context(self) -> None:
+        discovery = extract_static_html(
+            """
+            <a href="/search?q=one">one</a>
+            <a href="/search?q=two">two</a>
+            """,
+            ROOT_URL,
+        ).discovery
+        transport = PartiallyFailingMarkerTransport(failing_baseline_value="two")
+
+        analysis = analyze_discovery_result(
+            discovery,
+            top_k=5,
+            transport=transport,
+        )
+
+        self.assertEqual(len(analysis.feature_vectors), 1)
+        vector = analysis.feature_vectors[0]
+        marker = vector.features["marker_reflected"]
+        self.assertTrue(marker.observed)
+        self.assertEqual(marker.value, 1.0)
+        self.assertEqual(marker.details["unobserved_probe_runs"], 1)
+        self.assertEqual(analysis.selection.summary.unrankable_results, 0)
+        selected_ids = {
+            item.scoring_result.candidate.id
+            for item in analysis.selection.selected
+        }
+        unrankable_ids = {
+            item.candidate.id for item in analysis.selection.unrankable
+        }
+        self.assertEqual(selected_ids & unrankable_ids, set())
 
     def test_empty_discovery_produces_empty_truthful_selection(self) -> None:
         discovery = extract_static_html(
@@ -215,13 +333,13 @@ class NativeCliTests(unittest.TestCase):
             {request.method for request in probe_transport.requests},
             {HttpMethod.GET},
         )
-        self.assertEqual(report["summary"]["total_scoring_results"], 2)
-        self.assertEqual(report["summary"]["selected_results"], 2)
-        self.assertTrue(report["candidates"])
-        self.assertIn("VulnSpider report", html)
-        for candidate in report["candidates"]:
+        self.assertEqual(report["selection"]["candidates_scored"], 2)
+        self.assertEqual(report["selection"]["selected"], 2)
+        self.assertTrue(report["verification_order"])
+        self.assertIn("VulnSpider", html)
+        self.assertIn("검증 순서", html)
+        for candidate in report["verification_order"]:
             self.assertIn(candidate["candidate_id"], html)
-            self.assertIn(candidate["feature_vector_id"], html)
         self.assertTrue(
             any("executes GET request contexts only" in item for item in report["warnings"])
         )
@@ -239,8 +357,8 @@ class NativeCliTests(unittest.TestCase):
             report = json.loads(output.read_text(encoding="utf-8"))
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(report["candidates"], [])
-        self.assertEqual(report["summary"]["total_scoring_results"], 0)
+        self.assertEqual(report["verification_order"], [])
+        self.assertEqual(report["selection"]["candidates_scored"], 0)
         self.assertTrue(
             any("TRANSPORT_TIMEOUT" in item for item in report["warnings"])
         )
