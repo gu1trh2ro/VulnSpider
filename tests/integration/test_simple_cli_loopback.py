@@ -26,12 +26,28 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
     def test_simple_cli_blocked_post_json_is_not_executed(self) -> None:
         stdout = StringIO()
         stderr = StringIO()
+        captured: list[AnalysisResult] = []
+        real_analyze_url = cli_module.analyze_url
+
+        def capture_analysis(*args: Any, **kwargs: Any) -> AnalysisResult:
+            analysis = real_analyze_url(*args, **kwargs)
+            captured.append(analysis)
+            return analysis
+
         original_cwd = Path.cwd()
         with TemporaryDirectory(prefix="vulnspider-post-json-cli-") as workdir:
             os.chdir(workdir)
             try:
                 with DynamicLoopbackSite() as site:
-                    with redirect_stdout(stdout), redirect_stderr(stderr):
+                    with (
+                        patch.object(
+                            cli_module,
+                            "analyze_url",
+                            new=capture_analysis,
+                        ),
+                        redirect_stdout(stdout),
+                        redirect_stderr(stderr),
+                    ):
                         exit_code = cli_module.main(
                             ["-u", site.observed_post_json_url]
                         )
@@ -47,6 +63,7 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
                 os.chdir(original_cwd)
 
         self.assertEqual(exit_code, 0)
+        self.assertEqual(len(captured), 1)
         self.assertEqual(stderr.getvalue(), "")
         self.assertEqual(sentinel_requests, ())
         self.assertFalse(any(item.method == "POST" for item in primary_requests))
@@ -81,13 +98,33 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertTrue(
             all(readiness[item["id"]]["status"] == "NOT_READY" for item in points)
         )
-        self.assertEqual(analysis_report["ready_context_ids"], [])
-        self.assertEqual(analysis_report["executed_input_point_ids"], [])
-        self.assertEqual(analysis_report["probe_observations"], [])
+        analysis = captured[0]
+        analysis_discovery = analysis.discovery_result
+        self.assertIsNotNone(analysis_discovery)
+        assert analysis_discovery is not None
+        self.assertEqual(analysis_discovery.to_dict(), discovery)
         self.assertEqual(
-            analysis_report["crawl_reference"]["discovery_snapshot_id"],
+            analysis_discovery.to_dict()["discovery_snapshot_id"],
             discovery["discovery_snapshot_id"],
         )
+        ready_contexts = analysis_discovery.ready_contexts()
+        self.assertEqual(ready_contexts, ())
+        self.assertEqual(analysis.feature_vectors, ())
+        self.assertEqual(analysis.probe_observations, ())
+        self.assertEqual(analysis.scoring_results, ())
+        structural_input_ids = {item["id"] for item in points}
+        self.assertTrue(
+            structural_input_ids.isdisjoint(
+                vector.input_point_id for vector in analysis.feature_vectors
+            )
+        )
+        for removed_detail in (
+            "crawl_reference",
+            "ready_context_ids",
+            "executed_input_point_ids",
+            "probe_observations",
+        ):
+            self.assertNotIn(removed_detail, analysis_report)
         for secret in (
             "phone",
             "POST_AUTHORIZATION_VALUE_SENTINEL",
@@ -209,23 +246,64 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         crawl_input_ids = {
             item["id"] for item in crawl_discovery["input_points"]
         }
+        analysis_discovery = analysis.discovery_result
+        self.assertIsNotNone(analysis_discovery)
+        assert analysis_discovery is not None
         self.assertEqual(
-            set(analysis_report["crawl_reference"]["input_point_ids"]),
+            {point.id for point in analysis_discovery.input_points},
             crawl_input_ids,
         )
         self.assertEqual(
-            analysis_report["crawl_reference"]["discovery_snapshot_id"],
+            analysis_discovery.to_dict()["discovery_snapshot_id"],
             crawl_discovery["discovery_snapshot_id"],
         )
+        self.assertEqual(analysis_discovery.to_dict(), crawl_discovery)
 
         # The lean decision report no longer carries per-observation diagnostics;
         # the authoritative AnalysisResult still does, so the executed input
         # points are checked against it and against the crawl scope.
+        ready_contexts = analysis_discovery.ready_contexts()
+        ready_input_ids = {point.id for point, _template, _context in ready_contexts}
+        ready_context_ids = {
+            context.id for _point, _template, context in ready_contexts
+        }
         executed_input_ids = {
             vector.input_point_id for vector in analysis.feature_vectors
         }
-        self.assertTrue(executed_input_ids <= crawl_input_ids)
+        self.assertTrue(executed_input_ids <= ready_input_ids <= crawl_input_ids)
         self.assertTrue(analysis.probe_observations)
+        vectors_by_id = {vector.id: vector for vector in analysis.feature_vectors}
+        observed_input_ids = set()
+        for observation in analysis.probe_observations:
+            observed_input_ids.add(observation.input_point_id)
+            self.assertIn(observation.input_point_id, crawl_input_ids)
+            self.assertIn(observation.probe_plan.request_context_id, ready_context_ids)
+            self.assertEqual(
+                observation.probe_plan.input_point_id,
+                observation.input_point_id,
+            )
+            self.assertEqual(
+                vectors_by_id[observation.feature_vector_id].input_point_id,
+                observation.input_point_id,
+            )
+        self.assertEqual(observed_input_ids, executed_input_ids)
+        scored_candidate_ids = {
+            result.candidate.id for result in analysis.scoring_results
+        }
+        self.assertTrue(
+            {
+                item["candidate_id"]
+                for item in analysis_report["verification_order"]
+            }
+            <= scored_candidate_ids
+        )
+        for removed_detail in (
+            "crawl_reference",
+            "ready_context_ids",
+            "executed_input_point_ids",
+            "probe_observations",
+        ):
+            self.assertNotIn(removed_detail, analysis_report)
         static_names = {
             item["name"]
             for item in crawl_report["crawl"]["static_crawl"]["discovery"][
@@ -419,12 +497,12 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertEqual(private_readiness.status.value, "NOT_READY")
         self.assertNotIn(
             private_point.id,
-            analysis_report["executed_input_point_ids"],
+            executed_input_ids,
         )
         self.assertFalse(
             any(
-                item["input_point_id"] == private_point.id
-                for item in analysis_report["probe_observations"]
+                observation.input_point_id == private_point.id
+                for observation in analysis.probe_observations
             )
         )
         private_crawl_readiness = next(
