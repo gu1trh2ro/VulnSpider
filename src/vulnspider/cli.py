@@ -63,6 +63,7 @@ _SIMPLE_DEFAULT_ANALYSIS_OUTPUT = Path("vulnspider-analysis.json")
 _SIMPLE_DEFAULT_HTML_OUTPUT = Path("vulnspider-report.html")
 _DEFAULT_VERIFICATION_OUTPUT = Path("vulnspider-verification.json")
 _SIMPLE_DEFAULT_TOP_K = 10
+_MAX_TOP_K = 20
 _SIMPLE_DEFAULT_DYNAMIC_MAX_DEPTH = 2
 
 # `analyze` and simple `-u` mode run the calibrated Top-K algorithm directly, so
@@ -111,6 +112,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Analysis JSON file (default: vulnspider-analysis.json).",
+    )
+    parser.add_argument(
+        "-k",
+        "--top-k",
+        dest="simple_top_k",
+        type=_bounded_top_k,
+        default=None,
+        help=(
+            "Number of top candidates to select and verify "
+            f"(default: {_SIMPLE_DEFAULT_TOP_K}, max: {_MAX_TOP_K})."
+        ),
     )
     parser.add_argument(
         "--crawl-output",
@@ -202,8 +214,8 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument(
         "--top-k",
         required=True,
-        type=_positive_integer,
-        help="Number of unique rankable candidates to select.",
+        type=_bounded_top_k,
+        help=f"Number of unique rankable candidates to select (max: {_MAX_TOP_K}).",
     )
     analyze.add_argument(
         "--output",
@@ -492,6 +504,7 @@ def main(
                     confidence_model=_load_verification_model(
                         args.verification_model
                     ),
+                    max_candidates=args.top_k,
                 ),
             )
         outcome = analyze_and_report(
@@ -601,6 +614,7 @@ def _simple_options_without_url(args: argparse.Namespace) -> bool:
         or args.simple_verification_model is not None
         or args.simple_html_output is not None
         or args.simple_no_html
+        or args.simple_top_k is not None
     )
 
 
@@ -616,7 +630,7 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         command="analyze",
         input=None,
         url=args.simple_url,
-        top_k=_SIMPLE_DEFAULT_TOP_K,
+        top_k=args.simple_top_k or _SIMPLE_DEFAULT_TOP_K,
         output=args.simple_output or _SIMPLE_DEFAULT_ANALYSIS_OUTPUT,
         crawl_output=(
             args.simple_crawl_output or _SIMPLE_DEFAULT_CRAWL_OUTPUT
@@ -757,6 +771,15 @@ def _positive_integer(value: str) -> int:
     if parsed <= 0:
         raise argparse.ArgumentTypeError("value must be a positive integer")
     return parsed
+
+
+def _bounded_top_k(value: str) -> int:
+    number = _positive_integer(value)
+    if number > _MAX_TOP_K:
+        raise argparse.ArgumentTypeError(
+            f"--top-k must be between 1 and {_MAX_TOP_K}"
+        )
+    return number
 
 
 def _non_negative_integer(value: str) -> int:
