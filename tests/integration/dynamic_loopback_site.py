@@ -100,6 +100,7 @@ class DynamicLoopbackSite:
         self.network_canonicalization_url = ""
         self.network_canonicalization_script_url = ""
         self.network_canonicalization_style_url = ""
+        self.observed_post_json_url = ""
         self.unsafe_get_url = ""
         self.autosubmit_url = ""
         self.page_close_url = ""
@@ -403,6 +404,86 @@ class DynamicLoopbackSite:
                       <body>
                         <div id="network-canonicalization-started">started</div>
                         <script src="/network-canonicalization.js"></script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/observed-post-json":
+                    html = f"""<!doctype html>
+                    <html>
+                      <head>
+                        <meta charset="utf-8">
+                        <link rel="icon" href="data:,">
+                      </head>
+                      <body>
+                        <div id="observed-post-json-started">started</div>
+                        <script>
+                        const jsonHeaders = {{
+                          "Content-Type": "application/json; charset=utf-8"
+                        }};
+                        const attempts = [];
+                        attempts.push(fetch("/api/search", {{
+                          method: "POST",
+                          headers: jsonHeaders,
+                          body: JSON.stringify({{
+                            keyword: "phone",
+                            page: 1
+                          }})
+                        }}));
+                        attempts.push(fetch("/api/secret", {{
+                          method: "POST",
+                          headers: {{
+                            ...jsonHeaders,
+                            "Authorization":
+                              "Bearer POST_AUTHORIZATION_VALUE_SENTINEL"
+                          }},
+                          body: JSON.stringify({{
+                            password: "POST_PASSWORD_VALUE_SENTINEL",
+                            api_key: "POST_API_KEY_VALUE_SENTINEL",
+                            token: "POST_TOKEN_VALUE_SENTINEL",
+                            jwt:
+                              "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0."
+                          }})
+                        }}));
+                        attempts.push(fetch("/api/malformed", {{
+                          method: "POST",
+                          headers: jsonHeaders,
+                          body: '{{"keyword":'
+                        }}));
+                        attempts.push(fetch("/api/array", {{
+                          method: "POST",
+                          headers: jsonHeaders,
+                          body: '["keyword","page"]'
+                        }}));
+                        attempts.push(fetch("/api/duplicate", {{
+                          method: "POST",
+                          headers: jsonHeaders,
+                          body: '{{"keyword":"one","keyword":"two"}}'
+                        }}));
+                        attempts.push(fetch("/api/oversized", {{
+                          method: "POST",
+                          headers: jsonHeaders,
+                          body: JSON.stringify({{field: "x".repeat(17000)}})
+                        }}));
+                        attempts.push(fetch(
+                          "{site.sentinel_origin}/api/off-scope-post",
+                          {{
+                            method: "POST",
+                            headers: jsonHeaders,
+                            body: JSON.stringify({{keyword: "off-scope"}})
+                          }}
+                        ));
+                        Promise.allSettled(attempts).then(() => {{
+                          const marker = document.createElement("div");
+                          marker.id = "observed-post-json-complete";
+                          marker.textContent = "attempts-complete";
+                          document.body.appendChild(marker);
+                        }});
+                        </script>
                       </body>
                     </html>"""
                     self._send(
@@ -1561,6 +1642,9 @@ class DynamicLoopbackSite:
         )
         self.network_canonicalization_style_url = (
             network_observation_origin + "/network-canonicalization.css"
+        )
+        self.observed_post_json_url = (
+            network_observation_origin + "/observed-post-json"
         )
         self.unsafe_get_url = (
             f"http://127.0.0.1:{self.primary_port}/unsafe-get"

@@ -32,7 +32,7 @@ from vulnspider.discovery.rendered_dom import (
     RenderedDomSnapshot,
     snapshot_from_browser_payload,
 )
-from vulnspider.domain import stable_fingerprint
+from vulnspider.domain import normalize_parameter_name, stable_fingerprint
 from vulnspider.sensitive import contains_credential_material, credential_field_name
 
 
@@ -54,6 +54,8 @@ _MAX_PASSIVE_QUERY_NAME_CHARACTERS = 128
 _MAX_NETWORK_PATH_CHARACTERS = 2048
 _MAX_NETWORK_QUERY_CHARACTERS = 4096
 _MAX_NETWORK_QUERY_VALUE_CHARACTERS = 2048
+_MAX_NETWORK_JSON_BODY_BYTES = 16384
+_MAX_NETWORK_JSON_MEMBER_NAMES = 64
 _REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 
 T = TypeVar("T")
@@ -189,6 +191,23 @@ class NetworkDiscoverySkipReason(StrEnum):
     QUERY_TOO_LARGE = "QUERY_TOO_LARGE"
     QUERY_NAME_INVALID = "QUERY_NAME_INVALID"
     QUERY_VALUE_TOO_LARGE = "QUERY_VALUE_TOO_LARGE"
+
+
+class PostJsonSkipReason(StrEnum):
+    """Secret-free reasons a blocked POST JSON attempt was not retained."""
+
+    HEADER_UNAVAILABLE = "HEADER_UNAVAILABLE"
+    CONTENT_TYPE_UNSUPPORTED = "CONTENT_TYPE_UNSUPPORTED"
+    BODY_UNAVAILABLE = "BODY_UNAVAILABLE"
+    BODY_TOO_LARGE = "BODY_TOO_LARGE"
+    BODY_ENCODING_INVALID = "BODY_ENCODING_INVALID"
+    JSON_MALFORMED = "JSON_MALFORMED"
+    JSON_TOP_LEVEL_NOT_OBJECT = "JSON_TOP_LEVEL_NOT_OBJECT"
+    JSON_DUPLICATE_KEY = "JSON_DUPLICATE_KEY"
+    JSON_MEMBER_LIMIT_EXCEEDED = "JSON_MEMBER_LIMIT_EXCEEDED"
+    JSON_MEMBER_NAME_INVALID = "JSON_MEMBER_NAME_INVALID"
+    SENSITIVE_REQUEST_ELIDED = "SENSITIVE_REQUEST_ELIDED"
+    CANDIDATE_LIMIT_EXCEEDED = "CANDIDATE_LIMIT_EXCEEDED"
 
 
 class ChildFrameDocumentKind(StrEnum):
@@ -456,12 +475,74 @@ class NetworkDiscoveryCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class BlockedPostJsonCandidate:
+    """Value-free structure from one eligible POST JSON attempt."""
+
+    resource_type: str
+    source_url: str
+    base_url: str
+    member_names: tuple[str, ...]
+    id: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        resource_type = self.resource_type.strip().lower()
+        if resource_type not in {"fetch", "xhr"}:
+            raise ValueError("POST JSON resource type must be fetch or xhr")
+        canonical_names = tuple(
+            sorted(normalize_parameter_name(name) for name in self.member_names)
+        )
+        if len(canonical_names) > _MAX_NETWORK_JSON_MEMBER_NAMES:
+            raise ValueError("POST JSON has too many member names")
+        if any(
+            not name or len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
+            for name in canonical_names
+        ):
+            raise ValueError("POST JSON member name is invalid")
+        if len(set(canonical_names)) != len(canonical_names):
+            raise ValueError("POST JSON member names must be unique")
+        if contains_credential_material(canonical_names) or any(
+            credential_field_name(name) for name in canonical_names
+        ):
+            raise ValueError("POST JSON candidate contains a credential field")
+        canonical_urls: dict[str, str] = {}
+        for label, url in (("source", self.source_url), ("base", self.base_url)):
+            try:
+                canonical = _canonical_request_url(url)
+            except DynamicBrowserError:
+                raise ValueError(
+                    f"POST JSON {label} URL must be canonical"
+                ) from None
+            parts = urlsplit(canonical)
+            if canonical != url or parts.query or parts.fragment:
+                raise ValueError(
+                    f"POST JSON {label} URL must be query-free canonical"
+                )
+            if len(parts.path or "/") > _MAX_NETWORK_PATH_CHARACTERS:
+                raise ValueError(f"POST JSON {label} path is too long")
+            canonical_urls[label] = canonical
+        if _origin(canonical_urls["source"]) != _origin(canonical_urls["base"]):
+            raise ValueError("POST JSON candidate escaped source origin")
+        fingerprint = stable_fingerprint(
+            "blocked-post-json-candidate",
+            resource_type,
+            self.source_url,
+            self.base_url,
+            canonical_names,
+        )
+        object.__setattr__(self, "resource_type", resource_type)
+        object.__setattr__(self, "member_names", canonical_names)
+        object.__setattr__(self, "id", f"postjson_{fingerprint[:24]}")
+
+
+@dataclass(frozen=True, slots=True)
 class NetworkDiscoveryCollection:
     """Internal candidate set kept separate from passive browser audit evidence."""
 
     candidates: tuple[NetworkDiscoveryCandidate, ...] = ()
     skipped_counts: tuple[tuple[NetworkDiscoverySkipReason, int], ...] = ()
     overflow_count: int = 0
+    post_json_candidates: tuple[BlockedPostJsonCandidate, ...] = ()
+    post_json_skipped_counts: tuple[tuple[str, PostJsonSkipReason, int], ...] = ()
 
     def __post_init__(self) -> None:
         raw_candidates = tuple(self.candidates)
@@ -485,8 +566,57 @@ class NetworkDiscoveryCollection:
             raise ValueError("network discovery skipped reasons must be unique")
         if type(self.overflow_count) is not int or self.overflow_count < 0:
             raise ValueError("network discovery overflow count must be non-negative")
+        raw_post_candidates = tuple(self.post_json_candidates)
+        if any(
+            type(item) is not BlockedPostJsonCandidate
+            for item in raw_post_candidates
+        ):
+            raise TypeError("POST JSON candidates must be canonical")
+        post_candidates = tuple(
+            sorted(raw_post_candidates, key=lambda item: item.id)
+        )
+        if len({item.id for item in post_candidates}) != len(post_candidates):
+            raise ValueError("POST JSON candidates must be unique")
+        post_counts = tuple(
+            sorted(
+                (
+                    (source_url, PostJsonSkipReason(reason), count)
+                    for source_url, reason, count in self.post_json_skipped_counts
+                ),
+                key=lambda item: (item[0], item[1].value),
+            )
+        )
+        if any(
+            type(source_url) is not str
+            or not source_url
+            or type(count) is not int
+            or count <= 0
+            for source_url, _, count in post_counts
+        ):
+            raise ValueError("POST JSON skipped counts must be positive and sourced")
+        if len({(source, reason) for source, reason, _ in post_counts}) != len(
+            post_counts
+        ):
+            raise ValueError("POST JSON skipped count keys must be unique")
+        for source_url, _, _ in post_counts:
+            try:
+                canonical_source = _canonical_request_url(source_url)
+            except DynamicBrowserError:
+                raise ValueError(
+                    "POST JSON skipped source must be canonical"
+                ) from None
+            source_parts = urlsplit(canonical_source)
+            if (
+                canonical_source != source_url
+                or source_parts.query
+                or source_parts.fragment
+                or len(source_parts.path or "/") > _MAX_NETWORK_PATH_CHARACTERS
+            ):
+                raise ValueError("POST JSON skipped source must be query-free")
         object.__setattr__(self, "candidates", candidates)
         object.__setattr__(self, "skipped_counts", counts)
+        object.__setattr__(self, "post_json_candidates", post_candidates)
+        object.__setattr__(self, "post_json_skipped_counts", post_counts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1403,6 +1533,148 @@ def _safe_network_discovery_candidate(
     )
 
 
+class _JsonObjectPairs(tuple[tuple[str, object], ...]):
+    """Marker that distinguishes JSON objects from arrays during parsing."""
+
+
+class _DuplicateJsonKey(ValueError):
+    pass
+
+
+def _json_object_pairs(pairs: list[tuple[str, object]]) -> _JsonObjectPairs:
+    names = tuple(name for name, _ in pairs)
+    if len(names) != len(set(names)):
+        raise _DuplicateJsonKey
+    return _JsonObjectPairs(pairs)
+
+
+def _reject_json_constant(_value: str) -> object:
+    raise ValueError
+
+
+def _application_json_content_type(value: str) -> bool:
+    parts = tuple(part.strip() for part in value.split(";"))
+    if not parts or parts[0].lower() != "application/json":
+        return False
+    parameters = parts[1:]
+    if len(parameters) > 1:
+        return False
+    if not parameters:
+        return True
+    name, separator, charset = parameters[0].partition("=")
+    normalized_charset = charset.strip().strip('"').lower()
+    return (
+        separator == "="
+        and name.strip().lower() == "charset"
+        and normalized_charset in {"utf-8", "utf8"}
+    )
+
+
+def _safe_blocked_post_json_candidate(
+    *,
+    method: str,
+    url: str,
+    resource_type: str,
+    source_url: str,
+    root_origin: tuple[str, str, int],
+    content_type: str | None,
+    credential_header_present: bool,
+    body: bytes | None,
+) -> tuple[BlockedPostJsonCandidate | None, PostJsonSkipReason | None]:
+    """Project one blocked POST body to names only, failing closed."""
+
+    if (
+        type(method) is not str
+        or type(url) is not str
+        or type(resource_type) is not str
+        or method != "POST"
+        or resource_type.strip().lower() not in {"fetch", "xhr"}
+    ):
+        return None, None
+    if (
+        len(url) > _MAX_PASSIVE_URL_CHARACTERS
+        or not url
+        or url != url.strip()
+        or any(character in url for character in "\r\n\t")
+    ):
+        return None, None
+    try:
+        canonical = _canonical_request_url(url)
+        parts = urlsplit(canonical)
+    except (DynamicBrowserError, TypeError, ValueError):
+        return None, None
+    if _origin(canonical) != root_origin:
+        return None, None
+    path = parts.path or "/"
+    if (
+        len(path) > _MAX_NETWORK_PATH_CHARACTERS
+        or len(parts.query) > _MAX_NETWORK_QUERY_CHARACTERS
+        or _invalid_percent_encoding(parts.query)
+    ):
+        return None, None
+    try:
+        query_pairs = tuple(parse_qsl(parts.query, keep_blank_values=True))
+        canonical_source = _query_free_network_url(
+            source_url,
+            root_origin=root_origin,
+        )
+    except (TypeError, ValueError):
+        return None, None
+    if type(content_type) is not str or not _application_json_content_type(
+        content_type
+    ):
+        return None, PostJsonSkipReason.CONTENT_TYPE_UNSUPPORTED
+    if credential_header_present or contains_credential_material(query_pairs):
+        return None, PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED
+    if type(body) is not bytes:
+        return None, PostJsonSkipReason.BODY_UNAVAILABLE
+    if len(body) > _MAX_NETWORK_JSON_BODY_BYTES:
+        return None, PostJsonSkipReason.BODY_TOO_LARGE
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, PostJsonSkipReason.BODY_ENCODING_INVALID
+    try:
+        parsed = json.loads(
+            text,
+            object_pairs_hook=_json_object_pairs,
+            parse_constant=_reject_json_constant,
+        )
+    except _DuplicateJsonKey:
+        return None, PostJsonSkipReason.JSON_DUPLICATE_KEY
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
+        return None, PostJsonSkipReason.JSON_MALFORMED
+    if type(parsed) is not _JsonObjectPairs:
+        return None, PostJsonSkipReason.JSON_TOP_LEVEL_NOT_OBJECT
+    if contains_credential_material(parsed):
+        return None, PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED
+    if len(parsed) > _MAX_NETWORK_JSON_MEMBER_NAMES:
+        return None, PostJsonSkipReason.JSON_MEMBER_LIMIT_EXCEEDED
+    raw_member_names = tuple(name for name, _ in parsed)
+    member_names = tuple(sorted(normalize_parameter_name(name) for name in raw_member_names))
+    if any(
+        not name or len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
+        for name in member_names
+    ):
+        return None, PostJsonSkipReason.JSON_MEMBER_NAME_INVALID
+    if len(set(member_names)) != len(member_names):
+        return None, PostJsonSkipReason.JSON_DUPLICATE_KEY
+    if contains_credential_material(raw_member_names) or any(
+        credential_field_name(name) for name in member_names
+    ):
+        return None, PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED
+    base_url = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+    return (
+        BlockedPostJsonCandidate(
+            resource_type=resource_type,
+            source_url=canonical_source,
+            base_url=base_url,
+            member_names=member_names,
+        ),
+        None,
+    )
+
+
 def _invalid_percent_encoding(value: str) -> bool:
     index = 0
     while index < len(value):
@@ -1445,12 +1717,55 @@ def _request_has_credential_headers(request: Any) -> bool:
     return any(credential_field_name(name) for name in headers)
 
 
+def _request_json_header_projection(
+    request: Any,
+) -> tuple[str | None, bool, bool]:
+    """Read only the JSON media type and credential-header presence."""
+
+    try:
+        provider = getattr(request, "all_headers", None)
+        headers = provider() if callable(provider) else getattr(request, "headers")
+    except Exception:  # noqa: BLE001 - provider data and diagnostics stay private.
+        return None, True, False
+    if not isinstance(headers, Mapping):
+        return None, True, False
+    content_types: list[str] = []
+    credential_header_present = contains_credential_material(headers)
+    for name, value in headers.items():
+        if type(name) is not str or type(value) is not str:
+            return None, True, False
+        if credential_field_name(name):
+            credential_header_present = True
+        if name.strip().lower() == "content-type":
+            content_types.append(value)
+    if len(content_types) != 1:
+        return None, credential_header_present, True
+    return content_types[0], credential_header_present, True
+
+
+def _request_post_data_buffer(request: Any) -> bytes | None:
+    """Read a provider POST body transiently without retaining diagnostics."""
+
+    try:
+        value = getattr(request, "post_data_buffer")
+        value = value() if callable(value) else value
+    except Exception:  # noqa: BLE001 - body and diagnostics must not escape.
+        return None
+    if type(value) is not bytes:
+        return None
+    return value
+
+
 class _NetworkDiscoveryRecorder:
     def __init__(self, *, candidate_limit: int) -> None:
         self._candidate_limit = candidate_limit
         self._lock = Lock()
         self._candidates: dict[str, NetworkDiscoveryCandidate] = {}
+        self._post_json_candidates: dict[str, BlockedPostJsonCandidate] = {}
         self._skipped_counts: dict[NetworkDiscoverySkipReason, int] = {}
+        self._post_json_skipped_counts: dict[
+            tuple[str, PostJsonSkipReason], int
+        ] = {}
         self._overflow_count = 0
 
     def record_allowed_get(
@@ -1484,12 +1799,85 @@ class _NetworkDiscoveryRecorder:
                 return
             self._candidates[candidate.id] = candidate
 
+    def record_blocked_post_json(
+        self,
+        *,
+        method: str,
+        url: str,
+        resource_type: str,
+        source_url: str,
+        root_origin: tuple[str, str, int],
+        content_type: str | None,
+        credential_header_present: bool,
+        headers_available: bool,
+        body: bytes | None,
+    ) -> None:
+        try:
+            canonical_source = _query_free_network_url(
+                source_url,
+                root_origin=root_origin,
+            )
+        except (DynamicBrowserError, ValueError):
+            return
+        if not headers_available:
+            candidate = None
+            skip_reason = PostJsonSkipReason.HEADER_UNAVAILABLE
+        else:
+            candidate, skip_reason = _safe_blocked_post_json_candidate(
+                method=method,
+                url=url,
+                resource_type=resource_type,
+                source_url=canonical_source,
+                root_origin=root_origin,
+                content_type=content_type,
+                credential_header_present=credential_header_present,
+                body=body,
+            )
+        with self._lock:
+            if skip_reason is not None:
+                key = (canonical_source, skip_reason)
+                self._post_json_skipped_counts[key] = (
+                    self._post_json_skipped_counts.get(key, 0) + 1
+                )
+                return
+            if candidate is None or candidate.id in self._post_json_candidates:
+                return
+            if len(self._post_json_candidates) >= self._candidate_limit:
+                overflow_reason = PostJsonSkipReason.CANDIDATE_LIMIT_EXCEEDED
+                overflow_sources = {
+                    canonical_source,
+                    *(item.source_url for item in self._post_json_candidates.values()),
+                    *(
+                        source
+                        for source, reason in self._post_json_skipped_counts
+                        if reason == overflow_reason
+                    ),
+                }
+                for key in tuple(self._post_json_skipped_counts):
+                    if key[1] == overflow_reason:
+                        del self._post_json_skipped_counts[key]
+                self._post_json_skipped_counts[
+                    (min(overflow_sources), overflow_reason)
+                ] = 1
+                largest_id = max(self._post_json_candidates)
+                if candidate.id >= largest_id:
+                    return
+                del self._post_json_candidates[largest_id]
+            self._post_json_candidates[candidate.id] = candidate
+
     def snapshot(self) -> NetworkDiscoveryCollection:
         with self._lock:
             return NetworkDiscoveryCollection(
                 candidates=tuple(self._candidates.values()),
                 skipped_counts=tuple(self._skipped_counts.items()),
                 overflow_count=self._overflow_count,
+                post_json_candidates=tuple(self._post_json_candidates.values()),
+                post_json_skipped_counts=tuple(
+                    (source, reason, count)
+                    for (source, reason), count in (
+                        self._post_json_skipped_counts.items()
+                    )
+                ),
             )
 
 
@@ -1943,6 +2331,42 @@ class _RouteGuard:
                 root_origin=self._root_origin,
                 credential_header_present=_request_has_credential_headers(request),
             )
+        if (
+            within_budget
+            and decision.decision == DynamicNetworkDecisionKind.BLOCK
+            and decision.reason == DynamicNetworkReason.NON_GET_METHOD
+            and decision.canonical_url is not None
+            and _origin(decision.canonical_url) == self._root_origin
+            and method == "POST"
+            and resource_type.strip().lower() in {"fetch", "xhr"}
+            and is_primary_page
+        ):
+            (
+                content_type,
+                credential_header_present,
+                headers_available,
+            ) = _request_json_header_projection(request)
+            if (
+                headers_available
+                and type(content_type) is str
+                and _application_json_content_type(content_type)
+            ):
+                body = (
+                    None
+                    if credential_header_present
+                    else _request_post_data_buffer(request)
+                )
+                self.network_discovery.record_blocked_post_json(
+                    method=method,
+                    url=url,
+                    resource_type=resource_type,
+                    source_url=self._network_source_url(),
+                    root_origin=self._root_origin,
+                    content_type=content_type,
+                    credential_header_present=credential_header_present,
+                    headers_available=True,
+                    body=body,
+                )
         if should_record:
             self.audit.record_http(
                 decision,

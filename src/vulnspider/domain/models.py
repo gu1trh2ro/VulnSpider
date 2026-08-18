@@ -26,6 +26,7 @@ class InputLocation(StrEnum):
     QUERY = "QUERY"
     FORM = "FORM"
     JSON = "JSON"
+    JSON_BODY = "JSON_BODY"
     PATH = "PATH"
     HEADER = "HEADER"
     COOKIE = "COOKIE"

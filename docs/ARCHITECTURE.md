@@ -131,14 +131,19 @@ deterministic Static-first merge. The advanced `analyze --dynamic` boundary
 keeps exact caller grants. The simple adapter additionally permits only an
 exact same-origin GET URL already extracted from a rendered anchor, for that
 single crawler navigation, same-origin GET script/style resources, and naturally
-emitted same-origin GET/HEAD fetch/XHR. Only an already-allowed primary-page GET
-fetch/XHR can enter the separate network canonicalization path; this path never
+emitted same-origin GET/HEAD fetch/XHR. An already-allowed primary-page GET
+fetch/XHR can enter the separate network canonicalization path. A blocked
+primary-page exact-origin POST fetch/XHR with `application/json` can enter only
+the value-free structural branch at the same Guard decision seam. This path never
 reconstructs from passive audit, never replays transport, and never retains raw
 credential headers/cookies or sensitive query values. Safe query occurrences
 produce normal READY contexts. Credential-bearing requests produce at most
 value-free Endpoint/InputPoint structure with NOT_READY ownership and no
-RequestTemplate/context. WebSocket, EventSource, POST, popup, child-frame
-documents, cross-origin, and different-port traffic stay blocked.
+RequestTemplate/context. Eligible POST JSON produces only a POST Endpoint and
+top-level JSON_BODY InputPoints with NOT_READY ownership; the request remains
+blocked and body values are discarded before candidate retention. WebSocket,
+EventSource, all POST transport, popup, child-frame documents, cross-origin,
+and different-port traffic stay blocked.
 `pipeline.analyze_url()` sends the validated combined
 `CombinedDiscoveryResult.discovery` to the unchanged
 `analyze_discovery_result()` consumer. Advanced plain `analyze --url` and

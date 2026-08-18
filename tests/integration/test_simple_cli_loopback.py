@@ -23,6 +23,84 @@ SENTINEL = "SIMPLE_SECRET_SENTINEL_51af"
 
 
 class SimpleDynamicCliLoopbackTests(unittest.TestCase):
+    def test_simple_cli_blocked_post_json_is_not_executed(self) -> None:
+        stdout = StringIO()
+        stderr = StringIO()
+        original_cwd = Path.cwd()
+        with TemporaryDirectory(prefix="vulnspider-post-json-cli-") as workdir:
+            os.chdir(workdir)
+            try:
+                with DynamicLoopbackSite() as site:
+                    with redirect_stdout(stdout), redirect_stderr(stderr):
+                        exit_code = cli_module.main(
+                            ["-u", site.observed_post_json_url]
+                        )
+                    primary_requests = site.primary_requests
+                    sentinel_requests = site.sentinel_requests
+                crawl_text = Path("vulnspider-crawl.json").read_text(
+                    encoding="utf-8"
+                )
+                analysis_text = Path("vulnspider-analysis.json").read_text(
+                    encoding="utf-8"
+                )
+            finally:
+                os.chdir(original_cwd)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(sentinel_requests, ())
+        self.assertFalse(any(item.method == "POST" for item in primary_requests))
+        self.assertEqual(
+            sum(
+                item.method == "GET" and item.path == "/observed-post-json"
+                for item in primary_requests
+            ),
+            2,
+        )
+        crawl_report = json.loads(crawl_text)
+        analysis_report = json.loads(analysis_text)
+        discovery = crawl_report["crawl"]["discovery"]
+        endpoints = {
+            (item["method"], item["path"]): item
+            for item in discovery["endpoints"]
+        }
+        endpoint = endpoints[("POST", "/api/search")]
+        points = [
+            item
+            for item in discovery["input_points"]
+            if item["endpoint_id"] == endpoint["id"]
+        ]
+        self.assertEqual(
+            {(item["name"], item["location"]) for item in points},
+            {("keyword", "JSON_BODY"), ("page", "JSON_BODY")},
+        )
+        readiness = {
+            item["input_point_id"]: item
+            for item in discovery["probe_readiness"]
+        }
+        self.assertTrue(
+            all(readiness[item["id"]]["status"] == "NOT_READY" for item in points)
+        )
+        self.assertEqual(analysis_report["ready_context_ids"], [])
+        self.assertEqual(analysis_report["executed_input_point_ids"], [])
+        self.assertEqual(analysis_report["probe_observations"], [])
+        self.assertEqual(
+            analysis_report["crawl_reference"]["discovery_snapshot_id"],
+            discovery["discovery_snapshot_id"],
+        )
+        for secret in (
+            "phone",
+            "POST_AUTHORIZATION_VALUE_SENTINEL",
+            "POST_PASSWORD_VALUE_SENTINEL",
+            "POST_API_KEY_VALUE_SENTINEL",
+            "POST_TOKEN_VALUE_SENTINEL",
+            "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.",
+        ):
+            self.assertNotIn(secret, crawl_text)
+            self.assertNotIn(secret, analysis_text)
+            self.assertNotIn(secret, stdout.getvalue())
+            self.assertNotIn(secret, stderr.getvalue())
+
     def test_simple_cli_real_chromium_policy(self) -> None:
         stdout = StringIO()
         stderr = StringIO()

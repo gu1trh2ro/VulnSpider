@@ -1,4 +1,4 @@
-"""Transport-free canonicalization of already-authorized browser GET candidates."""
+"""Transport-free canonicalization of bounded browser network candidates."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from vulnspider.discovery.contracts import (
     ScopeMetadata,
 )
 from vulnspider.discovery.dynamic_browser import (
+    BlockedPostJsonCandidate,
     NetworkDiscoveryCandidate,
     NetworkDiscoveryCollection,
     NetworkDiscoveryDisposition,
@@ -37,9 +38,22 @@ def canonicalize_network_discovery(
         if not same_origin_crawl_url(scope_metadata.root_url, candidate.base_url):
             raise ValueError("network discovery endpoint escaped canonical scope")
         by_source.setdefault(candidate.source_url, []).append(candidate)
+    post_by_source: dict[str, list[BlockedPostJsonCandidate]] = {}
+    for candidate in collection.post_json_candidates:
+        if not same_origin_crawl_url(scope_metadata.root_url, candidate.source_url):
+            raise ValueError("POST JSON source escaped canonical scope")
+        if not same_origin_crawl_url(scope_metadata.root_url, candidate.base_url):
+            raise ValueError("POST JSON endpoint escaped canonical scope")
+        post_by_source.setdefault(candidate.source_url, []).append(candidate)
+    post_skip_by_source: dict[str, Counter[str]] = {}
+    for source_url, reason, count in collection.post_json_skipped_counts:
+        if not same_origin_crawl_url(scope_metadata.root_url, source_url):
+            raise ValueError("POST JSON warning source escaped canonical scope")
+        post_skip_by_source.setdefault(source_url, Counter())[reason.value] += count
 
     components: list[CanonicalDiscoveryResult] = []
-    for source_url in sorted(by_source):
+    source_urls = set(by_source).union(post_by_source, post_skip_by_source)
+    for source_url in sorted(source_urls):
         builder = CanonicalDiscoveryBuilder(
             source_url=source_url,
             metadata=discovery_metadata,
@@ -52,7 +66,7 @@ def canonicalize_network_discovery(
         elision_counts: Counter[str] = Counter()
         elided_candidate_count = 0
         audit_only_candidate_count = 0
-        for candidate in sorted(by_source[source_url], key=lambda item: item.id):
+        for candidate in sorted(by_source.get(source_url, ()), key=lambda item: item.id):
             observation_key = (
                 f"network:{candidate.resource_type}:{candidate.id}"
             )
@@ -91,6 +105,43 @@ def canonicalize_network_discovery(
                     ),
                     "audit_only_candidate_count": audit_only_candidate_count,
                     "elision_reason_counts": tuple(sorted(elision_counts.items())),
+                    "producer_kind": discovery_metadata.collector_kind.value,
+                },
+                skipped=False,
+            )
+        post_candidates = tuple(
+            sorted(post_by_source.get(source_url, ()), key=lambda item: item.id)
+        )
+        for candidate in post_candidates:
+            builder.add_structural_json_body_surface(
+                candidate.base_url,
+                member_names=candidate.member_names,
+                observation_key=(
+                    f"network:{candidate.resource_type}:{candidate.id}"
+                ),
+                not_ready_reasons=(
+                    NonProbeReadyReason.REQUEST_CONTEXT_MISSING,
+                ),
+                origin_kind=f"network_{candidate.resource_type}",
+            )
+        if post_candidates:
+            builder.add_warning(
+                "NETWORK_POST_JSON_STRUCTURAL_ONLY",
+                "Blocked browser POST JSON attempts were retained as structure only.",
+                {
+                    "structural_candidate_count": len(post_candidates),
+                    "producer_kind": discovery_metadata.collector_kind.value,
+                },
+                skipped=False,
+            )
+        post_skip_counts = post_skip_by_source.get(source_url)
+        if post_skip_counts:
+            builder.add_warning(
+                "NETWORK_POST_JSON_SKIPPED",
+                "Blocked browser POST JSON attempts failed closed before canonical construction.",
+                {
+                    "skip_reason_counts": tuple(sorted(post_skip_counts.items())),
+                    "skipped_attempt_count": sum(post_skip_counts.values()),
                     "producer_kind": discovery_metadata.collector_kind.value,
                 },
                 skipped=False,

@@ -155,6 +155,11 @@ request-context IDs, and nullable `auth_context_id`. The v1 adapter supports the
 currently executable QUERY and FORM request-template locations. It does not
 fabricate context for other locations.
 
+Dynamic discovery may serialize `JSON_BODY` InputPoints for top-level structure
+from an eligible blocked POST JSON attempt. These records are deliberately
+NOT_READY and have no RequestTemplate or InputPointRequestContext, so the v1
+handoff and ProbePlanner cannot consume or execute them.
+
 A future BAC adapter starts from `endpoint_id` and resolves an Endpoint plus
 reviewed access-related context. That behavior is not implemented in v1.
 

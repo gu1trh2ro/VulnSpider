@@ -765,6 +765,69 @@ class CanonicalDiscoveryBuilder:
                 f"input:{observation_key}:query:{pair_index}",
             )
 
+    def add_structural_json_body_surface(
+        self,
+        url: str,
+        *,
+        member_names: Sequence[str],
+        observation_key: str,
+        not_ready_reasons: Sequence[NonProbeReadyReason],
+        origin_kind: str,
+    ) -> None:
+        """Add value-free top-level JSON names with no request context."""
+
+        endpoint = self._add_endpoint(
+            url,
+            method=HttpMethod.POST,
+            observation_key=observation_key,
+        )
+        for member_index, canonical_name in enumerate(
+            _canonical_input_name(name) for name in member_names
+        ):
+            if not canonical_name:
+                self.add_warning(
+                    "JSON_MEMBER_NAME_MISSING",
+                    "JSON member without a name was not made injectable",
+                    {"member_index": member_index},
+                )
+                continue
+            point = InputPoint(
+                endpoint_id=endpoint.id or "",
+                endpoint_fingerprint=endpoint.fingerprint,
+                location=InputLocation.JSON_BODY,
+                name=canonical_name,
+                occurrence_index=None,
+                baseline_value=None,
+                type_hint="json",
+                source_page=self.source_url,
+                metadata={
+                    self.native_metadata_key: True,
+                    "hidden": False,
+                    "visibility": "structural_only",
+                    "value_state": "elided",
+                },
+            )
+            self._remember_point(
+                point,
+                raw_query_token=None,
+                origin_kind=origin_kind,
+                pair_index=member_index,
+                control_index=-1,
+                hidden=False,
+            )
+            status = ProbeReadiness(
+                input_point_id=point.id or "",
+                request_context_id=None,
+                status=ProbeReadyStatus.NOT_READY,
+                reasons=tuple(not_ready_reasons),
+            )
+            self.readiness.setdefault(status.id or "", status)
+            self._observe(
+                DiscoverySubjectKind.INPUT_POINT,
+                point.id or "",
+                f"input:{observation_key}:json:{member_index}",
+            )
+
     def add_form(
         self,
         form: _RawForm,

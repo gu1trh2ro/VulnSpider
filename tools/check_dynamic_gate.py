@@ -102,6 +102,18 @@ BROWSER_LOOPBACK_CASES = (
         ),
     ),
     BrowserManifestCase(
+        "blocked-post-json-structure",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_blocked_post_json_is_structural_and_never_executes"
+        ),
+        (
+            "Natural primary-page exact-origin POST JSON is blocked before transport "
+            "and retained only as canonical NOT_READY structure."
+        ),
+    ),
+    BrowserManifestCase(
         "passive-network-observation",
         (
             "tests.integration.test_dynamic_browser_loopback."
