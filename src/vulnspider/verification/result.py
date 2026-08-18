@@ -259,6 +259,8 @@ class VerificationResult:
                 "rule_version": confidence.rule_version,
                 "scale": confidence.scale,
                 "outcome": confidence.outcome.value,
+                "signal": confidence.signal.value,
+                "model_version": confidence.model_version,
                 "prior_probability": confidence.prior_probability,
                 "verification_confidence": confidence.confidence,
                 "confidence_delta": confidence.confidence_delta,

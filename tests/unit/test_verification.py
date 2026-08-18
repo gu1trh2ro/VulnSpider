@@ -439,7 +439,7 @@ class ConfidenceRuleTests(unittest.TestCase):
         self.assertEqual(result.outcome, VerificationOutcome.WEAKENED)
         self.assertLess(result.confidence, 0.6)
 
-    def test_material_change_without_signal_is_inconclusive(self) -> None:
+    def test_server_error_without_signal_is_inconclusive(self) -> None:
         delta = self._delta_from(
             {"sql_error_pattern": 0.0, "status_code_changed": 0.0},
             {"sql_error_pattern": 0.0, "status_code_changed": 1.0},
@@ -448,9 +448,43 @@ class ConfidenceRuleTests(unittest.TestCase):
             vulnerability_type=VulnerabilityType.SQLI,
             prior_probability=0.4,
             delta=delta,
+            probe_status_code=500,
+            baseline_status_code=200,
         )
         self.assertEqual(result.outcome, VerificationOutcome.INCONCLUSIVE_ERROR)
         self.assertAlmostEqual(result.confidence, 0.4)
+
+    def test_length_change_without_server_error_is_unchanged(self) -> None:
+        # A big length swing with no 5xx and no vuln signal is a benign
+        # difference, not an inconclusive error (over-generation fix).
+        delta = self._delta_from(
+            {"sql_error_pattern": 0.0, "response_length_diff_ratio": 0.0},
+            {"sql_error_pattern": 0.0, "response_length_diff_ratio": 0.9},
+        )
+        result = update_confidence(
+            vulnerability_type=VulnerabilityType.SQLI,
+            prior_probability=0.4,
+            delta=delta,
+            probe_status_code=200,
+            baseline_status_code=200,
+        )
+        self.assertEqual(result.outcome, VerificationOutcome.UNCHANGED)
+        self.assertAlmostEqual(result.confidence, 0.4)
+
+    def test_non_5xx_status_change_is_not_inconclusive(self) -> None:
+        # A 404/400 (app rejecting the payload) is benign, not a server error.
+        delta = self._delta_from(
+            {"sql_error_pattern": 0.0, "status_code_changed": 0.0},
+            {"sql_error_pattern": 0.0, "status_code_changed": 1.0},
+        )
+        result = update_confidence(
+            vulnerability_type=VulnerabilityType.SQLI,
+            prior_probability=0.4,
+            delta=delta,
+            probe_status_code=404,
+            baseline_status_code=200,
+        )
+        self.assertEqual(result.outcome, VerificationOutcome.UNCHANGED)
 
     def test_not_executed_keeps_prior(self) -> None:
         result = update_confidence(

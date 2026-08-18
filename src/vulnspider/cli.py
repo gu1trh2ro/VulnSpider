@@ -51,11 +51,16 @@ from vulnspider.pipeline import (
 )
 from vulnspider.reporting import write_crawl_report
 from vulnspider.reporting.json_report import write_json_document
-from vulnspider.verification import VerificationConfig, verify_analysis
+from vulnspider.verification import (
+    VerificationConfidenceModel,
+    VerificationConfig,
+    verify_analysis,
+)
 
 
 _SIMPLE_DEFAULT_CRAWL_OUTPUT = Path("vulnspider-crawl.json")
 _SIMPLE_DEFAULT_ANALYSIS_OUTPUT = Path("vulnspider-analysis.json")
+_SIMPLE_DEFAULT_HTML_OUTPUT = Path("vulnspider-report.html")
 _DEFAULT_VERIFICATION_OUTPUT = Path("vulnspider-verification.json")
 _SIMPLE_DEFAULT_TOP_K = 10
 _SIMPLE_DEFAULT_DYNAMIC_MAX_DEPTH = 2
@@ -115,6 +120,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Crawl JSON file (default: vulnspider-crawl.json).",
     )
     parser.add_argument(
+        "--html-output",
+        dest="simple_html_output",
+        type=Path,
+        default=None,
+        help=(
+            "End-to-end HTML dashboard report; this is the primary report in "
+            f"simple mode (default: {_SIMPLE_DEFAULT_HTML_OUTPUT}). Use "
+            "--no-html to skip it."
+        ),
+    )
+    parser.add_argument(
+        "--no-html",
+        dest="simple_no_html",
+        action="store_true",
+        help="Skip the HTML dashboard report in simple mode.",
+    )
+    parser.add_argument(
         "--static-only",
         action="store_true",
         help="Use Native Static Discovery only in simple URL mode.",
@@ -150,6 +172,13 @@ def build_parser() -> argparse.ArgumentParser:
             "Verification JSON file in simple mode (implies --verify; "
             f"default: {_DEFAULT_VERIFICATION_OUTPUT})."
         ),
+    )
+    parser.add_argument(
+        "--verification-model",
+        type=Path,
+        default=None,
+        dest="simple_verification_model",
+        help="Fitted confidence model JSON from 'corpus verify-fit'.",
     )
     subparsers = parser.add_subparsers(dest="command")
     analyze = subparsers.add_parser(
@@ -311,6 +340,15 @@ def build_parser() -> argparse.ArgumentParser:
             f"default: {_DEFAULT_VERIFICATION_OUTPUT})."
         ),
     )
+    analyze.add_argument(
+        "--verification-model",
+        type=Path,
+        default=None,
+        help=(
+            "Fitted confidence model JSON from 'corpus verify-fit' "
+            "(default: the conservative built-in model)."
+        ),
+    )
     add_decision_subcommands(subparsers)
     return parser
 
@@ -367,6 +405,21 @@ def main(
             _reject_shared_crawl_analysis_destinations(
                 args.crawl_output,
                 args.output,
+            )
+            if args.html_output is not None and _normalized_destination(
+                args.html_output
+            ) == _normalized_destination(args.crawl_output):
+                raise CLIError(
+                    "--html-output and --crawl-output must refer to different files"
+                )
+        if args.verify or args.verify_output is not None:
+            _reject_shared_verify_destination(
+                args.verify_output or _DEFAULT_VERIFICATION_OUTPUT,
+                (
+                    args.output,
+                    args.html_output,
+                    args.crawl_output if simple_mode else None,
+                ),
             )
         if args.input is not None:
             _reject_native_policy_with_legacy_input(args)
@@ -430,6 +483,17 @@ def main(
                 file=sys.stderr,
             )
             return 4
+        verification_run = None
+        if args.verify or args.verify_output is not None:
+            verification_run = verify_analysis(
+                analysis,
+                config=VerificationConfig(
+                    transport=transport,
+                    confidence_model=_load_verification_model(
+                        args.verification_model
+                    ),
+                ),
+            )
         outcome = analyze_and_report(
             analysis,
             target_url=_analysis_target(analysis),
@@ -438,10 +502,12 @@ def main(
             conformal_path=args.conformal,
             output=args.output,
             html_output=args.html_output,
+            verification=verification_run,
         )
         selected_count = len(outcome.selected)
-        if args.verify or args.verify_output is not None:
-            verification_output = _run_verification(
+        if verification_run is not None:
+            verification_output = _publish_verification(
+                verification_run,
                 analysis,
                 destination=args.verify_output or _DEFAULT_VERIFICATION_OUTPUT,
                 other_destinations=(
@@ -449,7 +515,6 @@ def main(
                     args.html_output,
                     args.crawl_output if simple_mode else None,
                 ),
-                transport=transport,
             )
     except _SimpleDegradedCrawl:
         _print_partial_simple_result(args)
@@ -516,6 +581,11 @@ def main(
                 "vulnspider: verification output: "
                 f"{verification_output.resolve(strict=False)}"
             )
+        if args.html_output is not None:
+            print(
+                "vulnspider: report (open this): "
+                f"{args.html_output.resolve(strict=False)}"
+            )
     return 0
 
 
@@ -528,6 +598,9 @@ def _simple_options_without_url(args: argparse.Namespace) -> bool:
         or args.simple_dynamic_allow_resource
         or args.simple_verify
         or args.simple_verify_output is not None
+        or args.simple_verification_model is not None
+        or args.simple_html_output is not None
+        or args.simple_no_html
     )
 
 
@@ -548,11 +621,20 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         crawl_output=(
             args.simple_crawl_output or _SIMPLE_DEFAULT_CRAWL_OUTPUT
         ),
-        html_output=None,
+        html_output=(
+            None
+            if args.simple_no_html
+            else (args.simple_html_output or _SIMPLE_DEFAULT_HTML_OUTPUT)
+        ),
         model=None,
         conformal=None,
-        verify=args.simple_verify or args.simple_verify_output is not None,
+        verify=(
+            args.simple_verify
+            or args.simple_verify_output is not None
+            or args.simple_verification_model is not None
+        ),
         verify_output=args.simple_verify_output,
+        verification_model=args.simple_verification_model,
         max_pages=None,
         max_depth=None,
         max_requests=None,
@@ -572,26 +654,15 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
     )
 
 
-def _run_verification(
+def _publish_verification(
+    run: Any,
     analysis: AnalysisResult,
     *,
     destination: Path,
     other_destinations: Sequence[Path | None],
-    transport: RequestTransport | None,
 ) -> Path:
-    """Run focused verification and atomically publish its JSON report."""
+    """Atomically publish an already-computed verification run as JSON."""
 
-    normalized = _normalized_destination(destination)
-    for other in other_destinations:
-        if other is not None and _normalized_destination(other) == normalized:
-            raise CLIError(
-                "--verify-output must differ from the analysis, HTML, and "
-                "crawl report destinations"
-            )
-    run = verify_analysis(
-        analysis,
-        config=VerificationConfig(transport=transport),
-    )
     write_json_document(
         json.dumps(
             run.to_dict(target_url=_analysis_target(analysis)),
@@ -602,6 +673,31 @@ def _run_verification(
         destination,
     )
     return destination
+
+
+def _reject_shared_verify_destination(
+    destination: Path,
+    other_destinations: Sequence[Path | None],
+) -> None:
+    normalized = _normalized_destination(destination)
+    for other in other_destinations:
+        if other is not None and _normalized_destination(other) == normalized:
+            raise CLIError(
+                "--verify-output must differ from the analysis, HTML, and "
+                "crawl report destinations"
+            )
+
+
+def _load_verification_model(path: Path | None) -> VerificationConfidenceModel:
+    """Load a fitted confidence model, or the conservative built-in default."""
+
+    if path is None:
+        return VerificationConfidenceModel.default()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise CLIError(f"could not read verification model {path}: {exc}") from exc
+    return VerificationConfidenceModel.from_mapping(payload)
 
 
 def _analysis_target(analysis: AnalysisResult) -> str:

@@ -39,6 +39,16 @@ from vulnspider.corpus.fitting import (
     scorers_from_mapping,
 )
 from vulnspider.corpus.ground_truth import GroundTruthError, read_ground_truth
+from vulnspider.corpus.verification_collection import (
+    append_verification_corpus,
+    collect_verification_samples,
+    read_verification_corpus,
+    write_verification_corpus,
+)
+from vulnspider.corpus.verification_fitting import (
+    evaluate_verification_arm,
+    fit_from_verification_corpus,
+)
 from vulnspider.decision.candidate import (
     DecisionCandidate,
     decision_candidate_from_context,
@@ -127,8 +137,33 @@ def decision_report(
     target_url: str,
     models: Mapping[str, CalibratedScorer],
     warnings: Sequence[str] = (),
+    verification: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Serialize a decision outcome without recomputing any of it."""
+    """Serialize a decision outcome without recomputing any of it.
+
+    When ``verification`` is given (candidate_id -> CandidateVerification), each
+    selected candidate also carries its post-verification ``final_confidence``
+    and outcome, and the report gains a ``verification`` summary, so the JSON
+    and the HTML dashboard present the same final score (ADR-033).
+    """
+
+    verified = verification or {}
+
+    def entry(position: int, candidate: DecisionCandidate) -> dict[str, Any]:
+        record: dict[str, Any] = {
+            "order": position,
+            "candidate_id": candidate.candidate_id,
+            "family": candidate.family,
+            "probability": candidate.probability,
+            "selection_rank": candidate.selection_rank,
+        }
+        result = verified.get(candidate.candidate_id)
+        if result is not None:
+            record["prior_probability"] = result.prior_probability
+            record["final_confidence"] = result.final_confidence
+            record["verification_outcome"] = result.final_outcome.value
+            record["verification_signal"] = result.final_signal.value
+        return record
 
     return {
         "report_version": DECISION_REPORT_VERSION,
@@ -160,16 +195,29 @@ def decision_report(
                 ),
             }
         ),
+        "verification": _verification_summary(verified),
         "verification_order": [
-            {
-                "order": position,
-                "candidate_id": candidate.candidate_id,
-                "family": candidate.family,
-                "probability": candidate.probability,
-                "selection_rank": candidate.selection_rank,
-            }
+            entry(position, candidate)
             for position, candidate in enumerate(outcome.selected, start=1)
         ],
+    }
+
+
+def _verification_summary(
+    verified: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """A compact roll-up of the verification stage for the decision report."""
+
+    if not verified:
+        return None
+    outcomes: dict[str, int] = {}
+    for candidate in verified.values():
+        key = candidate.final_outcome.value
+        outcomes[key] = outcomes.get(key, 0) + 1
+    return {
+        "ran": True,
+        "candidates_verified": len(verified),
+        "outcomes": dict(sorted(outcomes.items())),
     }
 
 
@@ -315,6 +363,71 @@ def add_decision_subcommands(subparsers: argparse._SubParsersAction) -> None:
         help="Calibrated threshold JSON destination.",
     )
 
+    verify_collect = corpus_commands.add_parser(
+        "verify-collect",
+        help="Run focused verification on a labeled app and record signals.",
+    )
+    verify_collect.add_argument(
+        "--url", required=True, help="Authorized target root URL."
+    )
+    verify_collect.add_argument(
+        "--application-id",
+        required=True,
+        help="Group key for this application (leakage control unit).",
+    )
+    verify_collect.add_argument(
+        "--ground-truth",
+        type=Path,
+        required=True,
+        help="Ground truth JSON for this application.",
+    )
+    verify_collect.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        required=True,
+        help="Verification corpus JSON Lines destination.",
+    )
+    verify_collect.add_argument(
+        "--top-k",
+        type=int,
+        default=20,
+        help="Maximum candidates to verify per application (default: 20).",
+    )
+    verify_collect.add_argument(
+        "--append",
+        action="store_true",
+        help="Append to an existing verification corpus.",
+    )
+    _add_crawl_bounds(verify_collect)
+
+    verify_fit = corpus_commands.add_parser(
+        "verify-fit",
+        help="Fit the confidence model from a verification corpus.",
+    )
+    verify_fit.add_argument(
+        "--corpus", type=Path, required=True, help="Verification corpus JSONL."
+    )
+    verify_fit.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        required=True,
+        help="Fitted confidence model JSON destination.",
+    )
+    verify_fit.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="Optional out-of-fold verification arm report destination.",
+    )
+    verify_fit.add_argument(
+        "--max-abs-llr",
+        type=float,
+        default=1.0,
+        help="Cap on |LLR| in logits (default: 1.0), keeping the update gentle.",
+    )
+
 
 def add_algorithm_options(parser: argparse.ArgumentParser) -> None:
     """Attach the calibrated-model options to a parser that already has --top-k.
@@ -347,6 +460,7 @@ def analyze_and_report(
     conformal_path: Path | None,
     output: Path,
     html_output: Path | None = None,
+    verification: Any = None,
 ) -> DecisionOutcome:
     """Score one analysis with the calibrated model, take the Top-K, and report.
 
@@ -361,12 +475,18 @@ def analyze_and_report(
     conformal = load_conformal(conformal_path)
     candidates, probabilities = build_decision_candidates(analysis, models)
     outcome = run_decision_layer(candidates, top_k=top_k, conformal=conformal)
+    verification_map = (
+        {candidate.candidate_id: candidate for candidate in verification.candidates}
+        if verification is not None
+        else {}
+    )
     write_json(
         decision_report(
             outcome,
             target_url=target_url,
             models=models,
             warnings=analysis.warnings,
+            verification=verification_map,
         ),
         output,
     )
@@ -399,6 +519,7 @@ def analyze_and_report(
             probe_runs=probe_runs,
             probabilities=probabilities,
             models=models,
+            verification=verification_map,
             warnings=analysis.warnings,
             elapsed_seconds=analysis.elapsed_seconds,
             endpoint_count=len(analysis.endpoints),
@@ -427,7 +548,112 @@ def run_corpus_command(
         return _run_corpus_fit(args)
     if args.corpus_command == "calibrate":
         return _run_corpus_calibrate(args)
+    if args.corpus_command == "verify-collect":
+        return _run_corpus_verify_collect(
+            args,
+            transport=transport,
+            crawler=crawler,
+            crawler_transport=crawler_transport,
+        )
+    if args.corpus_command == "verify-fit":
+        return _run_corpus_verify_fit(args)
     raise DecisionCLIError(f"unsupported corpus command: {args.corpus_command}")
+
+
+def _run_corpus_verify_collect(
+    args: argparse.Namespace,
+    *,
+    transport: Any,
+    crawler: Any,
+    crawler_transport: Any,
+) -> int:
+    """Run analyze + focused verification on one labeled app and record signals."""
+
+    from vulnspider.verification import VerificationConfig, verify_analysis
+
+    analysis = _analyze(
+        args,
+        transport=transport,
+        crawler=crawler,
+        crawler_transport=crawler_transport,
+        top_k=args.top_k,
+    )
+    run = verify_analysis(
+        analysis,
+        config=VerificationConfig(
+            transport=transport, max_candidates=args.top_k
+        ),
+    )
+    ground_truth = read_ground_truth(args.ground_truth)
+    result = collect_verification_samples(
+        application_id=args.application_id,
+        run=run,
+        endpoints=analysis.endpoints,
+        input_points=analysis.input_points,
+        ground_truth=ground_truth,
+    )
+    written = (
+        append_verification_corpus(result.samples, args.output)
+        if args.append
+        else write_verification_corpus(result.samples, args.output)
+    )
+    print(
+        f"vulnspider: collected {written} verification samples for "
+        f"{args.application_id} ({result.positives} vulnerable, "
+        f"{result.negatives} safe)"
+    )
+    if result.unlabeled_keys:
+        print(
+            f"vulnspider: warning: {len(result.unlabeled_keys)} verified "
+            "candidates have no ground truth entry and were skipped"
+        )
+    print(f"vulnspider: verification corpus: {args.output}")
+    return 0
+
+
+def _run_corpus_verify_fit(args: argparse.Namespace) -> int:
+    """Fit the confidence model from a verification corpus and evaluate its arm."""
+
+    if args.max_abs_llr <= 0.0:
+        raise DecisionCLIError("--max-abs-llr must be positive")
+    dataset = read_verification_corpus(args.corpus)
+    if not dataset.samples:
+        raise DecisionCLIError(f"{args.corpus} contains no samples")
+    model = fit_from_verification_corpus(
+        dataset, max_abs_llr=args.max_abs_llr
+    )
+    write_json(model.as_mapping(), args.output)
+
+    counts = dataset.counts()
+    print(
+        f"vulnspider: fitted the confidence model from {counts['samples']} "
+        f"verification samples across {counts['groups']} applications "
+        f"({counts['positives']} vulnerable, {counts['negatives']} safe); "
+        f"|LLR| capped at {model.max_abs_llr:.2f}"
+    )
+    for family in sorted(model.family_llr):
+        detail = ", ".join(
+            f"{signal}={model.family_llr[family][signal]:+.3f}"
+            for signal in sorted(model.family_llr[family])
+        )
+        print(f"  {family}: {detail}")
+
+    if args.report is not None:
+        if len(dataset.groups) < 2:
+            raise DecisionCLIError(
+                "a verification arm report needs at least two applications"
+            )
+        report = evaluate_verification_arm(dataset, max_abs_llr=args.max_abs_llr)
+        write_json(report.as_mapping(), args.report)
+        print(
+            f"vulnspider: out-of-fold Brier prior={report.brier_prior:.4f} "
+            f"posterior={report.brier_posterior:.4f} "
+            f"improvement={report.improvement:+.4f} "
+            f"({report.samples} predictions)"
+        )
+        print(f"vulnspider: verification arm report: {args.report}")
+    print(f"vulnspider: confidence model: {args.output}")
+    return 0
 
 
 def _run_corpus_collect(
@@ -560,6 +786,7 @@ def _analyze(
     transport: Any,
     crawler: Any,
     crawler_transport: Any,
+    top_k: int = 1,
 ) -> AnalysisResult:
     from vulnspider.discovery import CrawlPolicy
     from vulnspider.pipeline import analyze_url
@@ -576,7 +803,7 @@ def _analyze(
     )
     return analyze_url(
         args.url,
-        top_k=1,
+        top_k=top_k,
         crawl_policy=policy,
         crawler=crawler,
         crawler_transport=crawler_transport,

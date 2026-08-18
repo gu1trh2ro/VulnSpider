@@ -38,22 +38,14 @@ from vulnspider.features import (
     SQL_ERROR_PATTERN,
     STATUS_CODE_CHANGED,
 )
+from vulnspider.verification.calibration import (
+    VerificationConfidenceModel,
+    VerificationSignal,
+)
 from vulnspider.verification.delta import FeatureVectorDelta
 
-CONFIDENCE_RULE_VERSION = "confidence-rule-v1"
+CONFIDENCE_RULE_VERSION = "confidence-rule-v2"
 CONFIDENCE_SCALE = "probability-0-1-v1"
-
-# How a classified outcome moves the prior. Kept internal: the outcome enum is
-# the public label; the mode only decides direction and magnitude.
-_RAISE = "raise"
-_KEEP = "keep"
-_LOWER = "lower"
-
-# How far a supporting or weakening result is allowed to move the prior. A
-# support closes 60% of the gap to certainty; a weakening halves the prior.
-# Bounded so one verification never fabricates certainty from a single probe.
-SUPPORT_GAIN = 0.6
-WEAKEN_FACTOR = 0.5
 
 # Keep the result strictly inside (0, 1) like the calibrated probability it
 # updates, so it can be compared with priors on the same scale.
@@ -79,6 +71,17 @@ class VerificationOutcome(StrEnum):
     NOT_EXECUTED = "NOT_EXECUTED"
 
 
+# The public outcome label each fine-grained calibration signal rolls up to.
+OUTCOME_FOR_SIGNAL: dict[VerificationSignal, VerificationOutcome] = {
+    VerificationSignal.SUPPORT_NEW: VerificationOutcome.SUPPORTED,
+    VerificationSignal.SUPPORT_REPRODUCED: VerificationOutcome.SUPPORTED,
+    VerificationSignal.WEAKEN: VerificationOutcome.WEAKENED,
+    VerificationSignal.INCONCLUSIVE: VerificationOutcome.INCONCLUSIVE_ERROR,
+    VerificationSignal.UNCHANGED: VerificationOutcome.UNCHANGED,
+    VerificationSignal.NOT_EXECUTED: VerificationOutcome.NOT_EXECUTED,
+}
+
+
 @dataclass(frozen=True, slots=True)
 class VerificationEvidenceItem:
     """One explainable reason the rule set reached its outcome."""
@@ -97,6 +100,8 @@ class VerificationConfidence:
     rule_version: str
     scale: str
     outcome: VerificationOutcome
+    signal: VerificationSignal
+    model_version: str
     prior_probability: float
     confidence: float
     evidence: tuple[VerificationEvidenceItem, ...]
@@ -104,6 +109,9 @@ class VerificationConfidence:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "outcome", VerificationOutcome(self.outcome))
+        object.__setattr__(self, "signal", VerificationSignal(self.signal))
+        if OUTCOME_FOR_SIGNAL[self.signal] != self.outcome:
+            raise ConfidenceError("signal and outcome are inconsistent")
         for name, value in (
             ("prior_probability", self.prior_probability),
             ("confidence", self.confidence),
@@ -116,6 +124,8 @@ class VerificationConfidence:
             raise ConfidenceError("unexpected confidence rule version")
         if self.scale != CONFIDENCE_SCALE:
             raise ConfidenceError("unexpected confidence scale")
+        if not self.model_version:
+            raise ConfidenceError("model_version must not be empty")
         object.__setattr__(self, "evidence", tuple(self.evidence))
         object.__setattr__(self, "warnings", tuple(self.warnings))
 
@@ -124,10 +134,10 @@ class VerificationConfidence:
         return self.confidence - self.prior_probability
 
 
-# (outcome label, confidence mode, evidence, warnings) returned by a classifier.
+# (signal, evidence, warnings) returned by a classifier. The outcome label is
+# derived from the signal via OUTCOME_FOR_SIGNAL.
 _Classification = tuple[
-    VerificationOutcome,
-    str,
+    VerificationSignal,
     tuple[VerificationEvidenceItem, ...],
     tuple[str, ...],
 ]
@@ -153,23 +163,38 @@ def update_confidence(
     prior_probability: float | None,
     delta: FeatureVectorDelta | None,
     executed: bool = True,
+    model: VerificationConfidenceModel | None = None,
+    probe_status_code: int | None = None,
+    baseline_status_code: int | None = None,
 ) -> VerificationConfidence:
-    """Apply the deterministic confidence rules to one feature delta.
+    """Classify one feature delta and apply the calibrated confidence update.
 
-    ``executed`` is False for a validator-rejected proposal (no payload was
-    ever sent, so there is no delta): the prior is retained unchanged. When
-    ``executed`` is True a ``delta`` is required, and a delta whose execution
-    failed is treated as an inconclusive error rather than as evidence.
+    The classifier is deterministic and vulnerability-specific; the *magnitude*
+    of the confidence change comes from ``model`` (default: the conservative
+    zero-corpus model), which adds a bounded log-likelihood ratio for the
+    classified signal to the prior's log-odds. ``executed`` is False for a
+    validator-rejected proposal (no payload was ever sent), and a delta whose
+    execution failed is treated as an inconclusive error rather than evidence.
+
+    ``INCONCLUSIVE_ERROR`` is reserved for a *genuine* error: a transport
+    failure, or a payload-induced server error (a 5xx the baseline did not
+    return). A response that merely changed length or moved to a non-5xx status
+    without any vulnerability-specific signal is a benign difference and stays
+    ``UNCHANGED`` -- this is what stops boundary/length noise from flooding the
+    report with inconclusive labels.
     """
 
     vulnerability_type = VulnerabilityType(vulnerability_type)
+    active_model = model or VerificationConfidenceModel.default()
     prior = _normalized_prior(prior_probability)
+    family = vulnerability_type.value
 
     if not executed:
-        return _result(
-            VerificationOutcome.NOT_EXECUTED,
+        return _apply_signal(
+            VerificationSignal.NOT_EXECUTED,
             prior=prior,
-            confidence=prior,
+            family=family,
+            model=active_model,
             evidence=(),
             warnings=("verification payload did not execute; prior retained",),
         )
@@ -178,57 +203,48 @@ def update_confidence(
         raise ConfidenceError("an executed verification requires a FeatureVectorDelta")
 
     if not delta.execution_ok:
-        return _result(
-            VerificationOutcome.INCONCLUSIVE_ERROR,
+        return _apply_signal(
+            VerificationSignal.INCONCLUSIVE,
             prior=prior,
-            confidence=prior,
+            family=family,
+            model=active_model,
             evidence=(),
             warnings=("verification probe hit an execution error; prior retained",),
         )
 
+    server_error = _payload_induced_server_error(
+        probe_status_code, baseline_status_code
+    )
     if vulnerability_type == VulnerabilityType.SQLI:
-        outcome, mode, evidence, warnings = _classify_sqli(delta)
+        signal, evidence, warnings = _classify_sqli(delta, server_error=server_error)
     elif vulnerability_type == VulnerabilityType.REFLECTED_XSS:
-        outcome, mode, evidence, warnings = _classify_xss(delta)
+        signal, evidence, warnings = _classify_xss(delta, server_error=server_error)
     else:  # pragma: no cover - only injection families reach verification
         raise ConfidenceError(
             f"no confidence rule for vulnerability type {vulnerability_type.value}"
         )
 
-    return _result(
-        outcome,
+    return _apply_signal(
+        signal,
         prior=prior,
-        confidence=_apply(mode, prior),
+        family=family,
+        model=active_model,
         evidence=evidence,
         warnings=warnings,
     )
 
 
-def _apply(mode: str, prior: float) -> float:
-    """Move the prior per the confidence mode the classifier chose.
-
-    ``raise`` is for a *newly revealed* signal the baseline probe missed;
-    ``keep`` is for a *reproduced* signal (the difference from baseline is
-    small, so the confidence is retained); ``lower`` is for evidence against.
-    """
-
-    if mode == _RAISE:
-        return _clamp(prior + (1.0 - prior) * SUPPORT_GAIN)
-    if mode == _LOWER:
-        return _clamp(prior * (1.0 - WEAKEN_FACTOR))
-    return _clamp(prior)
-
-
 def _classify_sqli(
     delta: FeatureVectorDelta,
+    *,
+    server_error: bool = False,
 ) -> _Classification:
     sql = delta.get(SQL_ERROR_PATTERN)
     sql_now = bool(sql and sql.verification_observed and sql.verification_value == 1.0)
     sql_base = bool(sql and sql.baseline_observed and sql.baseline_value == 1.0)
     if sql_now and not sql_base:
         return (
-            VerificationOutcome.SUPPORTED,
-            _RAISE,
+            VerificationSignal.SUPPORT_NEW,
             (
                 _item(
                     sql,
@@ -242,23 +258,20 @@ def _classify_sqli(
         )
     if sql_now and sql_base:
         return (
-            VerificationOutcome.SUPPORTED,
-            _KEEP,
+            VerificationSignal.SUPPORT_REPRODUCED,
             (
                 _item(
                     sql,
                     "flat",
                     "The SQL error signature reproduced under an independent "
-                    "metacharacter payload; the baseline suspicion is confirmed "
-                    "and the confidence is kept.",
+                    "metacharacter payload; the baseline suspicion is confirmed.",
                 ),
             ),
             (),
         )
     if sql_base and not sql_now:
         return (
-            VerificationOutcome.WEAKENED,
-            _LOWER,
+            VerificationSignal.WEAKEN,
             (
                 _item(
                     sql,
@@ -269,11 +282,13 @@ def _classify_sqli(
             ),
             (),
         )
-    return _no_signal(delta, SQL_ERROR_PATTERN)
+    return _no_signal(delta, SQL_ERROR_PATTERN, server_error=server_error)
 
 
 def _classify_xss(
     delta: FeatureVectorDelta,
+    *,
+    server_error: bool = False,
 ) -> _Classification:
     reflected = delta.get(MARKER_REFLECTED)
     encoding = delta.get(SAFE_HTML_ENCODING_DETECTED)
@@ -296,22 +311,20 @@ def _classify_xss(
     if reflected_now and raw_now:
         if baseline_raw:
             return (
-                VerificationOutcome.SUPPORTED,
-                _KEEP,
+                VerificationSignal.SUPPORT_REPRODUCED,
                 (
                     _item(
                         encoding,
                         "flat",
                         "The payload again reflected with its dangerous "
                         "characters un-encoded; the baseline suspicion is "
-                        "confirmed and the confidence is kept.",
+                        "confirmed.",
                     ),
                 ),
                 (),
             )
         return (
-            VerificationOutcome.SUPPORTED,
-            _RAISE,
+            VerificationSignal.SUPPORT_NEW,
             (
                 _item(
                     reflected,
@@ -331,8 +344,7 @@ def _classify_xss(
         )
     if reflected_now and encoded_now:
         return (
-            VerificationOutcome.WEAKENED,
-            _LOWER,
+            VerificationSignal.WEAKEN,
             (
                 _item(
                     encoding,
@@ -343,33 +355,39 @@ def _classify_xss(
             ),
             (),
         )
-    return _no_signal(delta, MARKER_REFLECTED)
+    return _no_signal(delta, MARKER_REFLECTED, server_error=server_error)
 
 
-def _material_context_change(delta: FeatureVectorDelta) -> bool:
-    """A behavioral change (status flip or large body swing) in the probe pair.
+def _payload_induced_server_error(
+    probe_status_code: int | None,
+    baseline_status_code: int | None,
+) -> bool:
+    """A 5xx the baseline did not return -- a real, payload-triggered error.
 
-    Keyed on the verification pair's own values, not on the noisy length delta
-    against the baseline probe, so a payload that merely differs in length from
-    the marker does not read as an error on its own.
+    Requiring the baseline *not* to be a 5xx avoids blaming the payload for an
+    application that already errors on the unmodified request.
     """
 
-    status = delta.get(STATUS_CODE_CHANGED)
-    if status and status.verification_observed and status.verification_value == 1.0:
-        return True
-    length = delta.get(RESPONSE_LENGTH_DIFF_RATIO)
-    return bool(
-        length
-        and length.verification_observed
-        and length.verification_value is not None
-        and length.verification_value >= delta.material_delta_threshold
-    )
+    if probe_status_code is None or probe_status_code < 500:
+        return False
+    return baseline_status_code is None or baseline_status_code < 500
 
 
-def _no_signal(delta: FeatureVectorDelta, missing_signal: str) -> _Classification:
-    """No vulnerability-specific signal: a generic error, or no change at all."""
+def _no_signal(
+    delta: FeatureVectorDelta,
+    missing_signal: str,
+    *,
+    server_error: bool = False,
+) -> _Classification:
+    """No vulnerability-specific signal: a genuine error, or a benign difference.
 
-    if _material_context_change(delta):
+    Only a payload-induced server error is inconclusive. A response that merely
+    changed length or moved to a non-5xx status is treated as a benign
+    difference (``UNCHANGED``), which keeps boundary/length noise from producing
+    a flood of inconclusive labels.
+    """
+
+    if server_error:
         evidence: list[VerificationEvidenceItem] = []
         for name in (STATUS_CODE_CHANGED, RESPONSE_LENGTH_DIFF_RATIO):
             item = delta.get(name)
@@ -378,17 +396,16 @@ def _no_signal(delta: FeatureVectorDelta, missing_signal: str) -> _Classificatio
                     _item(
                         item,
                         "up",
-                        "The response changed materially but without a "
+                        "The payload triggered a server error (5xx) without a "
                         f"{missing_signal} signal; treated as generic error "
                         "handling, so the prior is retained.",
                     )
                 )
         return (
-            VerificationOutcome.INCONCLUSIVE_ERROR,
-            _KEEP,
+            VerificationSignal.INCONCLUSIVE,
             tuple(evidence),
             (
-                "verification changed the response without a vulnerability-"
+                "verification triggered a server error without a vulnerability-"
                 "specific signal; prior retained pending manual review",
             ),
         )
@@ -403,7 +420,7 @@ def _no_signal(delta: FeatureVectorDelta, missing_signal: str) -> _Classificatio
                 "confidence is kept.",
             ),
         )
-    return (VerificationOutcome.UNCHANGED, _KEEP, kept_evidence, ())
+    return (VerificationSignal.UNCHANGED, kept_evidence, ())
 
 
 def _item(delta_item: object, direction: str, reason: str) -> VerificationEvidenceItem:
@@ -416,20 +433,24 @@ def _item(delta_item: object, direction: str, reason: str) -> VerificationEviden
     )
 
 
-def _result(
-    outcome: VerificationOutcome,
+def _apply_signal(
+    signal: VerificationSignal,
     *,
     prior: float,
-    confidence: float,
+    family: str,
+    model: VerificationConfidenceModel,
     evidence: tuple[VerificationEvidenceItem, ...],
     warnings: tuple[str, ...],
 ) -> VerificationConfidence:
+    posterior = model.apply(prior, family, signal)
     return VerificationConfidence(
         rule_version=CONFIDENCE_RULE_VERSION,
         scale=CONFIDENCE_SCALE,
-        outcome=outcome,
+        outcome=OUTCOME_FOR_SIGNAL[signal],
+        signal=signal,
+        model_version=model.model_version,
         prior_probability=_clamp(prior),
-        confidence=_clamp(confidence),
+        confidence=_clamp(posterior),
         evidence=evidence,
         warnings=warnings,
     )

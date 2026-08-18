@@ -175,8 +175,10 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
                     )
                 crawl_path = Path(workdir) / "vulnspider-crawl.json"
                 analysis_path = Path(workdir) / "vulnspider-analysis.json"
+                report_path = Path(workdir) / "vulnspider-report.html"
                 crawl_text = crawl_path.read_text(encoding="utf-8")
                 analysis_text = analysis_path.read_text(encoding="utf-8")
+                report_text = report_path.read_text(encoding="utf-8")
                 crawl_report = json.loads(crawl_text)
                 analysis_report = json.loads(analysis_text)
             finally:
@@ -185,14 +187,18 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(captured), 1)
         self.assertEqual(stderr.getvalue(), "")
-        self.assertEqual(len(stdout.getvalue().splitlines()), 3)
+        # Simple mode now writes the HTML dashboard by default, so the summary
+        # prints a fourth line pointing at it (ADR-034).
+        self.assertEqual(len(stdout.getvalue().splitlines()), 4)
         self.assertIn("mode=dynamic", stdout.getvalue())
         self.assertIn("vulnspider-crawl.json", stdout.getvalue())
         self.assertIn("vulnspider-analysis.json", stdout.getvalue())
+        self.assertIn("vulnspider-report.html", stdout.getvalue())
         self.assertNotIn(SENTINEL, stdout.getvalue())
         self.assertNotIn(SENTINEL, stderr.getvalue())
         self.assertNotIn(SENTINEL, crawl_text)
         self.assertNotIn(SENTINEL, analysis_text)
+        self.assertNotIn(SENTINEL, report_text)
         self.assertNotIn("SIMPLE_GET_AUTH_SECRET", crawl_text)
         self.assertNotIn("SIMPLE_GET_AUTH_SECRET", analysis_text)
         self.assertEqual(crawl_report["report_kind"], "crawl")

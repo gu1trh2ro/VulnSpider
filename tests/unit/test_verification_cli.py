@@ -100,6 +100,48 @@ class VerificationCliTests(unittest.TestCase):
                 self.assertGreater(conf, 0.0)
                 self.assertLess(conf, 1.0)
 
+    def test_decision_json_reflects_final_confidence(self) -> None:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with TemporaryDirectory(prefix="vulnspider-verify-json-") as workdir:
+            directory = Path(workdir)
+            records = self._write_records(directory)
+            output = directory / "analysis.json"
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                exit_code = cli.main(
+                    [
+                        "analyze",
+                        "--input",
+                        str(records),
+                        "--top-k",
+                        "5",
+                        "--output",
+                        str(output),
+                        "--verify",
+                        "--verify-output",
+                        str(directory / "v.json"),
+                    ],
+                    transport=VulnerableTransport(),
+                )
+            self.assertEqual(exit_code, 0, stderr.getvalue())
+            report = json.loads(output.read_text(encoding="utf-8"))
+        # The decision JSON and the verification report now agree on the final
+        # score (ADR-034): every selected candidate carries a final_confidence.
+        self.assertIsNotNone(report["verification"])
+        self.assertTrue(report["verification"]["ran"])
+        entry = report["verification_order"][0]
+        self.assertIn("final_confidence", entry)
+        self.assertIn("verification_outcome", entry)
+        self.assertIn("prior_probability", entry)
+
+    def test_simple_mode_defaults_to_html_dashboard(self) -> None:
+        parser = cli.build_parser()
+        default = cli._simple_analysis_args(parser.parse_args(["-u", "http://127.0.0.1/"]))
+        self.assertEqual(default.html_output, cli._SIMPLE_DEFAULT_HTML_OUTPUT)
+        disabled = cli._simple_analysis_args(
+            parser.parse_args(["-u", "http://127.0.0.1/", "--no-html"])
+        )
+        self.assertIsNone(disabled.html_output)
+
     def test_verify_output_collision_is_rejected(self) -> None:
         stdout, stderr = io.StringIO(), io.StringIO()
         with TemporaryDirectory(prefix="vulnspider-verify-collide-") as workdir:

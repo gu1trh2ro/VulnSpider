@@ -45,6 +45,7 @@ from vulnspider.reporting.html_report import (
     _requests_context,
 )
 from vulnspider.scoring.calibration import CalibratedProbability, CalibratedScorer
+from vulnspider.verification.focused import CandidateVerification
 
 DECISION_HTML_REPORT_VERSION = "decision-html-v3"
 
@@ -53,10 +54,60 @@ _EMPTY_ENDPOINTS: Mapping[str, Endpoint] = {}
 _EMPTY_PROBE_RUNS: Mapping[str, ProbeRun] = {}
 _EMPTY_PROBABILITIES: Mapping[str, CalibratedProbability] = {}
 _EMPTY_MODELS: Mapping[str, CalibratedScorer] = {}
+_EMPTY_VERIFICATION: Mapping[str, CandidateVerification] = {}
 
 _BAND_LABEL = {"high": "높음", "medium": "중간", "low": "낮음"}
 _FAMILY_TONE = {"SQLI": "sqli", "REFLECTED_XSS": "xss", "BROKEN_ACCESS_CONTROL": "bac"}
 _FAMILY_LABEL_KO = {"SQLI": "SQL Injection", "REFLECTED_XSS": "Reflected XSS"}
+
+# Post-verification outcome labels for the report.
+_OUTCOME_LABEL_KO = {
+    "SUPPORTED": "검증으로 뒷받침됨",
+    "WEAKENED": "검증으로 약화됨",
+    "INCONCLUSIVE_ERROR": "판정 보류(에러)",
+    "UNCHANGED": "변화 없음",
+    "NOT_EXECUTED": "미실행",
+    "REJECTED": "검증 거부됨",
+}
+_OUTCOME_TONE = {
+    "SUPPORTED": "high",
+    "WEAKENED": "low",
+    "INCONCLUSIVE_ERROR": "muted",
+    "UNCHANGED": "muted",
+    "NOT_EXECUTED": "muted",
+    "REJECTED": "muted",
+}
+
+
+def _final_score(
+    candidate: DecisionCandidate,
+    verification: Mapping[str, CandidateVerification],
+) -> float:
+    """The score to present: post-verification confidence if it ran, else prior.
+
+    This is the whole point of the confidence-update stage: when verification
+    ran for a candidate, the number the report leads with is the *updated*
+    confidence, not the pre-verification probability. Nothing is recomputed --
+    the value is read straight from the authoritative ``CandidateVerification``.
+    """
+
+    verified = verification.get(candidate.candidate_id)
+    if verified is not None:
+        return float(verified.final_confidence)
+    return float(candidate.probability)
+
+
+def _score_caption(
+    candidate: DecisionCandidate,
+    verification: Mapping[str, CandidateVerification],
+) -> str:
+    verified = verification.get(candidate.candidate_id)
+    if verified is None:
+        return f"기대값 {candidate.expected_value:.2f}"
+    return (
+        f"검증 전 {_fmt_percent(verified.prior_probability)}% "
+        f"→ 최종 {_fmt_percent(verified.final_confidence)}%"
+    )
 
 
 def render_decision_html_report(
@@ -68,6 +119,7 @@ def render_decision_html_report(
     probe_runs: Mapping[str, ProbeRun] = _EMPTY_PROBE_RUNS,
     probabilities: Mapping[str, CalibratedProbability] = _EMPTY_PROBABILITIES,
     models: Mapping[str, CalibratedScorer] = _EMPTY_MODELS,
+    verification: Mapping[str, CandidateVerification] = _EMPTY_VERIFICATION,
     warnings: Sequence[str] = (),
     elapsed_seconds: float = 0.0,
     endpoint_count: int = 0,
@@ -80,27 +132,35 @@ def render_decision_html_report(
     outcome.validate()
 
     selected = outcome.selected
+    verified = bool(verification)
+    order_heading = (
+        "검증된 최종 점수 순서 <span class=\"ko-en\">final confidence order</span>"
+        if verified
+        else "검증 순서 <span class=\"ko-en\">Verification order</span>"
+    )
     sections = [
-        _render_header(target, outcome, models),
-        _render_stats(outcome),
+        _render_header(target, outcome, models, verified),
+        _render_stats(outcome, verification),
         _render_charts(
             outcome,
+            verification=verification,
             endpoint_count=endpoint_count or len(endpoints),
             input_point_count=input_point_count or len(input_points),
         ),
         _render_guarantee(outcome),
         _render_warnings(list(warnings)),
-        '<h2 class="section">검증 순서 <span class="ko-en">Verification order</span></h2>',
-        _render_intro(),
+        f'<h2 class="section">{order_heading}</h2>',
+        _render_intro(verified),
         _render_candidates(
             selected,
             input_points=input_points,
             endpoints=endpoints,
             probe_runs=probe_runs,
             probabilities=probabilities,
+            verification=verification,
         ),
         _render_unselected(outcome, input_points, endpoints),
-        _render_footer(outcome, elapsed_seconds),
+        _render_footer(outcome, elapsed_seconds, verified),
     ]
     body = "\n\n".join(section for section in sections if section)
     title = "VulnSpider 결정 리포트" + (f" — {target}" if target else "")
@@ -144,6 +204,7 @@ def _render_header(
     target: str,
     outcome: DecisionOutcome,
     models: Mapping[str, CalibratedScorer],
+    verified: bool = False,
 ) -> str:
     trained = sorted(
         (family, scorer.training_samples) for family, scorer in models.items()
@@ -158,22 +219,31 @@ def _render_header(
     target_line = (
         f'<div class="target">대상 &rarr; {_esc(target)}</div>' if target else ""
     )
+    tagline = (
+        "보정된 확률로 후보 순위를 매긴 뒤, 상위 후보를 실제로 재검증하여 신뢰도를 "
+        "갱신했습니다. 아래 점수는 <b>검증 이후의 최종 신뢰도</b>이며, 여전히 확정된 "
+        "취약점이 아니라 검증 우선순위입니다."
+        if verified
+        else "보정된 확률로 후보 순위를 매기고 확률이 가장 높은 Top-K를 검증 대상으로 "
+        "선택한 결과입니다. <b>검증 우선순위이며 확정된 취약점이 아닙니다.</b>"
+    )
     return (
         '<header class="masthead">\n'
         '  <div class="brand">\n'
         "    <h1>VulnSpider</h1>"
         f'<span class="ver">결정 리포트 &middot; {_esc(outcome.policy_version)}</span>\n'
         "  </div>\n"
-        '  <div class="tagline">보정된 확률로 후보 순위를 매기고 확률이 가장 높은 '
-        "Top-K를 검증 대상으로 선택한 결과입니다. <b>검증 우선순위이며 확정된 "
-        "취약점이 아닙니다.</b></div>\n"
+        f'  <div class="tagline">{tagline}</div>\n'
         f"  {target_line}\n"
         f'  <div class="target">모델 &rarr; {_esc(model_line)}</div>\n'
         "</header>"
     )
 
 
-def _render_stats(outcome: DecisionOutcome) -> str:
+def _render_stats(
+    outcome: DecisionOutcome,
+    verification: Mapping[str, CandidateVerification] = _EMPTY_VERIFICATION,
+) -> str:
     cells = [
         (_fmt_number(outcome.initial_candidates), "채점된 후보"),
         (_fmt_number(len(outcome.selected)), "선택됨"),
@@ -182,6 +252,14 @@ def _render_stats(outcome: DecisionOutcome) -> str:
     ]
     if outcome.conformal is not None:
         cells.append((_fmt_number(outcome.conformal_set_size), "보장 집합"))
+    if verification:
+        supported = sum(
+            1
+            for item in verification.values()
+            if item.final_outcome.value == "SUPPORTED"
+        )
+        cells.append((_fmt_number(len(verification)), "검증됨"))
+        cells.append((_fmt_number(supported), "검증 뒷받침"))
     items = "\n".join(
         f'  <div class="stat"><div class="n">{_esc(value)}</div>'
         f'<div class="l">{_esc(label)}</div></div>'
@@ -198,6 +276,7 @@ def _render_stats(outcome: DecisionOutcome) -> str:
 def _render_charts(
     outcome: DecisionOutcome,
     *,
+    verification: Mapping[str, CandidateVerification],
     endpoint_count: int,
     input_point_count: int,
 ) -> str:
@@ -205,7 +284,7 @@ def _render_charts(
 
     bands = {"high": 0, "medium": 0, "low": 0}
     for candidate in selected:
-        bands[_priority_band(float(candidate.probability))] += 1
+        bands[_priority_band(_final_score(candidate, verification))] += 1
     donut = donut_chart(
         [
             Slice(_BAND_LABEL[name], bands[name], name)
@@ -258,10 +337,10 @@ def _render_charts(
         [
             Bar(
                 label=f"#{order} {_family_label(candidate.family)}",
-                ratio=float(candidate.probability),
-                value_label=f"{_fmt_percent(float(candidate.probability))}%",
-                tone=_priority_band(float(candidate.probability)),
-                caption=f"기대값 {candidate.expected_value:.2f}",
+                ratio=_final_score(candidate, verification),
+                value_label=f"{_fmt_percent(_final_score(candidate, verification))}%",
+                tone=_priority_band(_final_score(candidate, verification)),
+                caption=_score_caption(candidate, verification),
             )
             for order, candidate in enumerate(selected, start=1)
         ],
@@ -336,7 +415,14 @@ def _render_guarantee(outcome: DecisionOutcome) -> str:
     )
 
 
-def _render_intro() -> str:
+def _render_intro(verified: bool = False) -> str:
+    if verified:
+        return (
+            '<div class="notice small">각 항목의 점수는 <b>검증 이후의 최종 '
+            "신뢰도</b>입니다. <b>검증 결과</b>는 변형 페이로드 재전송으로 확인한 "
+            "내용(뒷받침/약화/판정 보류)과 검증 전후 점수 변화를, <b>순위 근거</b>는 "
+            "검증 이전 확률을 어떤 신호가 올리거나 내렸는지를 보여줍니다.</div>"
+        )
     return (
         '<div class="notice small">아래 순서대로 검증하십시오. 각 항목의 '
         "<b>순위 근거</b>는 어떤 신호가 확률을 얼마나 올리거나 내렸는지, "
@@ -351,6 +437,7 @@ def _render_candidates(
     endpoints: Mapping[str, Endpoint],
     probe_runs: Mapping[str, ProbeRun],
     probabilities: Mapping[str, CalibratedProbability],
+    verification: Mapping[str, CandidateVerification] = _EMPTY_VERIFICATION,
 ) -> str:
     if not selected:
         return '<div class="empty">선택된 후보가 없습니다.</div>'
@@ -362,6 +449,7 @@ def _render_candidates(
             endpoints=endpoints,
             probe_runs=probe_runs,
             calibrated=probabilities.get(candidate.candidate_id),
+            verified=verification.get(candidate.candidate_id),
         )
         for rank, candidate in enumerate(selected, start=1)
     )
@@ -375,8 +463,13 @@ def _render_candidate(
     endpoints: Mapping[str, Endpoint],
     probe_runs: Mapping[str, ProbeRun],
     calibrated: CalibratedProbability | None,
+    verified: CandidateVerification | None = None,
 ) -> str:
-    probability = float(candidate.probability)
+    probability = (
+        float(verified.final_confidence)
+        if verified is not None
+        else float(candidate.probability)
+    )
     band = _priority_band(probability)
     percent = _fmt_percent(probability)
     input_point = input_points.get(candidate.subject_ref)
@@ -402,10 +495,11 @@ def _render_candidate(
       <div class="meterwrap">
         <div class="prio {band}">{percent}%</div>
         <div class="meter"><i class="{band}" style="width:{percent}%"></i></div>
-        <div class="pcaption">취약 확률 &middot; 기대값 \
-{candidate.expected_value:.2f}</div>
+        <div class="pcaption">{_meter_caption(candidate, verified)}</div>
       </div>
     </div>
+
+    {_render_verification(verified)}
 
     {_render_evidence(candidate, calibrated)}
 
@@ -415,6 +509,67 @@ def _render_candidate(
     <div class="ids">candidate {_esc(candidate.candidate_id)} &middot; \
 feature vector {_esc(candidate.feature_vector_ref)}</div>
   </article>"""
+
+
+def _meter_caption(
+    candidate: DecisionCandidate,
+    verified: CandidateVerification | None,
+) -> str:
+    if verified is None:
+        return f"취약 확률 &middot; 기대값 {candidate.expected_value:.2f}"
+    return (
+        "검증 후 최종 신뢰도 &middot; 검증 전 "
+        f"{_fmt_percent(verified.prior_probability)}%"
+    )
+
+
+def _render_verification(verified: CandidateVerification | None) -> str:
+    """검증 결과: 어떤 판정이 났고 점수가 검증 전후로 어떻게 바뀌었는지.
+
+    아무것도 재계산하지 않는다. 값은 권위 있는 ``CandidateVerification``에서
+    그대로 읽는다(ARCHITECTURE.md: 리포팅은 결과를 표시할 뿐 재구성하지 않는다).
+    """
+
+    if verified is None:
+        return ""
+    outcome = verified.final_outcome.value
+    tone = _OUTCOME_TONE.get(outcome, "muted")
+    label = _OUTCOME_LABEL_KO.get(outcome, outcome)
+    prior = _fmt_percent(verified.prior_probability)
+    final = _fmt_percent(verified.final_confidence)
+    delta = verified.final_confidence - verified.prior_probability
+    arrow = "▲" if delta > 1e-9 else ("▼" if delta < -1e-9 else "=")
+    reasons: list[str] = []
+    for result in verified.results:
+        for item in result.verification_confidence.evidence:
+            reasons.append(item.reason)
+    unique_reasons = list(dict.fromkeys(reasons))[:3]
+    reason_html = (
+        "<ul class=\"vreason\">"
+        + "".join(f"<li>{_esc(reason)}</li>" for reason in unique_reasons)
+        + "</ul>"
+        if unique_reasons
+        else ""
+    )
+    accepted = sum(
+        1 for result in verified.results if result.validator_decision == "ACCEPTED"
+    )
+    rejected = len(verified.results) - accepted
+    payload_line = (
+        f"검증 페이로드 {len(verified.results)}개(승인 {accepted}, 거부 {rejected})"
+    )
+    return (
+        '<div class="why vpanel">\n'
+        '  <div class="lab">검증 결과 '
+        '<span class="ko-en">focused verification</span></div>\n'
+        f'  <div class="vhead"><span class="vbadge {tone}">{_esc(label)}</span>'
+        f'<span class="vscore">검증 전 {prior}% <b>{arrow}</b> 최종 {final}%</span>'
+        "</div>\n"
+        f"  {reason_html}\n"
+        f'  <div class="chart-note">{_esc(payload_line)}. 최종 신뢰도는 검증 이전 '
+        "확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>\n"
+        "</div>"
+    )
 
 
 def _render_endpoint_line(
@@ -595,14 +750,24 @@ def _render_unselected(
     )
 
 
-def _render_footer(outcome: DecisionOutcome, elapsed_seconds: float) -> str:
+def _render_footer(
+    outcome: DecisionOutcome,
+    elapsed_seconds: float,
+    verified: bool = False,
+) -> str:
+    caveat = (
+        "여기의 점수는 검증 이후의 최종 신뢰도입니다. 규칙 기반 검증 근거이며 "
+        "여전히 확정된 취약점이 아닙니다."
+        if verified
+        else "여기의 확률은 검증 이전의 우선순위입니다(ADR-016). 확정된 취약점이 "
+        "아닙니다."
+    )
     return (
         "<footer>"
         f"{_esc(DECISION_HTML_REPORT_VERSION)} &middot; "
         f"{_esc(outcome.policy_version)} &middot; "
         f"{elapsed_seconds:.2f}s<br>"
-        '<span class="warn">여기의 확률은 검증 이전의 우선순위입니다(ADR-016). '
-        "확정된 취약점이 아닙니다.</span>"
+        f'<span class="warn">{caveat}</span>'
         "</footer>"
     )
 
@@ -612,4 +777,15 @@ _EXTRA_STYLE = """
          color:var(--muted);font-weight:500;margin-left:8px}
   .notice b{color:var(--ink)}
   .why .bars{margin-top:4px}
+  .vpanel .vhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+         margin:2px 0 6px}
+  .vbadge{display:inline-block;padding:2px 9px;border-radius:999px;
+         font-size:12px;font-weight:600;color:#fff}
+  .vbadge.high{background:var(--high,#c0392b)}
+  .vbadge.low{background:var(--low,#7f8c8d)}
+  .vbadge.muted{background:var(--muted,#95a5a6)}
+  .vscore{font-size:12.5px;color:var(--ink)}
+  .vscore b{margin:0 3px}
+  ul.vreason{margin:4px 0 0;padding-left:18px;font-size:12.5px;color:var(--ink)}
+  ul.vreason li{margin:2px 0}
 """

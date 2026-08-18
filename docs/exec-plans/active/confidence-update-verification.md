@@ -108,6 +108,15 @@ CLI: additive opt-in `--verify` / `--verify-output` on `analyze` and simple
 
 - 2026-08-18: Implemented the `verification/` package, CLI opt-in, and tests;
   full unit suite (682) + format/lint/type checks green. Pending Gate Review.
+- 2026-08-18 (phase 2, ADR-033): replaced the hand-picked confidence constants
+  with a corpus-calibrated per-(family, signal) LLR model
+  (`verification/calibration.py`), capped so the score moves gently. Added the
+  verification corpus label/protocol (`corpus/verification_collection.py`,
+  `verification-corpus-v1`) and the out-of-fold Brier evaluation arm
+  (`corpus/verification_fitting.py`), reachable through `corpus verify-collect`
+  / `corpus verify-fit`. Folded the updated confidence into the final HTML
+  report as the headline score (`reporting/decision_html_report.py`), fed by
+  running verification before the report. Full unit suite (697) + checks green.
 
 ## Decision Log
 
@@ -123,5 +132,20 @@ CLI: additive opt-in `--verify` / `--verify-output` on `analyze` and simple
 ## Open Questions
 
 - Should a reproduced signal (baseline already suspected) nudge confidence up a
-  little, or strictly keep it? Currently keeps it (conservative).
-- HTML verification report and wiring into the decision report are deferred.
+  little, or strictly keep it? **Resolved (ADR-033):** made data-driven — the
+  corpus decides via the SUPPORT_REPRODUCED LLR; the default keeps it (0.0).
+- HTML verification report and wiring into the decision report. **Resolved
+  (ADR-033):** the HTML report now leads with the post-verification confidence.
+  Folding the updated score into the decision **JSON** report is still open.
+- Single end-to-end dashboard vs separate files. **Resolved (ADR-034):** the
+  HTML dashboard is the primary report (`-u` writes it by default) and the
+  decision JSON now carries the same post-verification confidence; JSONs remain
+  machine-readable exports.
+- INCONCLUSIVE_ERROR over-generation. **Resolved (ADR-034):** gated on a real
+  error (transport failure or payload-induced 5xx); length/non-5xx differences
+  stay UNCHANGED.
+- Remaining: request budget/rate-limit/baseline-reuse (out of scope this round);
+  a real labeled verification corpus and live `verify-collect` loopback
+  integration; real Brier-improvement measurement; cap/smoothing hyperparameter
+  selection; a real GPT/Gemini proposer; whether `analyze` should also default
+  to HTML and make the JSON export optional.

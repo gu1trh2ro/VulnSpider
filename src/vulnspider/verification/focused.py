@@ -46,7 +46,11 @@ from vulnspider.scoring.calibration import (
     CalibrationError,
     heuristic_prior_for_family,
 )
-from vulnspider.verification.confidence import update_confidence
+from vulnspider.verification.calibration import (
+    VerificationConfidenceModel,
+    VerificationSignal,
+)
+from vulnspider.verification.confidence import OUTCOME_FOR_SIGNAL, update_confidence
 from vulnspider.verification.delta import (
     DEFAULT_MATERIAL_DELTA,
     compute_feature_delta,
@@ -71,6 +75,19 @@ from vulnspider.verification.validator import PayloadValidator, ValidatorResult
 
 DEFAULT_MAX_CANDIDATES = 10
 
+# Aggregation priority when a candidate's payloads land on different signals:
+# the strongest evidence wins. Support (newly revealed first) outranks a
+# weakening, which outranks an inconclusive error, an unchanged, and finally a
+# not-executed/rejected result.
+_SIGNAL_PRIORITY: dict[VerificationSignal, int] = {
+    VerificationSignal.SUPPORT_NEW: 0,
+    VerificationSignal.SUPPORT_REPRODUCED: 1,
+    VerificationSignal.WEAKEN: 2,
+    VerificationSignal.INCONCLUSIVE: 3,
+    VerificationSignal.UNCHANGED: 4,
+    VerificationSignal.NOT_EXECUTED: 5,
+}
+
 
 class FocusedVerificationError(ValueError):
     """Raised when focused verification cannot run against an analysis."""
@@ -87,6 +104,9 @@ class VerificationConfig:
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES
     material_delta_threshold: float = DEFAULT_MATERIAL_DELTA
     max_candidates: int = DEFAULT_MAX_CANDIDATES
+    confidence_model: VerificationConfidenceModel = field(
+        default_factory=VerificationConfidenceModel.default
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +132,7 @@ class CandidateVerification:
     selection_rank: int
     prior_probability: float
     final_outcome: ResultStatus
+    final_signal: VerificationSignal
     final_confidence: float
     results: tuple[VerificationResult, ...]
 
@@ -123,6 +144,7 @@ class CandidateVerification:
             "selection_rank": self.selection_rank,
             "prior_probability": self.prior_probability,
             "final_outcome": self.final_outcome.value,
+            "final_signal": self.final_signal.value,
             "final_confidence": self.final_confidence,
             "confidence_delta": self.final_confidence - self.prior_probability,
             "results": [result.to_dict() for result in self.results],
@@ -222,7 +244,7 @@ def verify_target(
     results = tuple(
         _verify_proposal(target, proposal, config=config) for proposal in proposals
     )
-    final_outcome, final_confidence = _aggregate(target, results)
+    final_signal, final_outcome, final_confidence = _aggregate(target, results)
     return CandidateVerification(
         candidate_id=target.candidate_id,
         input_point_id=target.input_point.id or "",
@@ -230,6 +252,7 @@ def verify_target(
         selection_rank=target.selection_rank,
         prior_probability=target.prior_probability,
         final_outcome=final_outcome,
+        final_signal=final_signal,
         final_confidence=final_confidence,
         results=results,
     )
@@ -243,7 +266,7 @@ def _verify_proposal(
 ) -> VerificationResult:
     validator_result = config.validator.validate(proposal)
     if not validator_result.accepted:
-        return _rejected_result(target, proposal, validator_result)
+        return _rejected_result(target, proposal, validator_result, config=config)
 
     payload = validator_result.validated_payload
     assert payload is not None  # validator guarantees this for accepted results
@@ -256,7 +279,7 @@ def _verify_proposal(
             mutation_family=payload.family,
         )
     except VerificationPlanningError:
-        return _not_executed_result(target, proposal, validator_result)
+        return _not_executed_result(target, proposal, validator_result, config=config)
 
     _require_loopback(probe_plan.baseline_request.url)
     _require_loopback(probe_plan.probe_request.url)
@@ -289,6 +312,9 @@ def _verify_proposal(
         prior_probability=target.prior_probability,
         delta=delta,
         executed=True,
+        model=config.confidence_model,
+        probe_status_code=execution.probe_response.status_code,
+        baseline_status_code=execution.baseline_response.status_code,
     )
     execution_refs = ExecutionRefs(
         probe_plan_id=probe_plan.id or "",
@@ -313,12 +339,15 @@ def _rejected_result(
     target: VerificationTarget,
     proposal: PayloadProposal,
     validator_result: ValidatorResult,
+    *,
+    config: VerificationConfig,
 ) -> VerificationResult:
     confidence = update_confidence(
         vulnerability_type=target.vulnerability_type,
         prior_probability=target.prior_probability,
         delta=None,
         executed=False,
+        model=config.confidence_model,
     )
     return VerificationResult.from_objects(
         proposal=proposal,
@@ -333,6 +362,8 @@ def _not_executed_result(
     target: VerificationTarget,
     proposal: PayloadProposal,
     validator_result: ValidatorResult,
+    *,
+    config: VerificationConfig,
 ) -> VerificationResult:
     # Accepted, but the payload could not be planned into a probe (e.g. a
     # non-request-bindable location). No request was sent, so the prior is kept.
@@ -341,6 +372,7 @@ def _not_executed_result(
         prior_probability=target.prior_probability,
         delta=None,
         executed=False,
+        model=config.confidence_model,
     )
     return VerificationResult.from_objects(
         proposal=proposal,
@@ -354,27 +386,34 @@ def _not_executed_result(
 def _aggregate(
     target: VerificationTarget,
     results: tuple[VerificationResult, ...],
-) -> tuple[ResultStatus, float]:
-    """Reduce a candidate's per-payload results to one outcome and confidence.
+) -> tuple[VerificationSignal, ResultStatus, float]:
+    """Reduce a candidate's per-payload results to one signal, outcome, score.
 
-    Priority is evidential, not numeric: any support wins (take the strongest
-    supporting confidence), otherwise any weakening wins (take the most
-    conservative), otherwise the prior is retained.
+    The strongest signal wins (``_SIGNAL_PRIORITY``): newly revealed support
+    over reproduced support over a weakening over an inconclusive error over no
+    change. The chosen payload's confidence is the candidate's final confidence
+    -- and because every payload shares one prior and one model, that equals the
+    model applied to the winning signal.
     """
 
-    supported = [r for r in results if r.outcome_status == ResultStatus.SUPPORTED]
-    if supported:
-        return ResultStatus.SUPPORTED, max(r.confidence for r in supported)
-    weakened = [r for r in results if r.outcome_status == ResultStatus.WEAKENED]
-    if weakened:
-        return ResultStatus.WEAKENED, min(r.confidence for r in weakened)
-    if any(r.outcome_status == ResultStatus.INCONCLUSIVE_ERROR for r in results):
-        return ResultStatus.INCONCLUSIVE_ERROR, target.prior_probability
-    if any(r.outcome_status == ResultStatus.UNCHANGED for r in results):
-        return ResultStatus.UNCHANGED, target.prior_probability
-    if any(r.outcome_status == ResultStatus.REJECTED for r in results):
-        return ResultStatus.REJECTED, target.prior_probability
-    return ResultStatus.NOT_EXECUTED, target.prior_probability
+    if not results:
+        return (
+            VerificationSignal.NOT_EXECUTED,
+            ResultStatus.NOT_EXECUTED,
+            target.prior_probability,
+        )
+    best = min(
+        results,
+        key=lambda r: (
+            _SIGNAL_PRIORITY[r.verification_confidence.signal],
+            r.verification_result_id,
+        ),
+    )
+    final_signal = best.verification_confidence.signal
+    if all(r.outcome_status == ResultStatus.REJECTED for r in results):
+        return final_signal, ResultStatus.REJECTED, target.prior_probability
+    final_outcome = ResultStatus(OUTCOME_FOR_SIGNAL[final_signal].value)
+    return final_signal, final_outcome, best.confidence
 
 
 def build_targets(

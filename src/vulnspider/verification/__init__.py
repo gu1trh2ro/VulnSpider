@@ -11,9 +11,19 @@ An LLM never sets the final number and never bypasses the validator
 (`docs/PROTOTYPE_V0_2.md` §4.3-4.4).
 """
 
+from vulnspider.verification.calibration import (
+    DEFAULT_MAX_ABS_LLR,
+    VERIFICATION_MODEL_VERSION,
+    VerificationCalibrationError,
+    VerificationConfidenceModel,
+    VerificationSignal,
+    VerificationTrainingSample,
+    fit_verification_model,
+)
 from vulnspider.verification.confidence import (
     CONFIDENCE_RULE_VERSION,
     CONFIDENCE_SCALE,
+    OUTCOME_FOR_SIGNAL,
     ConfidenceError,
     VerificationConfidence,
     VerificationEvidenceItem,
@@ -76,15 +86,23 @@ __all__ = [
     "CONFIDENCE_RULE_VERSION",
     "CONFIDENCE_SCALE",
     "DEFAULT_MATERIAL_DELTA",
+    "DEFAULT_MAX_ABS_LLR",
     "DETERMINISTIC_PROPOSER_VERSION",
     "FAMILIES_FOR_TYPE",
     "MAX_PAYLOAD_LENGTH",
+    "OUTCOME_FOR_SIGNAL",
     "PROVIDER_DETERMINISTIC",
     "VALIDATOR_POLICY_VERSION",
     "VERIFICATION_CONTRACT_VERSION",
+    "VERIFICATION_MODEL_VERSION",
     "CandidateVerification",
     "ConfidenceError",
     "DeterministicMutationProposer",
+    "VerificationCalibrationError",
+    "VerificationConfidenceModel",
+    "VerificationSignal",
+    "VerificationTrainingSample",
+    "fit_verification_model",
     "ExecutionRefs",
     "FeatureDelta",
     "FeatureDeltaError",
