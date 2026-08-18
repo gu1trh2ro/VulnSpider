@@ -149,6 +149,17 @@ def decision_report(
 
     verified = verification or {}
 
+    def final_score(candidate: DecisionCandidate) -> float:
+        result = verified.get(candidate.candidate_id)
+        if result is not None:
+            return float(result.final_confidence)
+        return float(candidate.probability)
+
+    # Same Top-K set, re-ordered by the post-verification confidence when
+    # verification ran, so the JSON order matches the dashboard. The stable
+    # sort keeps the decision layer's probability order when nothing verified.
+    ordered = sorted(outcome.selected, key=lambda candidate: -final_score(candidate))
+
     def entry(position: int, candidate: DecisionCandidate) -> dict[str, Any]:
         record: dict[str, Any] = {
             "order": position,
@@ -198,7 +209,7 @@ def decision_report(
         "verification": _verification_summary(verified),
         "verification_order": [
             entry(position, candidate)
-            for position, candidate in enumerate(outcome.selected, start=1)
+            for position, candidate in enumerate(ordered, start=1)
         ],
     }
 

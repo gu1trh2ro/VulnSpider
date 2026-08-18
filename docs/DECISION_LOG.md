@@ -1187,6 +1187,15 @@ HTML이 같은 최종 점수를 제시한다. crawl/analysis/verification JSON�
 읽는 리포트가 아니라 기계 판독용 export로 위치한다. `analyze` 서브커맨드는
 `--html-output`가 기존처럼 옵트인(하위호환).
 
+**Decision (검증 후 재정렬):** 리포트의 **표시 순서와 헤드라인 점수는 검증 후 최종
+신뢰도** 기준으로 다시 정렬한다(HTML 카드·상단 후보 차트·decision JSON의
+`verification_order` 모두). 단 **Top-K 선택(어떤 K개를 검증할지)은 여전히 검증 이전
+확률**로 정한다 — 선택 멤버십은 바뀌지 않고 같은 집합을 최종 신뢰도로 재정렬만 한다.
+정렬은 안정(stable)이라 미검증 시 기존 확률 순서가 유지되고, 원래 우선순위는 각
+항목의 `selection_rank`로 보존한다. conformal recall 보장은 선택 로직의 일부라 검증
+이전 확률 기준을 유지한다. 근거: "무엇을 먼저 검증할지"는 prior가 답하지만, 리포트가
+제시하는 "최종 점수"라면 카드 배치도 그 점수와 일치해야 사용자 혼란이 없다.
+
 **Decision (INCONCLUSIVE 정밀화):** `INCONCLUSIVE_ERROR`를 **실제 에러**에만
 한정한다 — transport 실패, 또는 **payload가 유발한 5xx**(baseline이 5xx가 아니었던
 경우). 길이만 바뀌거나 non-5xx(예: 400/404 입력 거부)로 바뀐 경우는 취약 신호가

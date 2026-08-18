@@ -97,6 +97,22 @@ def _final_score(
     return float(candidate.probability)
 
 
+def _confidence_ordered(
+    selected: Sequence[DecisionCandidate],
+    verification: Mapping[str, CandidateVerification],
+) -> tuple[DecisionCandidate, ...]:
+    """Re-order the selected set by the score shown, highest first.
+
+    The sort is stable, so candidates that share a score (or all of them, when
+    no verification ran) keep the decision layer's original probability order.
+    The membership is never changed -- only the presentation order.
+    """
+
+    return tuple(
+        sorted(selected, key=lambda candidate: -_final_score(candidate, verification))
+    )
+
+
 def _score_caption(
     candidate: DecisionCandidate,
     verification: Mapping[str, CandidateVerification],
@@ -131,10 +147,15 @@ def render_decision_html_report(
         raise TypeError("outcome must be a DecisionOutcome")
     outcome.validate()
 
-    selected = outcome.selected
     verified = bool(verification)
+    # The Top-K *membership* stays exactly what the decision layer selected by
+    # the pre-verification probability -- that is what "verify these K" means.
+    # The report only re-*orders* that same set by the post-verification
+    # confidence when verification ran, so the lead score and the card order
+    # agree (the selection itself is untouched).
+    display_selected = _confidence_ordered(outcome.selected, verification)
     order_heading = (
-        "검증된 최종 점수 순서 <span class=\"ko-en\">final confidence order</span>"
+        "검증 후 최종 신뢰도 순서 <span class=\"ko-en\">final confidence order</span>"
         if verified
         else "검증 순서 <span class=\"ko-en\">Verification order</span>"
     )
@@ -144,6 +165,7 @@ def render_decision_html_report(
         _render_charts(
             outcome,
             verification=verification,
+            display_selected=display_selected,
             endpoint_count=endpoint_count or len(endpoints),
             input_point_count=input_point_count or len(input_points),
         ),
@@ -152,7 +174,7 @@ def render_decision_html_report(
         f'<h2 class="section">{order_heading}</h2>',
         _render_intro(verified),
         _render_candidates(
-            selected,
+            display_selected,
             input_points=input_points,
             endpoints=endpoints,
             probe_runs=probe_runs,
@@ -277,10 +299,14 @@ def _render_charts(
     outcome: DecisionOutcome,
     *,
     verification: Mapping[str, CandidateVerification],
+    display_selected: Sequence[DecisionCandidate] = (),
     endpoint_count: int,
     input_point_count: int,
 ) -> str:
-    selected = outcome.selected
+    # `display_selected` is the same Top-K set re-ordered by the shown score;
+    # the counts below are order-independent, but the per-candidate bar chart
+    # follows it so the bars match the card order.
+    selected = tuple(display_selected) if display_selected else outcome.selected
 
     bands = {"high": 0, "medium": 0, "low": 0}
     for candidate in selected:
@@ -418,10 +444,12 @@ def _render_guarantee(outcome: DecisionOutcome) -> str:
 def _render_intro(verified: bool = False) -> str:
     if verified:
         return (
-            '<div class="notice small">각 항목의 점수는 <b>검증 이후의 최종 '
-            "신뢰도</b>입니다. <b>검증 결과</b>는 변형 페이로드 재전송으로 확인한 "
-            "내용(뒷받침/약화/판정 보류)과 검증 전후 점수 변화를, <b>순위 근거</b>는 "
-            "검증 이전 확률을 어떤 신호가 올리거나 내렸는지를 보여줍니다.</div>"
+            '<div class="notice small">검증할 <b>후보(Top-K)는 검증 이전 '
+            "우선순위</b>로 선택했고, 아래 <b>표시 순서와 점수는 검증 이후 최종 "
+            "신뢰도</b> 기준으로 다시 정렬했습니다. <b>검증 결과</b>는 변형 페이로드 "
+            "재전송으로 확인한 내용(뒷받침/약화/판정 보류)과 검증 전후 점수 변화를, "
+            "<b>순위 근거</b>는 검증 이전 확률을 어떤 신호가 올리거나 내렸는지를 "
+            "보여줍니다.</div>"
         )
     return (
         '<div class="notice small">아래 순서대로 검증하십시오. 각 항목의 '
