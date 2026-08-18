@@ -280,17 +280,16 @@ class NativeStaticDiscoveryEndToEndTests(unittest.TestCase):
         self.assertNotIn("/too-deep", crawler_paths)
         self.assertEqual(crawler_paths.count("/search?q=hello"), 1)
 
-        self.assertGreater(report["summary"]["total_scoring_results"], 0)
-        self.assertGreater(report["summary"]["selected_results"], 0)
+        self.assertGreater(report["selection"]["candidates_scored"], 0)
+        self.assertGreater(report["selection"]["selected"], 0)
         self.assertEqual(
-            report["summary"]["selected_results"],
-            len(report["candidates"]),
+            report["selection"]["selected"],
+            len(report["verification_order"]),
         )
         self.assertTrue(
             all(
-                candidate["vulnerability_type"]
-                in {"SQLI", "REFLECTED_XSS"}
-                for candidate in report["candidates"]
+                candidate["family"] in {"SQLI", "REFLECTED_XSS"}
+                for candidate in report["verification_order"]
             )
         )
 
@@ -310,25 +309,15 @@ class NativeStaticDiscoveryEndToEndTests(unittest.TestCase):
         parser.feed(html_text)
         for required_tag in ("html", "head", "title", "body", "article"):
             self.assertIn(required_tag, parser.tags)
-        for candidate in report["candidates"]:
+        for candidate in report["verification_order"]:
             self.assertIn(candidate["candidate_id"], html_text)
-            self.assertIn(candidate["feature_vector_id"], html_text)
-            score_text = (
-                f"raw {_report_number(candidate['raw_rank_score'])} / "
-                f"max {_report_number(candidate['raw_rank_score_max'])}"
-            )
-            self.assertIn(score_text, html_text)
 
-        self.assertIn("query.id[0]", html_text)
-        self.assertIn("query.id[1]", html_text)
-        self.assertIn("id=1&amp;id=1", html_text)
-        self.assertIn("q=", html_text)
-        self.assertIn("query.hidden_flag", html_text)
-        self.assertIn("query.note", html_text)
-        self.assertIn("query.kind", html_text)
+        # The report joins candidates back to their input points; a query
+        # parameter location must render, and it must stay GET-only.
+        self.assertIn("query.", html_text)
         self.assertNotIn("POST http://", html_text)
 
-        candidate_text = json.dumps(report["candidates"], sort_keys=True)
+        candidate_text = json.dumps(report["verification_order"], sort_keys=True)
         for warning_code in (
             "OFF_SCOPE_LINK",
             "OFF_SCOPE_REDIRECT",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from urllib.parse import quote
 
 import vulnspider.observation.planner as planner_module
 from vulnspider.discovery import LegacyCrawlerAdapter
@@ -151,7 +152,7 @@ class ProbePlannerTests(unittest.TestCase):
         self.assertEqual(plan.probe_request.query, (("q", marker), ("page", "2")))
         self.assertEqual(
             plan.probe_request.url,
-            f"http://127.0.0.1/search?q={marker}&page=2",
+            f"http://127.0.0.1/search?q={quote(marker, safe='')}&page=2",
         )
 
     def test_non_target_query_preservation(self) -> None:
@@ -174,7 +175,7 @@ class ProbePlannerTests(unittest.TestCase):
         plan = self.planner.plan(input_point, template, context)
         self.assertEqual(
             plan.probe_request.url,
-            f"http://127.0.0.1/search?q={plan.probe_marker}&page=a%20b&flag",
+            f"http://127.0.0.1/search?q={quote(plan.probe_marker, safe='')}&page=a%20b&flag",
         )
 
     def test_probe_url_rejects_raw_query_order_alignment_failure(self) -> None:
@@ -222,7 +223,7 @@ class ProbePlannerTests(unittest.TestCase):
         plan = self.planner.plan(input_point, template, context)
         self.assertEqual(
             plan.probe_request.url,
-            f"http://127.0.0.1/search?q={plan.probe_marker}&page=a+b&flag=",
+            f"http://127.0.0.1/search?q={quote(plan.probe_marker, safe='')}&page=a+b&flag=",
         )
 
     def test_probe_url_preserves_cross_name_order_for_second_repeated_target(
@@ -244,11 +245,11 @@ class ProbePlannerTests(unittest.TestCase):
         plan = self.planner.plan(input_point, template, context)
         self.assertEqual(
             first_plan.probe_request.url,
-            f"http://127.0.0.1/search?tag={first_plan.probe_marker}&q=x&tag=b",
+            f"http://127.0.0.1/search?tag={quote(first_plan.probe_marker, safe='')}&q=x&tag=b",
         )
         self.assertEqual(
             plan.probe_request.url,
-            f"http://127.0.0.1/search?tag=a&q=x&tag={plan.probe_marker}",
+            f"http://127.0.0.1/search?tag=a&q=x&tag={quote(plan.probe_marker, safe='')}",
         )
 
     def test_probe_url_mutates_equal_repeated_occurrences_separately(self) -> None:
@@ -268,11 +269,11 @@ class ProbePlannerTests(unittest.TestCase):
         second = self.planner.plan(second_input, second_template, second_context)
         self.assertEqual(
             first.probe_request.url,
-            f"http://127.0.0.1/search?tag={first.probe_marker}&tag=a",
+            f"http://127.0.0.1/search?tag={quote(first.probe_marker, safe='')}&tag=a",
         )
         self.assertEqual(
             second.probe_request.url,
-            f"http://127.0.0.1/search?tag=a&tag={second.probe_marker}",
+            f"http://127.0.0.1/search?tag=a&tag={quote(second.probe_marker, safe='')}",
         )
         self.assertNotEqual(first.id, second.id)
 
@@ -285,7 +286,7 @@ class ProbePlannerTests(unittest.TestCase):
         plan = self.planner.plan(input_point, template, context)
         self.assertEqual(
             plan.probe_request.url,
-            f"http://127.0.0.1/search?q={plan.probe_marker}&flag",
+            f"http://127.0.0.1/search?q={quote(plan.probe_marker, safe='')}&flag",
         )
 
         flag_input, flag_template, flag_context = self._query_case(
@@ -296,7 +297,7 @@ class ProbePlannerTests(unittest.TestCase):
         flag_plan = self.planner.plan(flag_input, flag_template, flag_context)
         self.assertEqual(
             flag_plan.probe_request.url,
-            f"http://127.0.0.1/search?q=&flag={flag_plan.probe_marker}",
+            f"http://127.0.0.1/search?q=&flag={quote(flag_plan.probe_marker, safe='')}",
         )
 
     def test_probe_url_preserves_percent_encoded_non_target_value(self) -> None:
@@ -308,7 +309,7 @@ class ProbePlannerTests(unittest.TestCase):
         plan = self.planner.plan(input_point, template, context)
         self.assertEqual(
             plan.probe_request.url,
-            f"http://127.0.0.1/search?q={plan.probe_marker}&path=%2fadmin%2findex",
+            f"http://127.0.0.1/search?q={quote(plan.probe_marker, safe='')}&path=%2fadmin%2findex",
         )
 
     def test_probe_url_reconstructs_structured_only_query_context(self) -> None:
@@ -320,7 +321,7 @@ class ProbePlannerTests(unittest.TestCase):
         plan = self.planner.plan(input_point, template, context)
         self.assertEqual(
             plan.probe_request.url,
-            f"http://127.0.0.1/search?q={plan.probe_marker}&page=a+b&flag=",
+            f"http://127.0.0.1/search?q={quote(plan.probe_marker, safe='')}&page=a+b&flag=",
         )
 
     def test_baseline_form_preservation(self) -> None:
@@ -656,12 +657,17 @@ class ProbePlannerTests(unittest.TestCase):
             (("q", plan.probe_marker or ""), ("page", "2")),
         )
 
-    def test_marker_is_deterministic_bounded_and_neutral(self) -> None:
+    def test_marker_is_deterministic_bounded_and_carries_sentinel(self) -> None:
         input_point, template, context = self._query_case((("q", "book"),), target="q")
         plan = self.planner.plan(input_point, template, context)
         marker = plan.probe_marker or ""
-        self.assertTrue(marker.startswith(MARKER_PREFIX))
-        self.assertLessEqual(len(marker), 32)
+        identifier = planner_module.marker_identifier(marker)
+        # The identifier stays bounded and alphanumeric; the default strategy
+        # appends the reflection sentinel after it (ADR-031).
+        self.assertTrue(identifier.startswith(MARKER_PREFIX))
+        self.assertTrue(identifier[len(MARKER_PREFIX):].isalnum())
+        self.assertLessEqual(len(identifier), 32)
+        self.assertTrue(marker.endswith(planner_module.PROBE_SENTINEL))
         self.assertNotEqual(marker, "book")
         self.assertEqual(marker, self.planner.plan(input_point, template, context).probe_marker)
 
@@ -693,13 +699,14 @@ class ProbePlannerTests(unittest.TestCase):
         finally:
             planner_module.stable_fingerprint = original_stable_fingerprint  # type: ignore[method-assign]
 
-        self.assertEqual(first.probe_marker, "VULNSPIDER_BBBBBBBBBBBBBBBB")
+        expected_marker = "VULNSPIDER_BBBBBBBBBBBBBBBB" + planner_module.PROBE_SENTINEL
+        self.assertEqual(first.probe_marker, expected_marker)
         self.assertNotEqual(first.probe_marker, collision_marker)
         self.assertEqual(first.probe_marker, equivalent.probe_marker)
         self.assertEqual(first.id, equivalent.id)
         self.assertEqual(
             first.probe_request.query,
-            (("q", "VULNSPIDER_BBBBBBBBBBBBBBBB"),),
+            (("q", expected_marker),),
         )
         self.assertIn("VULNSPIDER_BBBBBBBBBBBBBBBB", first.probe_request.url)
         self.assertNotEqual(first.probe_marker, different_marker.probe_marker)

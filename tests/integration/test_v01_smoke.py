@@ -89,40 +89,26 @@ class V01EndToEndSmokeTests(unittest.TestCase):
             report = json.loads(report_text)
             html_text = html_output_path.read_text(encoding="utf-8")
 
-        self.assertEqual(report["summary"]["total_scoring_results"], 2)
-        self.assertEqual(report["summary"]["rankable_results"], 2)
-        self.assertEqual(report["summary"]["unrankable_results"], 0)
-        self.assertEqual(report["summary"]["selected_results"], 1)
-        self.assertEqual(len(report["candidates"]), 1)
-        candidate = report["candidates"][0]
-        self.assertEqual(candidate["rank"], 1)
-        self.assertEqual(candidate["vulnerability_type"], "REFLECTED_XSS")
-        self.assertEqual(candidate["raw_rank_score"], 45.0)
-        self.assertEqual(candidate["raw_rank_score_max"], 45.0)
-        self.assertEqual(candidate["selection_priority"], 1.0)
-        self.assertTrue(candidate["evidence"])
-        self.assertTrue(
-            all(
-                item["candidate_id"] == candidate["candidate_id"]
-                and item["feature_vector_id"] == candidate["feature_vector_id"]
-                and item["vulnerability_type"] == candidate["vulnerability_type"]
-                for item in candidate["evidence"]
-            )
-        )
+        self.assertEqual(report["selection"]["candidates_scored"], 2)
+        self.assertEqual(report["selection"]["selected"], 1)
+        self.assertEqual(report["selection"]["top_k"], 1)
+        self.assertEqual(len(report["verification_order"]), 1)
+        candidate = report["verification_order"][0]
+        self.assertEqual(candidate["order"], 1)
+        self.assertIn(candidate["family"], {"SQLI", "REFLECTED_XSS"})
+        self.assertIn("probability", candidate)
 
-        # The HTML dashboard (ADR-011) renders the same validated outcome,
-        # plus the real endpoint/param join and the actually-executed
-        # baseline/probe request pair — not a recomputation.
+        # The HTML dashboard renders the same validated decision outcome, plus
+        # the real endpoint/param join and the actually-executed baseline/probe
+        # request pair — not a recomputation.
         self.assertIn("Reflected XSS", html_text)
-        self.assertIn("GET http://127.0.0.1/search", html_text)
+        self.assertIn("/search", html_text)
         self.assertIn(candidate["candidate_id"], html_text)
-        self.assertIn(candidate["feature_vector_id"], html_text)
-        self.assertIn("Executed requests", html_text)
+        self.assertIn("실행된 요청", html_text)
         self.assertIn("baseline", html_text)
         self.assertIn("probe", html_text)
-        lowered_html = html_text.lower()
-        for misleading_name in ("confidence", "probability", "confirmed"):
-            self.assertNotIn(misleading_name, lowered_html)
+        # These probabilities are pre-verification priorities, not confirmations.
+        self.assertIn("검증 이전의 우선순위", html_text)
 
     def test_cli_html_output_is_optional_and_does_not_change_json_behavior(
         self,

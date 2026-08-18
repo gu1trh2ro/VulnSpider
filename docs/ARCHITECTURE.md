@@ -103,8 +103,101 @@ independent SQLi and Reflected XSS candidates and explainable
 `ScoreEvidence`. `selection/` preserves raw RankScore and uses the exact scorer
 maximum to derive deterministic cross-type `selection_priority`.
 
-There is no implemented BAC feature/scorer, feature cache, ground-truth store,
-or automated evaluation runner.
+There is no implemented feature cache, ground-truth store, or automated
+evaluation runner.
+
+#### Decision layer
+
+`scoring/calibration.py` and `decision/` add a budget-aware layer *above*
+selection (ADR-022, ADR-023, ADR-024). It consumes the validated
+`RankedCandidateContext` handoff and recomputes nothing.
+
+- `scoring/calibration.py` — Bayesian logistic regression producing a
+  calibrated `P(vulnerable | evidence)`. The existing heuristic weights are the
+  prior mean, so the zero-data `logit_mean` is an affine transform of
+  `RankScore` and reproduces the heuristic order exactly.
+- `decision/cost.py` — explicit, versioned verification cost and severity
+  policy. Values are documented policy, not measurement.
+- `decision/greedy.py` — selects the K most vulnerable input points.
+  "Vulnerability" is the calibrated probability; severity does not multiply in
+  and only breaks ties through family order, SQLi then Reflected XSS then BAC
+  (ADR-028). The default mode is a plain sort, which is the exact optimum, so
+  `approximation_ratio` is 1.0. A request budget and a redundancy discount are
+  opt-in for the different question of what a fixed number of requests buys;
+  those regimes carry `½(1 − 1/e)` and `1 − 1/e` respectively, and no combined
+  bound is claimed when both constraints bind. `binding_constraint` reports
+  which limit stopped the selection.
+- `decision/voi.py` — expected information gain per request, ordering which
+  probe to run next. The likelihood rates come from `fit_naive_bayes_llr()`.
+  **Dormant and not wired to the CLI (ADR-026):** one probe pair already
+  yields every feature, no corpus candidate has an unobserved feature,
+  probing is finished before the decision layer runs, and candidates are
+  modelled independently, so there is currently no probing choice for it to
+  make. Correlating candidates that share a code path, or adding probe
+  families, would change that; both are modelling work with their own ADR.
+- `decision/conformal.py` — conformal risk control fixing the selected set
+  size from a target recall instead of a chosen `k`.
+- `decision/policy.py` — the explore/cut/commit loop. Performs no I/O; probe
+  outcomes arrive through an injected `ProbeOutcomeSource`.
+
+#### Corpus and decision-layer CLI
+
+`corpus/` owns the labeled corpus the calibrated scorer and the conformal
+guarantee are estimated from (ADR-025).
+
+- `corpus/ground_truth.py` — the `EVALUATION_PROTOCOL.md` §3 key and its store.
+  An absent key is unlabeled, never negative.
+- `corpus/collection.py` — joins a real `AnalysisResult`'s observed features to
+  ground truth. Writes JSON Lines in canonical order so an identical seed
+  produces an identical file.
+- `corpus/fitting.py` — per-family fitting, leave-one-application-out
+  out-of-fold prediction, conformal calibration, and calibration quality
+  (Brier, ECE) against the heuristic baseline.
+
+`cli_decision.py` owns the new subcommands. It is separate from `cli.py`
+because ADR-025 adds commands without changing `analyze`, `-u`, or their flags:
+
+```text
+vulnspider decide            --url ... --top-k K [--budget N] [--model M] [--conformal C] -o R [--html-output H]
+vulnspider corpus collect    --url ... --application-id A --ground-truth G -o C
+vulnspider corpus fit        --corpus C -o M [--report Q]
+vulnspider corpus calibrate  --corpus C --target-recall R -o T
+```
+
+`decide` ranks every candidate, then applies `--top-k` (required, the primary
+control), an optional `--budget`, and an optional conformal threshold as
+independent stopping conditions, reporting which one bound (ADR-027). With
+`--html-output` it is the single command that goes from a URL to a browsable
+report, which is what `analyze --html-output` does for the heuristic path.
+
+`reporting/decision_html_report.py` renders the `DecisionOutcome`. Like the
+v0.1 report it recomputes nothing and shows unobserved features as unobserved
+rather than as zero. It shares the v0.1 stylesheet so both artifacts look like
+one tool; that coupling is presentation-only.
+
+`tools/corpus_target_site.py` generates the loopback labeled applications the
+corpus is collected from, and `tools/build_corpus.py` runs the whole loop.
+Collected artifacts live in `data/corpus/`.
+
+#### Ranking evaluation
+
+`evaluation/` implements `EVALUATION_PROTOCOL.md` §6 and the §6-A judgment
+rules.
+
+- `evaluation/metrics.py` — Recall@K, Precision@K, MAP@K, NDCG@K. Pure: a
+  ranking and labels in, numbers out, with no knowledge of candidates or
+  scorers, so every arm is measured by identical code. Ties are reported as the
+  expected value under uniformly random within-group order rather than
+  inheriting `selection`'s arbitrary `candidate_id` tie-break.
+- `evaluation/baselines.py` — Baselines A/B/C/D and the proposed ranking, plus
+  bug-level route aggregation. The proposed arm is scored strictly out-of-fold.
+
+`tools/evaluate_ranking.py` prints the comparison table.
+
+Baseline B scores every candidate identically, so it is one tie group; the
+metric machinery then yields the exact random expectation in closed form, and
+its Precision@K must equal the prevalence. That identity is the implementation's
+own correctness check.
 
 #### Reporting
 
@@ -153,9 +246,13 @@ browser code.
 ### 1.5 Implemented dependency direction
 
 ```text
-cli -> pipeline + reporting
+cli -> pipeline + reporting + cli_decision
+cli_decision -> pipeline + decision + corpus
 pipeline -> discovery producers/adapter + observation + features + scoring + selection
 reporting -> selection -> scoring -> features -> domain
+evaluation -> corpus + decision + scoring + features
+corpus -> decision + scoring + domain
+decision -> selection -> scoring -> features -> domain
 selection -> scoring -> features -> domain
 observation -> domain
 discovery adapter -> domain
@@ -167,6 +264,16 @@ Rules:
 - `features` does not perform HTTP transport.
 - `scoring` does not parse raw response bodies.
 - `reporting` does not reconstruct scores or evidence.
+- `decision` does not perform HTTP transport and does not recompute scores,
+  evidence, or identifiers owned by `scoring`/`selection`.
+- `decision` is a consumer, never a producer, of the selection contract. Only
+  `corpus` and `cli_decision` depend on it.
+- `corpus` builds ground truth keys from authoritative `Endpoint`/`InputPoint`
+  objects, never from a report or display text.
+- `cli_decision` adds commands. It does not modify the frozen `analyze` or
+  simple-URL surfaces.
+- `evaluation.metrics` depends on nothing but the standard library, so no
+  comparison arm can be measured by code specialised to it.
 
 ## 2. Target Prototype v0.2
 

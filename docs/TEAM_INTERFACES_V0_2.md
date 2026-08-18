@@ -192,6 +192,22 @@ The consumer must not:
 - Rebuild requests from an `InputPoint` without its context.
 - Broaden the allowed verification policy.
 
+### Second consumer: the decision layer
+
+`vulnspider.decision` is a second, read-only consumer of this contract
+(ADR-022, ADR-023, ADR-024). `decision_candidate_from_context()` is its only
+entry point. It attaches a calibrated probability, a verification cost, and a
+severity, then allocates a request budget across the result.
+
+It obeys the same forbidden-reconstruction rules above: it recomputes no
+RankScore, no `selection_priority`, and no evidence, and it never emits a
+candidate the selection layer did not produce. It deliberately does not
+populate `target_scope_id` or `allowed_verification_policy` — those stay owned
+by the scope and verification-policy boundaries.
+
+The calibrated probability it computes is a **pre-verification prior**, not a
+`VerificationConfidence` (§3). The two are never summed or substituted.
+
 ### Versioning and compatibility
 
 - Scorer-policy changes require an explicit policy version and evaluation note.
@@ -203,13 +219,15 @@ The consumer must not:
 
 - BAC family-internal ranking may be designed independently from injection
   ranking.
-- Do not assume that a BAC `selection_priority` can be compared directly with
-  SQLi or Reflected XSS in one global Top-K until the exact BAC scorer maximum,
-  candidate identity, and cross-family comparison policy are approved.
-- An approved BAC scorer and comparison policy are prerequisites for producing
-  a BAC `RankedCandidateContext` as part of the shared global Top-K.
-- This contract does not invent a provisional BAC maximum or normalization
-  formula.
+- **Resolved by ADR-021.** BAC participates in the shared global Top-K using the
+  ADR-010 `selection_priority` (`raw_rank_score / exact_scorer_maximum`). The
+  approved BAC exact scorer maximum is `ACCESS_MAX_RANK_SCORE` (75.0,
+  `access-control-weighted-v1`); `selection.combined.select_combined_top_k()`
+  merges the two already-validated category selections and
+  `selection.handoff.build_mutation_handoff()` emits the resulting
+  `RankedCandidateContext` bundle.
+- `selection_priority` remains a selection-only comparison key, not a
+  probability or confidence (ADR-010, ADR-016).
 
 ## 3. VerificationResult
 
@@ -296,9 +314,10 @@ The consumer must not:
 Human approval is still required for:
 
 - Exact BAC candidate/access-context model.
-- BAC scorer maximum, family-internal ranking contract, and whether/how BAC
-  participates in the SQLi/Reflected XSS global Top-K. This must be resolved
-  before BAC scoring implementation.
+- ~~BAC scorer maximum, family-internal ranking contract, and whether/how BAC
+  participates in the SQLi/Reflected XSS global Top-K.~~ Resolved by ADR-021:
+  BAC uses `ACCESS_MAX_RANK_SCORE` (75.0) as its exact scorer maximum and
+  participates in the combined Top-K via the ADR-010 `selection_priority`.
 - Canonical scope-decision and budget record schemas.
 - Provider request/output retention and redaction policy.
 - Allowed payload families and validator rejection taxonomy.
