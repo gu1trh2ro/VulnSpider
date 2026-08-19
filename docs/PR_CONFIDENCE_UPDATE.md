@@ -110,14 +110,14 @@ PYTHONPATH=src python -m vulnspider -u http://127.0.0.1:8899/ \
 - **validator 승인 전 페이로드 실행 금지** — 거부된 값은 실행 provenance가 생기지 않음(테스트로 증명).
 - **read-only · loopback/localhost 한정 · 한 번에 한 가지만**(ADR-004). BAC 프로브는 **GET 전용·비파괴**.
 - prior는 calibrated probability이며 **LLM이 최종 판단하지 않음**(규칙/보정 계수가 결정).
-- **실제 GPT/Gemini proposer는 미구현** — 결정적 기본기가 `no-model` provider로 동작하며, 실제 LLM 클라이언트는 동일 validator 뒤에 그대로 끼워짐(타 브랜치 예정).
+- **실제 LLM proposer는 이 브랜치에 아직 통합되지 않았습니다** — 결정적 기본기가 `no-model` provider로 동작합니다. 실제 proposer는 석현이 `feat/local_ai_verifier` 브랜치에 **로컬 파인튜닝 모델**(`payload_verifier_v2/`, 3B GGUF 모델 `vulnspider-3b_v3`, `llama_cpp` 로컬 추론 — GPT/Gemini 같은 클라우드 API가 아님)로 구현했습니다. provider-neutral `PayloadProposer` 인터페이스 뒤로 끼워 넣는 통합이 후속 과제입니다.
 - **네트워크/페이로드 실행이 바뀌는 변경 → 2인 리뷰 대상**.
 
 ---
 
 ## 알려진 한계 / 후속
 
-- 실제 LLM proposer 미구현(결정적 기본기로 대체).
+- 실제 LLM proposer는 별도 브랜치(`feat/local_ai_verifier`, 석현)에 로컬 파인튜닝 모델로 구현돼 있으나 **이 브랜치에는 아직 미통합** — 현재는 결정적 기본기가 그 자리를 대체.
 - 코퍼스가 6개 신호 중 3개만 실측(`SUPPORT_NEW`/`INCONCLUSIVE`/`NOT_EXECUTED` 미관측 → 기본값).
 - BAC 관측은 opt-in(요청 예산 이유). `IDENTIFIER_SUBSTITUTION`은 순차 id 과탐 여지(데모는 seed 정밀화로 완화), `CREDENTIAL_STRIP` 전용 검증은 미구현.
 - 요청 예산/rate-limit/baseline 재사용 미적용(사용자 보류).

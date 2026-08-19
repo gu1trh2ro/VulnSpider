@@ -234,14 +234,14 @@ PYTHONPATH=src python -m vulnspider -u https://app.example/ -k 20 \
 - **validator 승인 전에는 페이로드를 실행하지 않습니다** — 거부된 값에는 실행 흔적이 남지 않고, 이를 테스트로 증명합니다.
 - **read-only · loopback/localhost 한정 · 한 번에 한 가지만**(ADR-004). BAC 프로브도 **GET 전용·비파괴**.
 - **LLM이 최종 판단하지 않습니다** — 페이로드 제안만 하고, 실행 여부는 결정적 validator가, 신뢰도는 규칙/보정 계수가 정합니다.
-- **실제 GPT/Gemini proposer는 아직 미구현**입니다. 결정적 기본기가 `no-model` provider로 동작하며, 실제 LLM 클라이언트는 동일 validator 뒤에 그대로 끼워집니다(타 브랜치 예정).
+- **실제 LLM proposer는 이 브랜치에 아직 통합되지 않았습니다.** 결정적 기본기가 `no-model` provider로 동작합니다. 실제 proposer는 석현이 `feat/local_ai_verifier` 브랜치에 **로컬 파인튜닝 모델**로 구현했습니다 — `payload_verifier_v2/`, 3B GGUF 모델 `vulnspider-3b_v3`(ChatML 템플릿, Qwen 계열 기반 추정), `llama_cpp` 로컬 추론으로 **GPT/Gemini 같은 클라우드 API가 아닙니다.** 두 브랜치를 provider-neutral `PayloadProposer` 인터페이스로 잇는 통합이 후속 과제입니다.
 - **네트워크 접근/페이로드 실행이 바뀌는 변경은 2인 리뷰 대상**입니다.
 
 ---
 
 ## 11. 정직한 한계와 다음 작업
 
-- **실제 LLM proposer 미구현** — 지금은 결정적 규칙 기반 제안이 그 자리를 대신합니다.
+- **실제 LLM proposer는 별도 브랜치에 구현됨, 이 브랜치엔 미통합** — 석현이 `feat/local_ai_verifier`에 로컬 파인튜닝 모델(`payload_verifier_v2/`)로 만들었고, 이 브랜치에서는 결정적 규칙 기반 제안이 그 자리를 대신합니다. 두 브랜치 통합이 다음 작업입니다.
 - **코퍼스가 6개 신호 중 3개만 실측** — `SUPPORT_NEW`/`INCONCLUSIVE`/`NOT_EXECUTED`는 관측 표본이 없어 기본값으로 둡니다. 코퍼스 확장이 선행돼야 더 정직해집니다.
 - **BAC 한계** — opt-in(요청 예산), 순차 id 과탐 여지(데모는 seed 정밀화로 완화), `CREDENTIAL_STRIP` 전용 검증은 미구현.
 - **요청 예산/rate-limit/baseline 재사용 미적용**(현재 보류).
