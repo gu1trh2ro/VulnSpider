@@ -15,10 +15,11 @@ the scan is not one-note. Each query parameter's ``kind`` drives its behaviour:
 - ``xss_raw``    -> value reflected un-escaped in element text.
 - ``xss_attr``   -> value reflected un-escaped inside an HTML attribute.
 - ``xss_escaped``/``safe`` -> value reflected but HTML-escaped (not exploitable).
-- ``bac``        -> returns private data with no auth check (IDOR). The scanner
-  has no BAC observation/scoring pipeline yet (ADR-014), so these input points
-  emit no injection signal and stay unranked -- realistic for the app, but a
-  known blind spot for the tool.
+- ``bac``        -> returns private data with no auth check (IDOR), seeded with
+  a numeric id so the opt-in access pipeline (``--access-control``) plans an
+  IDENTIFIER_SUBSTITUTION probe. Emits no injection signal, so it surfaces only
+  via the access path -- and only these numeric-id points do, keeping the IDOR
+  candidates distinct from the (non-numeric) SQLi/XSS ones.
 
 The index page links every input point so the static crawler discovers them.
 """
@@ -50,8 +51,12 @@ _SPEC: dict[str, dict[str, str]] = {
 }
 
 _SEED = {
-    "sqli_error": "1",
-    "sqli_blind": "1",
+    # Non-numeric baselines: the SQL flavours key off SQL metacharacters, not
+    # digits, so these parameters carry no numeric identifier and are therefore
+    # never planned as IDENTIFIER_SUBSTITUTION (BAC) probes. Only the ``bac``
+    # kind seeds a numeric id, keeping the IDOR candidates unambiguous.
+    "sqli_error": "item",
+    "sqli_blind": "row",
     "xss_raw": "hello",
     "xss_attr": "hello",
     "xss_escaped": "hello",
@@ -109,15 +114,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def _render(self, kind: str, value: str, *, salt: str) -> tuple[int, bytes]:
         if kind == "sqli_error":
-            if value.isdigit():
+            # An alphanumeric value is treated as clean input (200); any SQL
+            # metacharacter (quotes, spaces, ``--``) trips the parser and leaks
+            # a dialect-specific error, exactly as the baseline vs. payload
+            # comparison expects.
+            if value.isalnum():
                 return 200, f"<html><body>item {escape(value)}</body></html>".encode()
             phrasing = _SQL_ERRORS[sum(map(ord, salt)) % len(_SQL_ERRORS)]
             message = phrasing.format(v=escape(value))
             return 500, f"<html><body>Warning: {message}</body></html>".encode()
         if kind == "sqli_blind":
             # No error text; the row count (hence body length) depends on the
-            # value, so only response_length_diff_ratio separates it.
-            rows = 6 if value.isdigit() else 1
+            # value, so only response_length_diff_ratio separates it. A clean
+            # alphanumeric value returns the full listing; a metacharacter
+            # payload collapses it to one row.
+            rows = 6 if value.isalnum() else 1
             listing = "".join(f"<li>result {index}</li>" for index in range(rows))
             return 200, f"<html><body><ul>{listing}</ul></body></html>".encode()
         if kind == "xss_raw":
@@ -128,8 +139,8 @@ class Handler(BaseHTTPRequestHandler):
             ).encode()
         if kind == "bac":
             # IDOR: private data returned with no authentication check. No
-            # injection signal (no reflection, no error), so the scanner does
-            # not rank it -- realistic app bug, tool blind spot (ADR-014).
+            # injection signal (no reflection, no error); the numeric id makes
+            # it an IDENTIFIER_SUBSTITUTION candidate for the access pipeline.
             return 200, (
                 "<html><body>account alice: alice@corp.example, role=admin "
                 "(no authorization check)</body></html>"
