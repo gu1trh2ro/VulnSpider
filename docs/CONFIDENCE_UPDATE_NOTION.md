@@ -134,7 +134,9 @@ SQLI · UNCHANGED    -0.407 (블라인드 SQLi가 UNCHANGED로 떨어지는 경�
 
 ---
 
-## 8. 직접 돌려보기
+## 8. 사용법 상세
+
+### 8.1 빠른 시작 — 로컬 데모로 확인
 
 ```bash
 # 1) 로컬 데모 타겟 (별도 터미널)
@@ -157,7 +159,63 @@ PYTHONPATH=src python -m vulnspider -u http://127.0.0.1:8899/ \
 - 콘솔: `scan complete (mode=static-only, selected=20)` + 산출물 4개 경로
 - 채점된 후보 **66개** 중 상위 **20개** 선택
 - 유형 분포: **SQL Injection 9 · Reflected XSS 9 · Broken Access Control 2**
-- 대시보드: 상단에 확률 구간 도넛·유형별 건수·파이프라인 축소·후보 비교(더보기), 각 후보 카드에 순위 근거·실행된 요청·검증 결과·**케이스별 방어 지침**
+- 대시보드: 확률 구간 도넛·유형별 건수·파이프라인 축소·후보 비교(더보기), 각 후보 카드에 순위 근거·실행된 요청·검증 결과·**케이스별 방어 지침**
+
+### 8.2 명령어 구조와 옵션 — 무엇이 필수인가
+
+**필수는 `-u/--url` 하나뿐**입니다. 나머지는 전부 기본값이 있거나 opt-in이라, 넣지 않으면 그 기능이 그냥 실행되지 않습니다.
+
+| 옵션 | 의미 | 필수 여부 |
+|---|---|---|
+| `-u / --url URL` | 스캔할 루트 URL | **✅ 필수** |
+| `--static-only` | 정적(HTML 파싱)만 사용. **빼면 동적**(브라우저 렌더) 발견 | 동적 원하면 **제거** |
+| `-k / --top-k N` | 관측·검증할 상위 후보 수 (기본 **10**, 최대 20) | 선택 |
+| `--access-control` | BAC(접근제어) 관측 — **추가 GET 요청**이 생기는 opt-in | 선택 |
+| `--verify` | focused verification(변형 페이로드 재전송) 실행 | 선택 |
+| `--verification-model PATH` | 검증 신뢰도 **보정 모델** | `--verify`와 함께 권장 |
+| `--dynamic-allow-navigation URL` | 동적 크롤이 이동할 **same-origin** URL 하나 허용(반복 가능) | 동적에서만 |
+| `--dynamic-allow-resource CAT=URL` | `script`/`style`/`fetch_xhr` 리소스 로드 허용 | 동적·SPA에서만 |
+| `--html-output` / `-o` / `--crawl-output` / `--verify-output` | 산출물 경로 | 선택(기본 `vulnspider-*.{html,json}`) |
+
+**동작별 최소 명령:**
+
+```bash
+# 동적 최소 (나머지 전부 기본값 — -k 10, 검증 없이 확률 랭킹만)
+PYTHONPATH=src python -m vulnspider -u <URL>
+
+# 정적 최소
+PYTHONPATH=src python -m vulnspider -u <URL> --static-only
+```
+
+### 8.3 정적 vs 동적 — 동적은 어떻게 켜나
+
+- **정적**(`--static-only`): HTML을 파싱해 링크·폼에서 입력점을 찾습니다. 빠르고 의존성이 적습니다.
+- **동적**(`--static-only`를 **뺌**): **Playwright 브라우저로 페이지를 실제 렌더**해 자바스크립트로 생성되는 링크·폼·XHR까지 관측합니다. SPA에 필요합니다.
+  - simple `-u` 모드는 `--static-only`가 없으면 **자동으로 동적**으로 전환됩니다(내부적으로 `dynamic = not --static-only`).
+  - 동적은 기본이 매우 보수적이라 첫 페이지 렌더 후 **명시적으로 허가한 URL로만** 이동/리소스 로드를 합니다 → `--dynamic-allow-navigation`, `--dynamic-allow-resource`로 하나씩 허용.
+  - `--static-only`와 `--dynamic-allow-*`는 **동시에 쓸 수 없습니다**(서로 모순).
+
+```bash
+# 동적 예시 (SPA) — --static-only 를 뺀 것 + 동적 그랜트가 핵심
+PYTHONPATH=src python -m vulnspider -u https://app.example/ -k 20 \
+  --access-control \
+  --verify --verification-model data/corpus/verification-model.json \
+  --dynamic-allow-navigation https://app.example/dashboard \
+  --dynamic-allow-resource fetch_xhr=https://app.example/api/items \
+  --html-output report.html
+```
+
+### 8.4 실제 사이트(외부 URL)에 적용하려면
+
+이 도구는 **"authorized loopback/localhost 테스트 대상"용 프로토타입**입니다(`--help`·ADR-004에 명시, 모든 성능 수치도 합성 loopback fixtures 기준). 실제 외부 사이트에 쓰기 전 아래를 반드시 확인하세요.
+
+1. **권한이 전제입니다.** 대상이 **본인 소유**이거나 **서면으로 침투테스트를 허가받은** 자산이어야 합니다. 무단 스캔은 법적 문제가 됩니다. 도구가 host를 loopback으로 강제 차단하지는 않지만, 그것이 외부 스캔을 정당화하지는 않습니다.
+2. **동적은 Playwright(브라우저) 설치**가 필요합니다.
+3. 크롤러는 **same-origin scope 제한**이 있어 외부 도메인 링크·리다이렉트를 자동 차단합니다(안전장치). 동적도 허가한 URL만 따라갑니다.
+4. 실제 앱은 대개 **로그인 뒤 콘텐츠**가 많은데, 현재 도구는 **인증 크롤 미지원**이라 공개 페이지 위주로만 관측됩니다.
+5. **요청 예산/rate-limit 제어가 아직 없으므로**, 운영 시스템에는 부하·차단 위험이 있습니다(§11 참고).
+
+> **권장:** 학습·시연 목적이면 DVWA 같은 취약 실습 앱을 로컬(`http://127.0.0.1`)에 띄워 돌리세요. 실제 자산은 **권한·범위를 서면으로 확정한 뒤에만** 적용하세요.
 
 ---
 
