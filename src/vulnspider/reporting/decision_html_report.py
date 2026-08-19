@@ -31,8 +31,11 @@ from vulnspider.reporting.charts import (
     chart_card,
     donut_chart,
 )
+from vulnspider.reporting.guidance import (
+    DefenseGuidance,
+    build_defense_guidance,
+)
 from vulnspider.reporting.html_report import (
-    GENERAL_GUIDANCE,
     VULNERABILITY_LABELS,
     ProbeRun,
     _DOCUMENT_STYLE,
@@ -532,15 +535,17 @@ def _render_candidate(
         )
         endpoint_line = _render_endpoint_line(endpoint, input_point)
         requests_html = _render_requests(candidate, probe_runs)
-    family_type = _family_type(candidate.family)
-    guidance = GENERAL_GUIDANCE.get(family_type) if family_type is not None else None
-    guidance_html = (
-        f'<div class="fix"><b>일반 지침</b><br>{_esc(guidance)}<br>'
-        "<i>해당 취약점 유형의 일반적인 대응이며, 이 후보가 실제로 악용 가능하다는 "
-        "뜻은 아닙니다.</i></div>"
-        if guidance
-        else ""
+    access_check_kind = (
+        access_observation.access_probe_plan.check_kind.value
+        if access_observation is not None
+        else None
     )
+    guidance = build_defense_guidance(
+        candidate.family,
+        evidence=calibrated.evidence if calibrated is not None else (),
+        access_check_kind=access_check_kind,
+    )
+    guidance_html = _render_guidance(guidance)
     return f"""<article class="finding {band}">
     <div class="fhead">
       <div>
@@ -565,6 +570,43 @@ def _render_candidate(
     <div class="ids">candidate {_esc(candidate.candidate_id)} &middot; \
 feature vector {_esc(candidate.feature_vector_ref)}</div>
   </article>"""
+
+
+def _render_guidance(guidance: DefenseGuidance | None) -> str:
+    """유형·케이스별로 세분화된 방어 지침 블록.
+
+    케이스 판별과 문안은 ``build_defense_guidance``가 결정하고, 여기서는
+    표시만 한다(리포팅은 재구성하지 않는다).
+    """
+
+    if guidance is None:
+        return ""
+    chip = (
+        f'<span class="fixchip">{_esc(guidance.case_label)}</span>'
+        if guidance.case_label
+        else ""
+    )
+    note = (
+        f'<div class="fixnote">확인 포인트 &middot; {_esc(guidance.note)}</div>'
+        if guidance.note
+        else ""
+    )
+    primary = "".join(f"<li>{_esc(item)}</li>" for item in guidance.primary)
+    secondary = "".join(f"<li>{_esc(item)}</li>" for item in guidance.secondary)
+    return f"""<div class="fix">
+    <div class="fixhead"><b>방어 지침</b>\
+<span class="ko-en">countermeasures</span>{chip}</div>
+    <div class="fixlead">{_esc(guidance.lead)}</div>
+    <div class="fixgrid">
+      <div class="fixcol"><div class="fixsub">핵심 대응</div>
+        <ul>{primary}</ul></div>
+      <div class="fixcol"><div class="fixsub">추가 방어</div>
+        <ul>{secondary}</ul></div>
+    </div>
+    {note}
+    <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 \
+뜻은 아닙니다.</i>
+  </div>"""
 
 
 def _meter_caption(
@@ -898,4 +940,18 @@ _EXTRA_STYLE = """
   .vscore b{margin:0 3px}
   ul.vreason{margin:4px 0 0;padding-left:18px;font-size:12.5px;color:var(--ink)}
   ul.vreason li{margin:2px 0}
+  .fixhead{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px}
+  .fixchip{display:inline-block;padding:1px 9px;border-radius:999px;
+         background:var(--accent);color:#fff;font-size:11px;font-weight:600;
+         letter-spacing:0;text-transform:none}
+  .fixlead{font-size:12.5px;color:var(--ink);margin-bottom:10px;line-height:1.5}
+  .fixgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px}
+  @media(max-width:640px){.fixgrid{grid-template-columns:1fr}}
+  .fixsub{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+         color:var(--accent);font-weight:600;margin-bottom:3px}
+  .fix ul{margin:0;padding-left:16px}
+  .fix li{font-size:12px;color:var(--ink);line-height:1.5;margin:3px 0}
+  .fixnote{margin-top:10px;font-size:12px;color:var(--ink);line-height:1.5;
+         padding:7px 10px;background:rgba(0,0,0,.035);border-radius:6px}
+  .fixdisc{display:block;margin-top:10px;font-size:11px}
 """

@@ -278,7 +278,8 @@ class AnalyzeAlgorithmTests(unittest.TestCase):
         self.assertIn("검증 순서", rendered)
         self.assertIn("순위 근거", rendered)
         self.assertIn("실행된 요청", rendered)
-        self.assertIn("일반 지침", rendered)
+        self.assertIn("방어 지침", rendered)
+        self.assertIn("핵심 대응", rendered)
         self.assertIn("query.id", rendered)
         self.assertIn("/product", rendered)
         self.assertIn("VULNSPIDER_", rendered)  # the probe marker actually sent
