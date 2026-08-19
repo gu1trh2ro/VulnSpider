@@ -193,6 +193,12 @@ def build_parser() -> argparse.ArgumentParser:
         dest="simple_verification_model",
         help="Fitted confidence model JSON from 'corpus verify-fit'.",
     )
+    parser.add_argument(
+        "--access-control",
+        dest="simple_access_control",
+        action="store_true",
+        help="Also probe for Broken Access Control in simple mode (opt-in).",
+    )
     subparsers = parser.add_subparsers(dest="command")
     analyze = subparsers.add_parser(
         "analyze",
@@ -362,6 +368,16 @@ def build_parser() -> argparse.ArgumentParser:
             "(default: the conservative built-in model)."
         ),
     )
+    analyze.add_argument(
+        "--access-control",
+        dest="access_control",
+        action="store_true",
+        help=(
+            "Also probe for Broken Access Control (credential-strip / "
+            "identifier-substitution GET re-sends). Adds extra requests, so it "
+            "is opt-in."
+        ),
+    )
     add_decision_subcommands(subparsers)
     return parser
 
@@ -441,6 +457,7 @@ def main(
                 records,
                 top_k=args.top_k,
                 transport=transport,
+                enable_access=args.access_control,
             )
         else:
             _reject_dynamic_options_without_opt_in(args)
@@ -481,6 +498,7 @@ def main(
                 transport=transport,
                 on_crawl_validated=on_crawl_validated,
                 elide_sensitive_forms=simple_mode,
+                enable_access=args.access_control,
             )
             if simple_mode and not crawl_published:
                 raise CLIError("pipeline did not publish a validated crawl result")
@@ -621,6 +639,7 @@ def _simple_options_without_url(args: argparse.Namespace) -> bool:
         or args.simple_html_output is not None
         or args.simple_no_html
         or args.simple_top_k is not None
+        or args.simple_access_control
     )
 
 
@@ -655,6 +674,7 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         ),
         verify_output=args.simple_verify_output,
         verification_model=args.simple_verification_model,
+        access_control=args.simple_access_control,
         max_pages=None,
         max_depth=None,
         max_requests=None,

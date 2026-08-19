@@ -295,6 +295,8 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertEqual(observed_input_ids, executed_input_ids)
         scored_candidate_ids = {
             result.candidate.id for result in analysis.scoring_results
+        } | {
+            result.candidate.id for result in analysis.access_scoring_results
         }
         self.assertTrue(
             {

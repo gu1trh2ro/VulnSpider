@@ -162,6 +162,7 @@ def analyze_legacy_records(
     transport: RequestTransport | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
+    enable_access: bool = False,
 ) -> AnalysisResult:
     """Run adapter-compatible records through the implemented v0.1 pipeline."""
 
@@ -195,6 +196,7 @@ def analyze_legacy_records(
         max_body_bytes=max_body_bytes,
         initial_warnings=adapter_result.warnings,
         adapter_result=adapter_result,
+        enable_access=enable_access,
     )
 
 
@@ -205,6 +207,7 @@ def analyze_discovery_result(
     transport: RequestTransport | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
+    enable_access: bool = False,
 ) -> AnalysisResult:
     """Analyze READY GET contexts from a canonical native discovery result."""
 
@@ -225,6 +228,7 @@ def analyze_discovery_result(
         ),
         discovery_result=discovery_result,
         allowed_methods=frozenset({HttpMethod.GET}),
+        enable_access=enable_access,
     )
 
 
@@ -246,6 +250,7 @@ def analyze_url(
     ]
     | None = None,
     elide_sensitive_forms: bool = False,
+    enable_access: bool = False,
 ) -> AnalysisResult:
     """Analyze Static discovery, or explicit Static-plus-Dynamic discovery."""
 
@@ -298,6 +303,7 @@ def analyze_url(
             transport=transport,
             timeout_seconds=timeout_seconds,
             max_body_bytes=max_body_bytes,
+            enable_access=enable_access,
         )
         return replace(
             analysis,
@@ -337,6 +343,7 @@ def analyze_url(
         transport=transport,
         timeout_seconds=timeout_seconds,
         max_body_bytes=max_body_bytes,
+        enable_access=enable_access,
     )
     return replace(analysis, crawl_result=crawl_result)
 
@@ -401,6 +408,7 @@ def _analyze_contexts(
     adapter_result: LegacyAdapterResult | None = None,
     discovery_result: CanonicalDiscoveryResult | None = None,
     allowed_methods: frozenset[HttpMethod] | None = None,
+    enable_access: bool = False,
 ) -> AnalysisResult:
     active_transport = transport if transport is not None else UrlLibTransport()
     executor = RequestExecutor(
@@ -456,32 +464,38 @@ def _analyze_contexts(
             )
         )
 
-        # BAC: re-send the same GET with credentials stripped (once per
-        # template) or with a numeric identifier substituted. Non-destructive,
-        # GET-only, and scored in the separate access family (ADR-014).
-        template_id = request_template.id or ""
-        if template_id not in credential_strip_planned_templates:
-            credential_strip_planned_templates.add(template_id)
-            credential_plan = plan_credential_strip(request_template)
-            if credential_plan is not None:
+        # BAC (opt-in): re-send the same GET with credentials stripped (once
+        # per template) or a numeric identifier substituted. These are extra
+        # network requests beyond the injection baseline/probe, so they run
+        # only when access checking is explicitly enabled -- keeping the
+        # request budget explicit. Non-destructive, GET-only, scored in the
+        # separate access family (ADR-014/ADR-035).
+        if enable_access:
+            template_id = request_template.id or ""
+            if template_id not in credential_strip_planned_templates:
+                credential_strip_planned_templates.add(template_id)
+                credential_plan = plan_credential_strip(request_template)
+                if credential_plan is not None:
+                    _run_access_plan(
+                        credential_plan,
+                        transport=active_transport,
+                        timeout_seconds=timeout_seconds,
+                        max_body_bytes=max_body_bytes,
+                        access_scoring_results=access_scoring_results,
+                        access_probe_observations=access_probe_observations,
+                    )
+            identifier_plan = plan_identifier_substitution(
+                input_point, request_template
+            )
+            if identifier_plan is not None:
                 _run_access_plan(
-                    credential_plan,
+                    identifier_plan,
                     transport=active_transport,
                     timeout_seconds=timeout_seconds,
                     max_body_bytes=max_body_bytes,
                     access_scoring_results=access_scoring_results,
                     access_probe_observations=access_probe_observations,
                 )
-        identifier_plan = plan_identifier_substitution(input_point, request_template)
-        if identifier_plan is not None:
-            _run_access_plan(
-                identifier_plan,
-                transport=active_transport,
-                timeout_seconds=timeout_seconds,
-                max_body_bytes=max_body_bytes,
-                access_scoring_results=access_scoring_results,
-                access_probe_observations=access_probe_observations,
-            )
 
     scoring_results: list[ScoringResult] = []
     feature_vectors: list[FeatureVector] = []

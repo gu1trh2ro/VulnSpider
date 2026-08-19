@@ -86,7 +86,7 @@ def _run_public_cli(
         "--dynamic-allow-navigation",
         f"{origin}/final/search?q=safe",
         "--top-k",
-        "50",
+        "20",
         "--output",
         str(json_path),
         "--html-output",
