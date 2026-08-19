@@ -206,7 +206,7 @@ class AnalyzeAlgorithmTests(unittest.TestCase):
                         "--url",
                         ROOT_URL,
                         "--top-k",
-                        "50",
+                        "20",
                         "--output",
                         str(output),
                     ]
@@ -217,7 +217,7 @@ class AnalyzeAlgorithmTests(unittest.TestCase):
         self.assertEqual(report["report_version"], "decision-report-v1")
         self.assertEqual(report["policy_version"], "top-k-argmax-v1")
         self.assertIsNone(report["guarantee"])
-        self.assertEqual(report["selection"]["top_k"], 50)
+        self.assertEqual(report["selection"]["top_k"], 20)
         self.assertGreater(report["selection"]["candidates_scored"], 0)
         orders = [entry["order"] for entry in report["verification_order"]]
         self.assertEqual(orders, sorted(orders))
@@ -395,7 +395,7 @@ class AnalyzeAlgorithmTests(unittest.TestCase):
                         "--url",
                         ROOT_URL,
                         "--top-k",
-                        "50",
+                        "20",
                         "--model",
                         str(Path(directory) / "absent.json"),
                         "--output",
@@ -456,7 +456,7 @@ class CorpusCommandTests(unittest.TestCase):
                         "--url",
                         ROOT_URL,
                         "--top-k",
-                        "50",
+                        "20",
                         "--model",
                         str(model),
                         "--output",

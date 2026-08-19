@@ -77,7 +77,7 @@ DEFAULT_TARGET_RISK = 0.1
 # Families the injection pipeline can currently produce candidates for. BAC
 # has a scorer but no observation pipeline yet (ADR-014), so it never appears
 # in an AnalysisResult and is deliberately not listed.
-_FAMILIES = ("SQLI", "REFLECTED_XSS")
+_FAMILIES = ("SQLI", "REFLECTED_XSS", "BROKEN_ACCESS_CONTROL")
 
 
 class DecisionCLIError(ValueError):
@@ -96,12 +96,13 @@ def build_decision_candidates(
     """
 
     results = analysis.scoring_results
-    if not results:
+    access_results = analysis.access_scoring_results
+    if not results and not access_results:
         return (), {}
 
-    rank_all = len(results)
+    rank_all = len(results) + len(access_results)
     injection = select_top_k(results, k=rank_all)
-    access = select_top_k_access((), k=rank_all)
+    access = select_top_k_access(access_results, k=rank_all)
     combined = select_combined_top_k(injection, access, k=rank_all)
     handoff = build_mutation_handoff(
         combined,
@@ -109,21 +110,41 @@ def build_decision_candidates(
     )
 
     vectors = {vector.id or "": vector for vector in analysis.feature_vectors}
+    # BAC candidates carry no InputPoint FeatureVector; their two access
+    # features come from the executed reference/comparison pair instead.
+    access_features = {
+        observation.candidate_id: observation.features
+        for observation in analysis.access_probe_observations
+    }
 
     candidates: list[DecisionCandidate] = []
     scored: dict[str, CalibratedProbability] = {}
     for context in handoff.contexts:
         scorer = scorers.get(context.family)
         if scorer is None:
+            # A BAC model is optional: when it is absent (e.g. a fitted model
+            # trained only on the injection families), access candidates are
+            # left out of the ranking rather than erroring. An absent injection
+            # model is still a real misconfiguration.
+            if context.origin == "access":
+                continue
             raise DecisionCLIError(
                 f"no calibrated model for family {context.family!r}"
             )
-        vector = vectors.get(context.feature_vector_id or "")
-        if vector is None:
-            raise DecisionCLIError(
-                f"analysis has no feature vector {context.feature_vector_id!r}"
-            )
-        calibrated = scorer.probability(vector.features)
+        if context.origin == "access":
+            features = access_features.get(context.candidate_id)
+            if features is None:
+                raise DecisionCLIError(
+                    f"analysis has no access features for {context.candidate_id!r}"
+                )
+        else:
+            vector = vectors.get(context.feature_vector_id or "")
+            if vector is None:
+                raise DecisionCLIError(
+                    f"analysis has no feature vector {context.feature_vector_id!r}"
+                )
+            features = vector.features
+        calibrated = scorer.probability(features)
         scored[context.candidate_id] = calibrated
         candidates.append(
             decision_candidate_from_context(context, calibrated)

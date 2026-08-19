@@ -58,7 +58,11 @@ _EMPTY_VERIFICATION: Mapping[str, CandidateVerification] = {}
 
 _BAND_LABEL = {"high": "높음", "medium": "중간", "low": "낮음"}
 _FAMILY_TONE = {"SQLI": "sqli", "REFLECTED_XSS": "xss", "BROKEN_ACCESS_CONTROL": "bac"}
-_FAMILY_LABEL_KO = {"SQLI": "SQL Injection", "REFLECTED_XSS": "Reflected XSS"}
+_FAMILY_LABEL_KO = {
+    "SQLI": "SQL Injection",
+    "REFLECTED_XSS": "Reflected XSS",
+    "BROKEN_ACCESS_CONTROL": "Broken Access Control",
+}
 
 # Post-verification outcome labels for the report.
 _OUTCOME_LABEL_KO = {
