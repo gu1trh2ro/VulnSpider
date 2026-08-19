@@ -55,6 +55,12 @@ _EMPTY_PROBE_RUNS: Mapping[str, ProbeRun] = {}
 _EMPTY_PROBABILITIES: Mapping[str, CalibratedProbability] = {}
 _EMPTY_MODELS: Mapping[str, CalibratedScorer] = {}
 _EMPTY_VERIFICATION: Mapping[str, CandidateVerification] = {}
+_EMPTY_ACCESS_OBS: Mapping[str, Any] = {}
+
+_ACCESS_CHECK_LABEL = {
+    "CREDENTIAL_STRIP": "자격증명 제거 후 재요청",
+    "IDENTIFIER_SUBSTITUTION": "식별자 치환(숫자 id 증가)",
+}
 
 _BAND_LABEL = {"high": "높음", "medium": "중간", "low": "낮음"}
 _FAMILY_TONE = {"SQLI": "sqli", "REFLECTED_XSS": "xss", "BROKEN_ACCESS_CONTROL": "bac"}
@@ -140,6 +146,7 @@ def render_decision_html_report(
     probabilities: Mapping[str, CalibratedProbability] = _EMPTY_PROBABILITIES,
     models: Mapping[str, CalibratedScorer] = _EMPTY_MODELS,
     verification: Mapping[str, CandidateVerification] = _EMPTY_VERIFICATION,
+    access_observations: Mapping[str, Any] = _EMPTY_ACCESS_OBS,
     warnings: Sequence[str] = (),
     elapsed_seconds: float = 0.0,
     endpoint_count: int = 0,
@@ -184,6 +191,7 @@ def render_decision_html_report(
             probe_runs=probe_runs,
             probabilities=probabilities,
             verification=verification,
+            access_observations=access_observations,
         ),
         _render_unselected(outcome, input_points, endpoints),
         _render_footer(outcome, elapsed_seconds, verified),
@@ -470,6 +478,7 @@ def _render_candidates(
     probe_runs: Mapping[str, ProbeRun],
     probabilities: Mapping[str, CalibratedProbability],
     verification: Mapping[str, CandidateVerification] = _EMPTY_VERIFICATION,
+    access_observations: Mapping[str, Any] = _EMPTY_ACCESS_OBS,
 ) -> str:
     if not selected:
         return '<div class="empty">선택된 후보가 없습니다.</div>'
@@ -482,6 +491,7 @@ def _render_candidates(
             probe_runs=probe_runs,
             calibrated=probabilities.get(candidate.candidate_id),
             verified=verification.get(candidate.candidate_id),
+            access_observation=access_observations.get(candidate.subject_ref),
         )
         for rank, candidate in enumerate(selected, start=1)
     )
@@ -496,6 +506,7 @@ def _render_candidate(
     probe_runs: Mapping[str, ProbeRun],
     calibrated: CalibratedProbability | None,
     verified: CandidateVerification | None = None,
+    access_observation: Any = None,
 ) -> str:
     probability = (
         float(verified.final_confidence)
@@ -504,10 +515,21 @@ def _render_candidate(
     )
     band = _priority_band(probability)
     percent = _fmt_percent(probability)
-    input_point = input_points.get(candidate.subject_ref)
-    endpoint = (
-        endpoints.get(input_point.endpoint_id) if input_point is not None else None
-    )
+    if access_observation is not None:
+        plan = access_observation.access_probe_plan
+        endpoint_line = _render_access_endpoint_line(
+            endpoints.get(plan.endpoint_id), plan
+        )
+        requests_html = _render_access_requests(access_observation)
+    else:
+        input_point = input_points.get(candidate.subject_ref)
+        endpoint = (
+            endpoints.get(input_point.endpoint_id)
+            if input_point is not None
+            else None
+        )
+        endpoint_line = _render_endpoint_line(endpoint, input_point)
+        requests_html = _render_requests(candidate, probe_runs)
     family_type = _family_type(candidate.family)
     guidance = GENERAL_GUIDANCE.get(family_type) if family_type is not None else None
     guidance_html = (
@@ -522,7 +544,7 @@ def _render_candidate(
       <div>
         <div class="rank">#{rank}</div>
         <div class="vtype">{_esc(_family_label(candidate.family))}</div>
-        {_render_endpoint_line(endpoint, input_point)}
+        {endpoint_line}
       </div>
       <div class="meterwrap">
         <div class="prio {band}">{percent}%</div>
@@ -535,7 +557,7 @@ def _render_candidate(
 
     {_render_evidence(candidate, calibrated)}
 
-    {_render_requests(candidate, probe_runs)}
+    {requests_html}
 
     {guidance_html}
     <div class="ids">candidate {_esc(candidate.candidate_id)} &middot; \
@@ -600,6 +622,49 @@ def _render_verification(verified: CandidateVerification | None) -> str:
         f"  {reason_html}\n"
         f'  <div class="chart-note">{_esc(payload_line)}. 최종 신뢰도는 검증 이전 '
         "확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>\n"
+        "</div>"
+    )
+
+
+def _render_access_endpoint_line(endpoint: Endpoint | None, plan: Any) -> str:
+    check = _ACCESS_CHECK_LABEL.get(plan.check_kind.value, plan.check_kind.value)
+    if endpoint is None:
+        return (
+            '<div class="ep">BAC &mdash; '
+            f'<span class="param">{_esc(check)}</span></div>'
+        )
+    return (
+        f'<div class="ep">{_esc(endpoint.method.value)} {_esc(endpoint.path)} '
+        f'&mdash; <span class="param">BAC &middot; {_esc(check)}</span></div>'
+    )
+
+
+def _render_access_requests(observation: Any) -> str:
+    """The reference vs comparison re-send behind a BAC candidate."""
+
+    plan = observation.access_probe_plan
+    rows = (
+        ("원본 요청", plan.reference_request, observation.reference_response),
+        ("변형 요청", plan.comparison_request, observation.comparison_response),
+    )
+    body = "".join(
+        f'<tr><td class="role">{_esc(label)}</td>'
+        f'<td class="pl">{_esc(request.method.value)} {_esc(request.url)}</td>'
+        f'<td class="status">{_esc(response.status_code)}</td>'
+        f"<td>{_fmt_number(response.body_length_bytes)} B</td></tr>"
+        for label, request, response in rows
+    )
+    return (
+        '<div class="why">\n'
+        '  <div class="lab">실행된 요청 '
+        '<span class="ko-en">reference vs comparison</span></div>\n'
+        f'  <div class="chart-note">바뀐 부분: {_esc(plan.changed_aspect)}</div>\n'
+        '  <table class="rec">\n'
+        "    <tr><th>역할</th><th>요청</th><th>상태</th><th>본문 크기</th></tr>\n"
+        f"    {body}\n"
+        "  </table>\n"
+        '  <div class="chart-note">변형 요청이 원본과 비슷하게 성공(2xx·유사 크기)'
+        "하면 접근제어가 미흡하다는 신호입니다. 확정된 취약점은 아닙니다.</div>\n"
         "</div>"
     )
 

@@ -538,6 +538,10 @@ def analyze_and_report(
                     observation.probe_response,
                 ),
             )
+        access_observations = {
+            observation.access_probe_plan.id or "": observation
+            for observation in analysis.access_probe_observations
+        }
         write_decision_html_report(
             outcome,
             html_output,
@@ -552,6 +556,7 @@ def analyze_and_report(
             probabilities=probabilities,
             models=models,
             verification=verification_map,
+            access_observations=access_observations,
             warnings=analysis.warnings,
             elapsed_seconds=analysis.elapsed_seconds,
             endpoint_count=len(analysis.endpoints),
