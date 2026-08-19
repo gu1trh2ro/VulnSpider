@@ -56,6 +56,7 @@ from vulnspider.verification import (
     VerificationConfig,
     verify_analysis,
 )
+from vulnspider.verification.access_verify import AccessVerificationConfig
 
 
 _SIMPLE_DEFAULT_CRAWL_OUTPUT = Path("vulnspider-crawl.json")
@@ -496,16 +497,20 @@ def main(
             )
             return 4
         verification_run = None
+        access_verify_config = None
         if args.verify or args.verify_output is not None:
+            confidence_model = _load_verification_model(args.verification_model)
             verification_run = verify_analysis(
                 analysis,
                 config=VerificationConfig(
                     transport=transport,
-                    confidence_model=_load_verification_model(
-                        args.verification_model
-                    ),
+                    confidence_model=confidence_model,
                     max_candidates=args.top_k,
                 ),
+            )
+            access_verify_config = AccessVerificationConfig(
+                transport=transport,
+                confidence_model=confidence_model,
             )
         outcome = analyze_and_report(
             analysis,
@@ -516,6 +521,7 @@ def main(
             output=args.output,
             html_output=args.html_output,
             verification=verification_run,
+            access_verify_config=access_verify_config,
         )
         selected_count = len(outcome.selected)
         if verification_run is not None:

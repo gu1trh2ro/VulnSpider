@@ -493,6 +493,7 @@ def analyze_and_report(
     output: Path,
     html_output: Path | None = None,
     verification: Any = None,
+    access_verify_config: Any = None,
 ) -> DecisionOutcome:
     """Score one analysis with the calibrated model, take the Top-K, and report.
 
@@ -512,6 +513,24 @@ def analyze_and_report(
         if verification is not None
         else {}
     )
+    if verification is not None and access_verify_config is not None:
+        from vulnspider.verification.access_verify import verify_access
+
+        selected_ids = {candidate.candidate_id for candidate in outcome.selected}
+        access_map = verify_access(
+            analysis,
+            probabilities={
+                candidate_id: probability.probability
+                for candidate_id, probability in probabilities.items()
+                if candidate_id in selected_ids
+            },
+            ranks={
+                candidate.candidate_id: rank
+                for rank, candidate in enumerate(outcome.selected, start=1)
+            },
+            config=access_verify_config,
+        )
+        verification_map = {**verification_map, **access_map}
     write_json(
         decision_report(
             outcome,

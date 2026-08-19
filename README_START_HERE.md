@@ -254,7 +254,11 @@ verification signals.
 
 ### Planned for v0.2, not implemented
 
-- BAC preprocessing, features, scoring, and role/session orchestration.
+- BAC role/session orchestration and CREDENTIAL_STRIP-specific verification.
+  (BAC observation — credential-strip / identifier-substitution GET re-probes —
+  scoring, calibrated-probability ranking alongside SQLi/XSS, dashboard
+  rendering, and identifier-substitution re-verification are implemented;
+  ADR-035.)
 - Feature cache and automated quantitative ranking evaluation.
 - GPT/Gemini comparison harness and a real model proposer behind the existing
   `PayloadValidator` gate.

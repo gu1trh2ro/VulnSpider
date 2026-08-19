@@ -605,13 +605,24 @@ def _render_verification(verified: CandidateVerification | None) -> str:
         if unique_reasons
         else ""
     )
-    accepted = sum(
-        1 for result in verified.results if result.validator_decision == "ACCEPTED"
-    )
-    rejected = len(verified.results) - accepted
-    payload_line = (
-        f"검증 페이로드 {len(verified.results)}개(승인 {accepted}, 거부 {rejected})"
-    )
+    if verified.results:
+        accepted = sum(
+            1
+            for result in verified.results
+            if result.validator_decision == "ACCEPTED"
+        )
+        rejected = len(verified.results) - accepted
+        payload_line = (
+            f"검증 페이로드 {len(verified.results)}개(승인 {accepted}, 거부 {rejected})"
+        )
+    elif getattr(verified, "attempted", 0):
+        # BAC re-check: other identifiers instead of mutated payloads.
+        payload_line = (
+            f"다른 식별자 {verified.attempted}개로 재확인 · "
+            f"{verified.reproduced}개 재현"
+        )
+    else:
+        payload_line = "재검증 없음"
     return (
         '<div class="why vpanel">\n'
         '  <div class="lab">검증 결과 '

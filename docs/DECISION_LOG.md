@@ -1227,6 +1227,46 @@ HTML이 같은 최종 점수를 제시한다. crawl/analysis/verification JSON�
 
 ---
 
+## ADR-035 — BAC 관측·랭킹·검증을 native 파이프라인에 통합
+
+**Status:** Accepted
+
+**Date:** 2026-08-19
+
+**Decision:** 66e5321에서 개발한 BAC 관측 계층(`access/planner.py`·`executor.py`)을
+현재 브랜치의 native 분석 경로에 통합한다. `_analyze_contexts`가 각 GET 컨텍스트에
+대해 **CREDENTIAL_STRIP**(쿠키/Authorization 제거 재요청)·**IDENTIFIER_SUBSTITUTION**
+(숫자 id +1 재요청)을 실행해 `AnalysisResult`에 `access_scoring_results`·
+`access_probe_observations`를 담는다. `build_decision_candidates`는 BAC 후보를
+calibrated probability로 SQLi/XSS와 함께 랭킹하고(BAC 모델은 optional — 없으면 조용히
+제외), 대시보드는 BAC 후보를 endpoint·check_kind·reference/comparison 재전송으로
+렌더한다. **BAC 전용 검증**(`verification/access_verify.py`)은 IDENTIFIER_SUBSTITUTION
+후보를 다른 id(+2/+5/−1)로 재확인해, 여러 id에서 재현되면 confidence 유지(SUPPORT_
+REPRODUCED), 하나도 재현 안 되면 약화(WEAKEN)한다 — injection과 같은 신호/LLR 모델
+재사용. 이로써 ADR-014의 "BAC deferred(scorer만 있고 관측 없음)"를 관측·랭킹·검증까지
+확장한다.
+
+**Context:** 데모 앱의 IDOR를 스캔이 실제로 후보로 잡게 하려는 사용자 요청. GET 한정·
+비파괴(ADR-012 non-goals 준수: 로그인/세션/역할 매트릭스 없음).
+
+**Alternatives:**
+
+- BAC를 selection_priority로만 표시(66e5321의 combined_report 방식) → 기각. 현재
+  대시보드는 calibrated probability 기반이라 스케일 통일이 필요.
+- BAC 검증을 injection verification 프레임(페이로드 mutation)에 억지로 넣기 → 기각.
+  BAC는 페이로드가 아니라 식별자/자격증명 재확인이라 별도 경량 경로가 맞다.
+
+**Consequences:**
+
+- pipeline/cli_decision/decision_html_report 통합, `access/{planner,executor}.py`
+  복원, `verification/access_verify.py` 신규. 전체 unit 710 green. 데모 스캔에서
+  BAC 후보가 랭킹·대시보드·검증에 나타남.
+- **한계/후속:** IDENTIFIER_SUBSTITUTION은 순차 id 앱에서 과탐 경향(데모에서 BAC 다수).
+  CREDENTIAL_STRIP 전용 검증은 미구현(관측만). 부수로 e5ceb2d의 --top-k 상한 회귀
+  (test_decision_cli top-k 50) 동반 수정.
+
+---
+
 ## New Decision Template
 
 ```text
