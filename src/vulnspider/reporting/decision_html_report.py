@@ -310,6 +310,28 @@ def _render_stats(
     )
 
 
+_TOP_BARS_VISIBLE = 8
+
+
+def _render_top_bars(items: Sequence[Bar]) -> str:
+    """상위 후보 막대: 앞 N개는 바로 보이고, 나머지는 '더보기'로 접는다.
+
+    후보 수가 많아도 이 카드가 세로로 과하게 길어지지 않게 한다.
+    """
+
+    if not items:
+        return bar_chart(items, empty_caption="선택된 후보가 없습니다.")
+    head = list(items[:_TOP_BARS_VISIBLE])
+    tail = list(items[_TOP_BARS_VISIBLE:])
+    rendered = bar_chart(head)
+    if tail:
+        rendered += (
+            f'<details class="more"><summary>나머지 {len(tail)}개 더보기</summary>'
+            f"{bar_chart(tail)}</details>"
+        )
+    return rendered
+
+
 def _render_charts(
     outcome: DecisionOutcome,
     *,
@@ -376,19 +398,17 @@ def _render_charts(
         empty_caption="파이프라인 수치가 없습니다.",
     )
 
-    top_bars = bar_chart(
-        [
-            Bar(
-                label=f"#{order} {_family_label(candidate.family)}",
-                ratio=_final_score(candidate, verification),
-                value_label=f"{_fmt_percent(_final_score(candidate, verification))}%",
-                tone=_priority_band(_final_score(candidate, verification)),
-                caption=_score_caption(candidate, verification),
-            )
-            for order, candidate in enumerate(selected, start=1)
-        ],
-        empty_caption="선택된 후보가 없습니다.",
-    )
+    top_bar_items = [
+        Bar(
+            label=f"#{order} {_family_label(candidate.family)}",
+            ratio=_final_score(candidate, verification),
+            value_label=f"{_fmt_percent(_final_score(candidate, verification))}%",
+            tone=_priority_band(_final_score(candidate, verification)),
+            caption=_score_caption(candidate, verification),
+        )
+        for order, candidate in enumerate(selected, start=1)
+    ]
+    top_bars = _render_top_bars(top_bar_items)
 
     return (
         '<div class="chart-grid">\n'
@@ -419,6 +439,7 @@ def _render_charts(
             english="selected candidates",
             note="막대 길이가 곧 취약할 확률입니다. 검증은 위에서부터 순서대로 "
             "수행하면 됩니다.",
+            card_class="wide",
         )
         + "\n</div>"
     )

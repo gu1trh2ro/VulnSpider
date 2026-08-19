@@ -197,8 +197,20 @@ def stacked_bar(segments: Sequence[Segment], *, caption: str = "") -> str:
     return f'<div class="stack">{"".join(pieces)}</div>{caption_html}'
 
 
-def chart_card(title: str, body: str, *, english: str = "", note: str = "") -> str:
-    """Wrap a chart in a titled card."""
+def chart_card(
+    title: str,
+    body: str,
+    *,
+    english: str = "",
+    note: str = "",
+    card_class: str = "",
+) -> str:
+    """Wrap a chart in a titled card.
+
+    ``card_class`` adds an extra CSS class to the section (e.g. ``"wide"`` to
+    let a card span the full grid width); it is a fixed caller-supplied string,
+    never interpolated from observed data.
+    """
 
     english_html = (
         f'<span class="en">{escape_text(english)}</span>' if english else ""
@@ -206,8 +218,9 @@ def chart_card(title: str, body: str, *, english: str = "", note: str = "") -> s
     note_html = (
         f'<div class="chart-note">{escape_text(note)}</div>' if note else ""
     )
+    class_attr = f"chart-card {card_class}".rstrip()
     return (
-        '<section class="chart-card">\n'
+        f'<section class="{class_attr}">\n'
         f'  <h3>{escape_text(title)}{english_html}</h3>\n'
         f"  {body}\n"
         f"  {note_html}\n"
@@ -226,6 +239,16 @@ CHART_STYLE = """
               grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
   .chart-card{background:var(--card);border:1px solid var(--line);
               border-radius:12px;padding:16px 18px 14px}
+  .chart-card.wide{grid-column:1/-1}
+  .chart-card.wide .bars{display:grid;gap:9px 26px;
+              grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  details.more{margin-top:11px}
+  details.more > summary{cursor:pointer;font-size:12px;color:var(--accent);
+              font-weight:600;list-style:none;padding:3px 0}
+  details.more > summary::-webkit-details-marker{display:none}
+  details.more > summary::before{content:"\\25B8  "}
+  details.more[open] > summary::before{content:"\\25BE  "}
+  details.more .bars{margin-top:9px}
   .chart-card h3{margin:0 0 12px;font-size:13px;font-weight:600;
                  display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
   .chart-card h3 .en{font-size:10.5px;text-transform:uppercase;
