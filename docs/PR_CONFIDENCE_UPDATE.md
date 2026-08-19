@@ -110,14 +110,14 @@ PYTHONPATH=src python -m vulnspider -u http://127.0.0.1:8899/ \
 - **validator 승인 전 페이로드 실행 금지** — 거부된 값은 실행 provenance가 생기지 않음(테스트로 증명).
 - **read-only · loopback/localhost 한정 · 한 번에 한 가지만**(ADR-004). BAC 프로브는 **GET 전용·비파괴**.
 - prior는 calibrated probability이며 **LLM이 최종 판단하지 않음**(규칙/보정 계수가 결정).
-- **실제 LLM proposer는 이 브랜치에 아직 통합되지 않았습니다** — 결정적 기본기가 `no-model` provider로 동작합니다. 실제 proposer는 석현이 `feat/local_ai_verifier` 브랜치에 **로컬 파인튜닝 모델**(`payload_verifier_v2/`, 3B GGUF 모델 `vulnspider-3b_v3`, `llama_cpp` 로컬 추론 — GPT/Gemini 같은 클라우드 API가 아님)로 구현했습니다. provider-neutral `PayloadProposer` 인터페이스 뒤로 끼워 넣는 통합이 후속 과제입니다.
+- **실제 LLM proposer는 본체 파이프라인과 아직 코드 통합되지 않았습니다** — `src/vulnspider/verification/`에서는 결정적 기본기가 `no-model` provider로 동작합니다. 석현의 실제 proposer는 **로컬 파인튜닝 모델**(`payload_verifier_v2/`, 3B GGUF `vulnspider-3b_v3`, `llama_cpp` 로컬 추론 — 클라우드 API 아님)로, `main`을 제외한 브랜치들(`integration/v0.2`·`feat/local_ai_verifier`·이 브랜치)에 **독립 실행 도구로 존재**하며 `vulnspider-*.json`을 입력으로 받습니다(현재 `src`는 이 모듈을 참조하지 않음). 이를 provider-neutral `PayloadProposer` 뒤로 끼워 넣는 코드 통합이 후속 과제입니다.
 - **네트워크/페이로드 실행이 바뀌는 변경 → 2인 리뷰 대상**.
 
 ---
 
 ## 알려진 한계 / 후속
 
-- 실제 LLM proposer는 별도 브랜치(`feat/local_ai_verifier`, 석현)에 로컬 파인튜닝 모델로 구현돼 있으나 **이 브랜치에는 아직 미통합** — 현재는 결정적 기본기가 그 자리를 대체.
+- 실제 LLM proposer(석현의 `payload_verifier_v2/` 로컬 파인튜닝 모델)는 독립 도구로 repo에 존재하나(`main` 제외 브랜치들) **본체 파이프라인과 코드 통합은 미완**(`src`의 참조 0건) — 현재 `src`에서는 결정적 기본기가 그 자리를 대체.
 - 코퍼스가 6개 신호 중 3개만 실측(`SUPPORT_NEW`/`INCONCLUSIVE`/`NOT_EXECUTED` 미관측 → 기본값).
 - BAC 관측은 opt-in(요청 예산 이유). `IDENTIFIER_SUBSTITUTION`은 순차 id 과탐 여지(데모는 seed 정밀화로 완화), `CREDENTIAL_STRIP` 전용 검증은 미구현.
 - 요청 예산/rate-limit/baseline 재사용 미적용(사용자 보류).
