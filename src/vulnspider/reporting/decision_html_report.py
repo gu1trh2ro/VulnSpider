@@ -345,7 +345,9 @@ def _render_charts(
                 value_label=f"{count}건",
                 tone=_FAMILY_TONE.get(family, "accent"),
             )
-            for family, count in sorted(by_family.items())
+            for family, count in sorted(
+                by_family.items(), key=lambda item: (-item[1], item[0])
+            )
         ],
         empty_caption="선택된 후보가 없습니다.",
     )
@@ -398,8 +400,8 @@ def _render_charts(
             "유형별 선택 건수",
             family_bars,
             english="selected by family",
-            note="확률은 유형과 무관하게 같은 척도이므로 유형 간에도 그대로 "
-            "비교할 수 있습니다.",
+            note="건수가 많은 유형부터 표시했습니다. 확률은 유형과 무관하게 "
+            "같은 척도이므로 유형 간에도 그대로 비교할 수 있습니다.",
         )
         + chart_card(
             "파이프라인 축소",
