@@ -31,8 +31,11 @@ from vulnspider.reporting.charts import (
     chart_card,
     donut_chart,
 )
+from vulnspider.reporting.guidance import (
+    DefenseGuidance,
+    build_defense_guidance,
+)
 from vulnspider.reporting.html_report import (
-    GENERAL_GUIDANCE,
     VULNERABILITY_LABELS,
     ProbeRun,
     _DOCUMENT_STYLE,
@@ -45,6 +48,7 @@ from vulnspider.reporting.html_report import (
     _requests_context,
 )
 from vulnspider.scoring.calibration import CalibratedProbability, CalibratedScorer
+from vulnspider.verification.focused import CandidateVerification
 
 DECISION_HTML_REPORT_VERSION = "decision-html-v3"
 
@@ -53,10 +57,86 @@ _EMPTY_ENDPOINTS: Mapping[str, Endpoint] = {}
 _EMPTY_PROBE_RUNS: Mapping[str, ProbeRun] = {}
 _EMPTY_PROBABILITIES: Mapping[str, CalibratedProbability] = {}
 _EMPTY_MODELS: Mapping[str, CalibratedScorer] = {}
+_EMPTY_VERIFICATION: Mapping[str, CandidateVerification] = {}
+_EMPTY_ACCESS_OBS: Mapping[str, Any] = {}
+
+_ACCESS_CHECK_LABEL = {
+    "CREDENTIAL_STRIP": "자격증명 제거 후 재요청",
+    "IDENTIFIER_SUBSTITUTION": "식별자 치환(숫자 id 증가)",
+}
 
 _BAND_LABEL = {"high": "높음", "medium": "중간", "low": "낮음"}
 _FAMILY_TONE = {"SQLI": "sqli", "REFLECTED_XSS": "xss", "BROKEN_ACCESS_CONTROL": "bac"}
-_FAMILY_LABEL_KO = {"SQLI": "SQL Injection", "REFLECTED_XSS": "Reflected XSS"}
+_FAMILY_LABEL_KO = {
+    "SQLI": "SQL Injection",
+    "REFLECTED_XSS": "Reflected XSS",
+    "BROKEN_ACCESS_CONTROL": "Broken Access Control",
+}
+
+# Post-verification outcome labels for the report.
+_OUTCOME_LABEL_KO = {
+    "SUPPORTED": "검증으로 뒷받침됨",
+    "WEAKENED": "검증으로 약화됨",
+    "INCONCLUSIVE_ERROR": "판정 보류(에러)",
+    "UNCHANGED": "변화 없음",
+    "NOT_EXECUTED": "미실행",
+    "REJECTED": "검증 거부됨",
+}
+_OUTCOME_TONE = {
+    "SUPPORTED": "high",
+    "WEAKENED": "low",
+    "INCONCLUSIVE_ERROR": "muted",
+    "UNCHANGED": "muted",
+    "NOT_EXECUTED": "muted",
+    "REJECTED": "muted",
+}
+
+
+def _final_score(
+    candidate: DecisionCandidate,
+    verification: Mapping[str, CandidateVerification],
+) -> float:
+    """The score to present: post-verification confidence if it ran, else prior.
+
+    This is the whole point of the confidence-update stage: when verification
+    ran for a candidate, the number the report leads with is the *updated*
+    confidence, not the pre-verification probability. Nothing is recomputed --
+    the value is read straight from the authoritative ``CandidateVerification``.
+    """
+
+    verified = verification.get(candidate.candidate_id)
+    if verified is not None:
+        return float(verified.final_confidence)
+    return float(candidate.probability)
+
+
+def _confidence_ordered(
+    selected: Sequence[DecisionCandidate],
+    verification: Mapping[str, CandidateVerification],
+) -> tuple[DecisionCandidate, ...]:
+    """Re-order the selected set by the score shown, highest first.
+
+    The sort is stable, so candidates that share a score (or all of them, when
+    no verification ran) keep the decision layer's original probability order.
+    The membership is never changed -- only the presentation order.
+    """
+
+    return tuple(
+        sorted(selected, key=lambda candidate: -_final_score(candidate, verification))
+    )
+
+
+def _score_caption(
+    candidate: DecisionCandidate,
+    verification: Mapping[str, CandidateVerification],
+) -> str:
+    verified = verification.get(candidate.candidate_id)
+    if verified is None:
+        return f"기대값 {candidate.expected_value:.2f}"
+    return (
+        f"검증 전 {_fmt_percent(verified.prior_probability)}% "
+        f"→ 최종 {_fmt_percent(verified.final_confidence)}%"
+    )
 
 
 def render_decision_html_report(
@@ -68,6 +148,8 @@ def render_decision_html_report(
     probe_runs: Mapping[str, ProbeRun] = _EMPTY_PROBE_RUNS,
     probabilities: Mapping[str, CalibratedProbability] = _EMPTY_PROBABILITIES,
     models: Mapping[str, CalibratedScorer] = _EMPTY_MODELS,
+    verification: Mapping[str, CandidateVerification] = _EMPTY_VERIFICATION,
+    access_observations: Mapping[str, Any] = _EMPTY_ACCESS_OBS,
     warnings: Sequence[str] = (),
     elapsed_seconds: float = 0.0,
     endpoint_count: int = 0,
@@ -79,28 +161,43 @@ def render_decision_html_report(
         raise TypeError("outcome must be a DecisionOutcome")
     outcome.validate()
 
-    selected = outcome.selected
+    verified = bool(verification)
+    # The Top-K *membership* stays exactly what the decision layer selected by
+    # the pre-verification probability -- that is what "verify these K" means.
+    # The report only re-*orders* that same set by the post-verification
+    # confidence when verification ran, so the lead score and the card order
+    # agree (the selection itself is untouched).
+    display_selected = _confidence_ordered(outcome.selected, verification)
+    order_heading = (
+        "검증 후 최종 신뢰도 순서 <span class=\"ko-en\">final confidence order</span>"
+        if verified
+        else "검증 순서 <span class=\"ko-en\">Verification order</span>"
+    )
     sections = [
-        _render_header(target, outcome, models),
-        _render_stats(outcome),
+        _render_header(target, outcome, models, verified),
+        _render_stats(outcome, verification),
         _render_charts(
             outcome,
+            verification=verification,
+            display_selected=display_selected,
             endpoint_count=endpoint_count or len(endpoints),
             input_point_count=input_point_count or len(input_points),
         ),
         _render_guarantee(outcome),
         _render_warnings(list(warnings)),
-        '<h2 class="section">검증 순서 <span class="ko-en">Verification order</span></h2>',
-        _render_intro(),
+        f'<h2 class="section">{order_heading}</h2>',
+        _render_intro(verified),
         _render_candidates(
-            selected,
+            display_selected,
             input_points=input_points,
             endpoints=endpoints,
             probe_runs=probe_runs,
             probabilities=probabilities,
+            verification=verification,
+            access_observations=access_observations,
         ),
         _render_unselected(outcome, input_points, endpoints),
-        _render_footer(outcome, elapsed_seconds),
+        _render_footer(outcome, elapsed_seconds, verified),
     ]
     body = "\n\n".join(section for section in sections if section)
     title = "VulnSpider 결정 리포트" + (f" — {target}" if target else "")
@@ -144,6 +241,7 @@ def _render_header(
     target: str,
     outcome: DecisionOutcome,
     models: Mapping[str, CalibratedScorer],
+    verified: bool = False,
 ) -> str:
     trained = sorted(
         (family, scorer.training_samples) for family, scorer in models.items()
@@ -158,22 +256,31 @@ def _render_header(
     target_line = (
         f'<div class="target">대상 &rarr; {_esc(target)}</div>' if target else ""
     )
+    tagline = (
+        "보정된 확률로 후보 순위를 매긴 뒤, 상위 후보를 실제로 재검증하여 신뢰도를 "
+        "갱신했습니다. 아래 점수는 <b>검증 이후의 최종 신뢰도</b>이며, 여전히 확정된 "
+        "취약점이 아니라 검증 우선순위입니다."
+        if verified
+        else "보정된 확률로 후보 순위를 매기고 확률이 가장 높은 Top-K를 검증 대상으로 "
+        "선택한 결과입니다. <b>검증 우선순위이며 확정된 취약점이 아닙니다.</b>"
+    )
     return (
         '<header class="masthead">\n'
         '  <div class="brand">\n'
         "    <h1>VulnSpider</h1>"
         f'<span class="ver">결정 리포트 &middot; {_esc(outcome.policy_version)}</span>\n'
         "  </div>\n"
-        '  <div class="tagline">보정된 확률로 후보 순위를 매기고 확률이 가장 높은 '
-        "Top-K를 검증 대상으로 선택한 결과입니다. <b>검증 우선순위이며 확정된 "
-        "취약점이 아닙니다.</b></div>\n"
+        f'  <div class="tagline">{tagline}</div>\n'
         f"  {target_line}\n"
         f'  <div class="target">모델 &rarr; {_esc(model_line)}</div>\n'
         "</header>"
     )
 
 
-def _render_stats(outcome: DecisionOutcome) -> str:
+def _render_stats(
+    outcome: DecisionOutcome,
+    verification: Mapping[str, CandidateVerification] = _EMPTY_VERIFICATION,
+) -> str:
     cells = [
         (_fmt_number(outcome.initial_candidates), "채점된 후보"),
         (_fmt_number(len(outcome.selected)), "선택됨"),
@@ -182,6 +289,14 @@ def _render_stats(outcome: DecisionOutcome) -> str:
     ]
     if outcome.conformal is not None:
         cells.append((_fmt_number(outcome.conformal_set_size), "보장 집합"))
+    if verification:
+        supported = sum(
+            1
+            for item in verification.values()
+            if item.final_outcome.value == "SUPPORTED"
+        )
+        cells.append((_fmt_number(len(verification)), "검증됨"))
+        cells.append((_fmt_number(supported), "검증 뒷받침"))
     items = "\n".join(
         f'  <div class="stat"><div class="n">{_esc(value)}</div>'
         f'<div class="l">{_esc(label)}</div></div>'
@@ -195,17 +310,44 @@ def _render_stats(outcome: DecisionOutcome) -> str:
     )
 
 
+_TOP_BARS_VISIBLE = 8
+
+
+def _render_top_bars(items: Sequence[Bar]) -> str:
+    """상위 후보 막대: 앞 N개는 바로 보이고, 나머지는 '더보기'로 접는다.
+
+    후보 수가 많아도 이 카드가 세로로 과하게 길어지지 않게 한다.
+    """
+
+    if not items:
+        return bar_chart(items, empty_caption="선택된 후보가 없습니다.")
+    head = list(items[:_TOP_BARS_VISIBLE])
+    tail = list(items[_TOP_BARS_VISIBLE:])
+    rendered = bar_chart(head)
+    if tail:
+        rendered += (
+            f'<details class="more"><summary>나머지 {len(tail)}개 더보기</summary>'
+            f"{bar_chart(tail)}</details>"
+        )
+    return rendered
+
+
 def _render_charts(
     outcome: DecisionOutcome,
     *,
+    verification: Mapping[str, CandidateVerification],
+    display_selected: Sequence[DecisionCandidate] = (),
     endpoint_count: int,
     input_point_count: int,
 ) -> str:
-    selected = outcome.selected
+    # `display_selected` is the same Top-K set re-ordered by the shown score;
+    # the counts below are order-independent, but the per-candidate bar chart
+    # follows it so the bars match the card order.
+    selected = tuple(display_selected) if display_selected else outcome.selected
 
     bands = {"high": 0, "medium": 0, "low": 0}
     for candidate in selected:
-        bands[_priority_band(float(candidate.probability))] += 1
+        bands[_priority_band(_final_score(candidate, verification))] += 1
     donut = donut_chart(
         [
             Slice(_BAND_LABEL[name], bands[name], name)
@@ -228,7 +370,9 @@ def _render_charts(
                 value_label=f"{count}건",
                 tone=_FAMILY_TONE.get(family, "accent"),
             )
-            for family, count in sorted(by_family.items())
+            for family, count in sorted(
+                by_family.items(), key=lambda item: (-item[1], item[0])
+            )
         ],
         empty_caption="선택된 후보가 없습니다.",
     )
@@ -254,19 +398,17 @@ def _render_charts(
         empty_caption="파이프라인 수치가 없습니다.",
     )
 
-    top_bars = bar_chart(
-        [
-            Bar(
-                label=f"#{order} {_family_label(candidate.family)}",
-                ratio=float(candidate.probability),
-                value_label=f"{_fmt_percent(float(candidate.probability))}%",
-                tone=_priority_band(float(candidate.probability)),
-                caption=f"기대값 {candidate.expected_value:.2f}",
-            )
-            for order, candidate in enumerate(selected, start=1)
-        ],
-        empty_caption="선택된 후보가 없습니다.",
-    )
+    top_bar_items = [
+        Bar(
+            label=f"#{order} {_family_label(candidate.family)}",
+            ratio=_final_score(candidate, verification),
+            value_label=f"{_fmt_percent(_final_score(candidate, verification))}%",
+            tone=_priority_band(_final_score(candidate, verification)),
+            caption=_score_caption(candidate, verification),
+        )
+        for order, candidate in enumerate(selected, start=1)
+    ]
+    top_bars = _render_top_bars(top_bar_items)
 
     return (
         '<div class="chart-grid">\n'
@@ -281,8 +423,8 @@ def _render_charts(
             "유형별 선택 건수",
             family_bars,
             english="selected by family",
-            note="확률은 유형과 무관하게 같은 척도이므로 유형 간에도 그대로 "
-            "비교할 수 있습니다.",
+            note="건수가 많은 유형부터 표시했습니다. 확률은 유형과 무관하게 "
+            "같은 척도이므로 유형 간에도 그대로 비교할 수 있습니다.",
         )
         + chart_card(
             "파이프라인 축소",
@@ -297,6 +439,7 @@ def _render_charts(
             english="selected candidates",
             note="막대 길이가 곧 취약할 확률입니다. 검증은 위에서부터 순서대로 "
             "수행하면 됩니다.",
+            card_class="wide",
         )
         + "\n</div>"
     )
@@ -336,7 +479,16 @@ def _render_guarantee(outcome: DecisionOutcome) -> str:
     )
 
 
-def _render_intro() -> str:
+def _render_intro(verified: bool = False) -> str:
+    if verified:
+        return (
+            '<div class="notice small">검증할 <b>후보(Top-K)는 검증 이전 '
+            "우선순위</b>로 선택했고, 아래 <b>표시 순서와 점수는 검증 이후 최종 "
+            "신뢰도</b> 기준으로 다시 정렬했습니다. <b>검증 결과</b>는 변형 페이로드 "
+            "재전송으로 확인한 내용(뒷받침/약화/판정 보류)과 검증 전후 점수 변화를, "
+            "<b>순위 근거</b>는 검증 이전 확률을 어떤 신호가 올리거나 내렸는지를 "
+            "보여줍니다.</div>"
+        )
     return (
         '<div class="notice small">아래 순서대로 검증하십시오. 각 항목의 '
         "<b>순위 근거</b>는 어떤 신호가 확률을 얼마나 올리거나 내렸는지, "
@@ -351,6 +503,8 @@ def _render_candidates(
     endpoints: Mapping[str, Endpoint],
     probe_runs: Mapping[str, ProbeRun],
     probabilities: Mapping[str, CalibratedProbability],
+    verification: Mapping[str, CandidateVerification] = _EMPTY_VERIFICATION,
+    access_observations: Mapping[str, Any] = _EMPTY_ACCESS_OBS,
 ) -> str:
     if not selected:
         return '<div class="empty">선택된 후보가 없습니다.</div>'
@@ -362,6 +516,8 @@ def _render_candidates(
             endpoints=endpoints,
             probe_runs=probe_runs,
             calibrated=probabilities.get(candidate.candidate_id),
+            verified=verification.get(candidate.candidate_id),
+            access_observation=access_observations.get(candidate.subject_ref),
         )
         for rank, candidate in enumerate(selected, start=1)
     )
@@ -375,46 +531,218 @@ def _render_candidate(
     endpoints: Mapping[str, Endpoint],
     probe_runs: Mapping[str, ProbeRun],
     calibrated: CalibratedProbability | None,
+    verified: CandidateVerification | None = None,
+    access_observation: Any = None,
 ) -> str:
-    probability = float(candidate.probability)
+    probability = (
+        float(verified.final_confidence)
+        if verified is not None
+        else float(candidate.probability)
+    )
     band = _priority_band(probability)
     percent = _fmt_percent(probability)
-    input_point = input_points.get(candidate.subject_ref)
-    endpoint = (
-        endpoints.get(input_point.endpoint_id) if input_point is not None else None
+    if access_observation is not None:
+        plan = access_observation.access_probe_plan
+        endpoint_line = _render_access_endpoint_line(
+            endpoints.get(plan.endpoint_id), plan
+        )
+        requests_html = _render_access_requests(access_observation)
+    else:
+        input_point = input_points.get(candidate.subject_ref)
+        endpoint = (
+            endpoints.get(input_point.endpoint_id)
+            if input_point is not None
+            else None
+        )
+        endpoint_line = _render_endpoint_line(endpoint, input_point)
+        requests_html = _render_requests(candidate, probe_runs)
+    access_check_kind = (
+        access_observation.access_probe_plan.check_kind.value
+        if access_observation is not None
+        else None
     )
-    family_type = _family_type(candidate.family)
-    guidance = GENERAL_GUIDANCE.get(family_type) if family_type is not None else None
-    guidance_html = (
-        f'<div class="fix"><b>일반 지침</b><br>{_esc(guidance)}<br>'
-        "<i>해당 취약점 유형의 일반적인 대응이며, 이 후보가 실제로 악용 가능하다는 "
-        "뜻은 아닙니다.</i></div>"
-        if guidance
-        else ""
+    guidance = build_defense_guidance(
+        candidate.family,
+        evidence=calibrated.evidence if calibrated is not None else (),
+        access_check_kind=access_check_kind,
     )
+    guidance_html = _render_guidance(guidance)
     return f"""<article class="finding {band}">
     <div class="fhead">
       <div>
         <div class="rank">#{rank}</div>
         <div class="vtype">{_esc(_family_label(candidate.family))}</div>
-        {_render_endpoint_line(endpoint, input_point)}
+        {endpoint_line}
       </div>
       <div class="meterwrap">
         <div class="prio {band}">{percent}%</div>
         <div class="meter"><i class="{band}" style="width:{percent}%"></i></div>
-        <div class="pcaption">취약 확률 &middot; 기대값 \
-{candidate.expected_value:.2f}</div>
+        <div class="pcaption">{_meter_caption(candidate, verified)}</div>
       </div>
     </div>
 
+    {_render_verification(verified)}
+
     {_render_evidence(candidate, calibrated)}
 
-    {_render_requests(candidate, probe_runs)}
+    {requests_html}
 
     {guidance_html}
     <div class="ids">candidate {_esc(candidate.candidate_id)} &middot; \
 feature vector {_esc(candidate.feature_vector_ref)}</div>
   </article>"""
+
+
+def _render_guidance(guidance: DefenseGuidance | None) -> str:
+    """유형·케이스별로 세분화된 방어 지침 블록.
+
+    케이스 판별과 문안은 ``build_defense_guidance``가 결정하고, 여기서는
+    표시만 한다(리포팅은 재구성하지 않는다).
+    """
+
+    if guidance is None:
+        return ""
+    chip = (
+        f'<span class="fixchip">{_esc(guidance.case_label)}</span>'
+        if guidance.case_label
+        else ""
+    )
+    note = (
+        f'<div class="fixnote">확인 포인트 &middot; {_esc(guidance.note)}</div>'
+        if guidance.note
+        else ""
+    )
+    primary = "".join(f"<li>{_esc(item)}</li>" for item in guidance.primary)
+    secondary = "".join(f"<li>{_esc(item)}</li>" for item in guidance.secondary)
+    return f"""<div class="fix">
+    <div class="fixhead"><b>방어 지침</b>\
+<span class="ko-en">countermeasures</span>{chip}</div>
+    <div class="fixlead">{_esc(guidance.lead)}</div>
+    <div class="fixgrid">
+      <div class="fixcol"><div class="fixsub">핵심 대응</div>
+        <ul>{primary}</ul></div>
+      <div class="fixcol"><div class="fixsub">추가 방어</div>
+        <ul>{secondary}</ul></div>
+    </div>
+    {note}
+    <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 \
+뜻은 아닙니다.</i>
+  </div>"""
+
+
+def _meter_caption(
+    candidate: DecisionCandidate,
+    verified: CandidateVerification | None,
+) -> str:
+    if verified is None:
+        return f"취약 확률 &middot; 기대값 {candidate.expected_value:.2f}"
+    return (
+        "검증 후 최종 신뢰도 &middot; 검증 전 "
+        f"{_fmt_percent(verified.prior_probability)}%"
+    )
+
+
+def _render_verification(verified: CandidateVerification | None) -> str:
+    """검증 결과: 어떤 판정이 났고 점수가 검증 전후로 어떻게 바뀌었는지.
+
+    아무것도 재계산하지 않는다. 값은 권위 있는 ``CandidateVerification``에서
+    그대로 읽는다(ARCHITECTURE.md: 리포팅은 결과를 표시할 뿐 재구성하지 않는다).
+    """
+
+    if verified is None:
+        return ""
+    outcome = verified.final_outcome.value
+    tone = _OUTCOME_TONE.get(outcome, "muted")
+    label = _OUTCOME_LABEL_KO.get(outcome, outcome)
+    prior = _fmt_percent(verified.prior_probability)
+    final = _fmt_percent(verified.final_confidence)
+    delta = verified.final_confidence - verified.prior_probability
+    arrow = "▲" if delta > 1e-9 else ("▼" if delta < -1e-9 else "=")
+    reasons: list[str] = []
+    for result in verified.results:
+        for item in result.verification_confidence.evidence:
+            reasons.append(item.reason)
+    unique_reasons = list(dict.fromkeys(reasons))[:3]
+    reason_html = (
+        "<ul class=\"vreason\">"
+        + "".join(f"<li>{_esc(reason)}</li>" for reason in unique_reasons)
+        + "</ul>"
+        if unique_reasons
+        else ""
+    )
+    if verified.results:
+        accepted = sum(
+            1
+            for result in verified.results
+            if result.validator_decision == "ACCEPTED"
+        )
+        rejected = len(verified.results) - accepted
+        payload_line = (
+            f"검증 페이로드 {len(verified.results)}개(승인 {accepted}, 거부 {rejected})"
+        )
+    elif getattr(verified, "attempted", 0):
+        # BAC re-check: other identifiers instead of mutated payloads.
+        payload_line = (
+            f"다른 식별자 {verified.attempted}개로 재확인 · "
+            f"{verified.reproduced}개 재현"
+        )
+    else:
+        payload_line = "재검증 없음"
+    return (
+        '<div class="why vpanel">\n'
+        '  <div class="lab">검증 결과 '
+        '<span class="ko-en">focused verification</span></div>\n'
+        f'  <div class="vhead"><span class="vbadge {tone}">{_esc(label)}</span>'
+        f'<span class="vscore">검증 전 {prior}% <b>{arrow}</b> 최종 {final}%</span>'
+        "</div>\n"
+        f"  {reason_html}\n"
+        f'  <div class="chart-note">{_esc(payload_line)}. 최종 신뢰도는 검증 이전 '
+        "확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>\n"
+        "</div>"
+    )
+
+
+def _render_access_endpoint_line(endpoint: Endpoint | None, plan: Any) -> str:
+    check = _ACCESS_CHECK_LABEL.get(plan.check_kind.value, plan.check_kind.value)
+    if endpoint is None:
+        return (
+            '<div class="ep">BAC &mdash; '
+            f'<span class="param">{_esc(check)}</span></div>'
+        )
+    return (
+        f'<div class="ep">{_esc(endpoint.method.value)} {_esc(endpoint.path)} '
+        f'&mdash; <span class="param">BAC &middot; {_esc(check)}</span></div>'
+    )
+
+
+def _render_access_requests(observation: Any) -> str:
+    """The reference vs comparison re-send behind a BAC candidate."""
+
+    plan = observation.access_probe_plan
+    rows = (
+        ("원본 요청", plan.reference_request, observation.reference_response),
+        ("변형 요청", plan.comparison_request, observation.comparison_response),
+    )
+    body = "".join(
+        f'<tr><td class="role">{_esc(label)}</td>'
+        f'<td class="pl">{_esc(request.method.value)} {_esc(request.url)}</td>'
+        f'<td class="status">{_esc(response.status_code)}</td>'
+        f"<td>{_fmt_number(response.body_length_bytes)} B</td></tr>"
+        for label, request, response in rows
+    )
+    return (
+        '<div class="why">\n'
+        '  <div class="lab">실행된 요청 '
+        '<span class="ko-en">reference vs comparison</span></div>\n'
+        f'  <div class="chart-note">바뀐 부분: {_esc(plan.changed_aspect)}</div>\n'
+        '  <table class="rec">\n'
+        "    <tr><th>역할</th><th>요청</th><th>상태</th><th>본문 크기</th></tr>\n"
+        f"    {body}\n"
+        "  </table>\n"
+        '  <div class="chart-note">변형 요청이 원본과 비슷하게 성공(2xx·유사 크기)'
+        "하면 접근제어가 미흡하다는 신호입니다. 확정된 취약점은 아닙니다.</div>\n"
+        "</div>"
+    )
 
 
 def _render_endpoint_line(
@@ -595,14 +923,24 @@ def _render_unselected(
     )
 
 
-def _render_footer(outcome: DecisionOutcome, elapsed_seconds: float) -> str:
+def _render_footer(
+    outcome: DecisionOutcome,
+    elapsed_seconds: float,
+    verified: bool = False,
+) -> str:
+    caveat = (
+        "여기의 점수는 검증 이후의 최종 신뢰도입니다. 규칙 기반 검증 근거이며 "
+        "여전히 확정된 취약점이 아닙니다."
+        if verified
+        else "여기의 확률은 검증 이전의 우선순위입니다(ADR-016). 확정된 취약점이 "
+        "아닙니다."
+    )
     return (
         "<footer>"
         f"{_esc(DECISION_HTML_REPORT_VERSION)} &middot; "
         f"{_esc(outcome.policy_version)} &middot; "
         f"{elapsed_seconds:.2f}s<br>"
-        '<span class="warn">여기의 확률은 검증 이전의 우선순위입니다(ADR-016). '
-        "확정된 취약점이 아닙니다.</span>"
+        f'<span class="warn">{caveat}</span>'
         "</footer>"
     )
 
@@ -612,4 +950,29 @@ _EXTRA_STYLE = """
          color:var(--muted);font-weight:500;margin-left:8px}
   .notice b{color:var(--ink)}
   .why .bars{margin-top:4px}
+  .vpanel .vhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+         margin:2px 0 6px}
+  .vbadge{display:inline-block;padding:2px 9px;border-radius:999px;
+         font-size:12px;font-weight:600;color:#fff}
+  .vbadge.high{background:var(--high,#c0392b)}
+  .vbadge.low{background:var(--low,#7f8c8d)}
+  .vbadge.muted{background:var(--muted,#95a5a6)}
+  .vscore{font-size:12.5px;color:var(--ink)}
+  .vscore b{margin:0 3px}
+  ul.vreason{margin:4px 0 0;padding-left:18px;font-size:12.5px;color:var(--ink)}
+  ul.vreason li{margin:2px 0}
+  .fixhead{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px}
+  .fixchip{display:inline-block;padding:1px 9px;border-radius:999px;
+         background:var(--accent);color:#fff;font-size:11px;font-weight:600;
+         letter-spacing:0;text-transform:none}
+  .fixlead{font-size:12.5px;color:var(--ink);margin-bottom:10px;line-height:1.5}
+  .fixgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px}
+  @media(max-width:640px){.fixgrid{grid-template-columns:1fr}}
+  .fixsub{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+         color:var(--accent);font-weight:600;margin-bottom:3px}
+  .fix ul{margin:0;padding-left:16px}
+  .fix li{font-size:12px;color:var(--ink);line-height:1.5;margin:3px 0}
+  .fixnote{margin-top:10px;font-size:12px;color:var(--ink);line-height:1.5;
+         padding:7px 10px;background:rgba(0,0,0,.035);border-radius:6px}
+  .fixdisc{display:block;margin-top:10px;font-size:11px}
 """

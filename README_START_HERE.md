@@ -10,8 +10,12 @@ also contains the in-progress v0.2 Native Discovery implementation.
   Native Static plus Native Dynamic Discovery, final loopback E2E acceptance,
   observed GET/blocked POST JSON canonicalization, and the simple Dynamic-first
   CLI adapter.
-- **Still planned for v0.2:** BAC prioritization and LLM-assisted focused
-  verification.
+- **Also implemented (opt-in):** LLM-assisted focused verification with a
+  provider-neutral payload proposer, a mandatory deterministic
+  `PayloadValidator`, loopback re-probing, and rule-based confidence updates
+  (`vulnspider ... --verify`, ADR-032).
+- **Still planned for v0.2:** BAC prioritization and a real GPT/Gemini
+  proposer behind the existing validator gate.
 - **Historical:** the Prompt 01-07 sequence that produced and reviewed v0.1.
 
 Planning documents do not imply that later v0.2 milestones are implemented.
@@ -142,6 +146,69 @@ opt-in flag and with `--input`. Explicit Dynamic capability/configuration,
 integrity, and validated degradation paths use exit codes 2, 3, and 4
 respectively.
 
+Simple `-u` mode produces `vulnspider-report.html` — the single end-to-end web
+dashboard — by default, alongside the machine-readable crawl/analysis JSON.
+With `--verify` it leads with the post-verification confidence. Adding
+`--verify` (on `analyze` or simple `-u` mode) runs focused verification
+after ranking: for each Top-K candidate it proposes same-family variant
+payloads (SQL metacharacters, wider HTML sentinels, out-of-range integers),
+gates every one through a mandatory deterministic `PayloadValidator`, re-sends
+the accepted payloads against the loopback target, re-collects a feature
+vector, and updates the candidate's confidence by a reviewed rule set. A small
+feature difference keeps the confidence; a reproduced or newly revealed
+type-specific signal confirms or raises it; a safely encoded reflection lowers
+it; a large change with no type-specific signal is reported as an inconclusive
+error. Results are written to `vulnspider-verification.json` (default) as
+`VerificationResult` records; the existing analysis report is unchanged. An
+LLM never sets the confidence and no proposal executes before the validator
+accepts it.
+
+```powershell
+vulnspider -u http://127.0.0.1:8080/ --verify
+vulnspider analyze --url http://127.0.0.1:8080/ --top-k 10 `
+  --output result.json --html-output result.html `
+  --verify --verify-output verification.json
+```
+
+With `--html-output`, `--verify` makes the report lead with the
+post-verification confidence instead of the pre-verification probability. The
+amount each verification signal moves the confidence is bounded and, once a
+labeled verification corpus exists, learned from it rather than hand-picked:
+
+```powershell
+vulnspider corpus verify-collect --url http://127.0.0.1:8080/ `
+  --application-id app1 --ground-truth gt.json -o verify-corpus.jsonl --append
+vulnspider corpus verify-fit --corpus verify-corpus.jsonl `
+  -o confidence-model.json --report arm.json
+vulnspider analyze --url http://127.0.0.1:8080/ --top-k 10 --output result.json `
+  --verify --verification-model confidence-model.json
+```
+
+`verify-fit --report` writes the out-of-fold evaluation arm: the Brier score of
+the pre-verification prior versus the post-verification confidence. Without
+`--verification-model`, the update uses a conservative built-in model.
+
+A fitted model is committed at `data/corpus/verification-model.json`, built by
+`tools/build_verification_corpus.py`, which serves the labeled loopback
+applications from `tools/corpus_target_site.py` (they reproduce the same signal
+families a target like DVWA exposes — error-based SQLi, blind SQLi, raw
+reflected XSS, safely escaped reflection, and safe endpoints), runs real
+verification against them, and fits the model. On that corpus (146 samples, 14
+applications) the out-of-fold Brier score improves from 0.136 to 0.102, and the
+model learns that a reproduced signal is strongly vulnerable (LLR capped at
++1.0) while a safely-encoded reflection is safe (−1.0). Rebuild and use it with:
+
+```powershell
+python tools/build_verification_corpus.py --applications 14
+vulnspider analyze --url http://127.0.0.1:8080/ --top-k 10 --output result.json `
+  --verify --verification-model data/corpus/verification-model.json
+```
+
+Running against a real DVWA instance additionally needs an authenticated crawl
+(login, session, and the security-level cookie), which the current crawler does
+not perform; the loopback fixtures stand in for it while exercising the same
+verification signals.
+
 ## Implemented and not implemented
 
 ### Implemented
@@ -163,17 +230,40 @@ respectively.
 - Independent SQLi and Reflected XSS scoring with `ScoreEvidence`.
 - Deterministic global Top-K using `selection_priority`.
 - JSON report and optional escaped HTML report.
+- Opt-in focused verification (`--verify`): provider-neutral payload mutation
+  with a deterministic default proposer, a mandatory deterministic
+  `PayloadValidator`, loopback re-probing that reuses the v0.1 executor and
+  feature extractor, a baseline-vs-reprobe feature delta, rule-based
+  `VerificationConfidence`, and a separate `vulnspider-verification.json`
+  `VerificationResult` report (ADR-032).
+- Corpus-calibrated confidence: a per-(family, verification-signal)
+  log-likelihood-ratio model with a bounded, gentle update
+  (`verification/calibration.py`), the verification corpus label/protocol
+  (`corpus/verification_collection.py`), and an out-of-fold Brier evaluation
+  arm (`corpus/verification_fitting.py`), reachable through
+  `corpus verify-collect` and `corpus verify-fit` (ADR-033).
+- One end-to-end HTML dashboard report as the primary output: simple `-u` mode
+  writes `vulnspider-report.html` by default, leading with the
+  **post-verification** confidence and showing each candidate's verdict and
+  prior→final change; the decision JSON carries the same final confidence so
+  both artifacts agree (ADR-033, ADR-034). `--no-html` skips it.
+- `INCONCLUSIVE_ERROR` is reserved for a genuine error (transport failure or a
+  payload-induced 5xx); a benign length/status difference stays `UNCHANGED`
+  (ADR-034).
 - Unit and integration coverage for the implemented path.
 
 ### Planned for v0.2, not implemented
 
-- BAC preprocessing, features, scoring, and role/session orchestration.
+- BAC role/session orchestration and CREDENTIAL_STRIP-specific verification.
+  (BAC observation — credential-strip / identifier-substitution GET re-probes —
+  scoring, calibrated-probability ranking alongside SQLi/XSS, dashboard
+  rendering, and identifier-substitution re-verification are implemented;
+  ADR-035.)
 - Feature cache and automated quantitative ranking evaluation.
-- GPT/Gemini comparison harness.
-- LLM-assisted payload mutation and payload validation.
-- Focused verification, `VerificationEvidence`, and
-  `VerificationConfidence`.
-- Rule-based confidence updates.
+- GPT/Gemini comparison harness and a real model proposer behind the existing
+  `PayloadValidator` gate.
+- A real labeled verification corpus and live `verify-collect` loopback
+  integration; folding the updated confidence into the decision JSON report.
 
 Fine-tuning is **Deferred** unless the v0.2 API comparison and failure analysis
 meet the decision gate in [Prototype v0.2](docs/PROTOTYPE_V0_2.md).

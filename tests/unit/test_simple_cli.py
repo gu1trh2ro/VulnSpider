@@ -99,6 +99,18 @@ def _pipeline_stub(analysis: AnalysisResult):
 
 
 class SimpleCliTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Simple mode now writes vulnspider-report.html to the CWD by default;
+        # run every test from a throwaway CWD so the default report never lands
+        # in the repo root when a test only pins --crawl-output/-o.
+        self._original_cwd = os.getcwd()
+        self._cwd = TemporaryDirectory(prefix="vulnspider-simple-cli-cwd-")
+        os.chdir(self._cwd.name)
+
+    def tearDown(self) -> None:
+        os.chdir(self._original_cwd)
+        self._cwd.cleanup()
+
     def test_simple_url_calls_dynamic_pipeline_and_writes_both_defaults(self) -> None:
         stdout = StringIO()
         analysis = _native_analysis()

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from ipaddress import ip_address
 from time import monotonic
 from typing import Any
@@ -29,8 +29,19 @@ from vulnspider.discovery import (
     discover_native_combined,
     extract_static_html_with_sensitive_form_elision,
 )
+from vulnspider.access import (
+    AccessProbeExecutionResult,
+    execute_access_plan,
+    extract_access_features,
+    plan_credential_strip,
+    plan_identifier_substitution,
+    score_access_plan,
+)
 from vulnspider.domain import (
+    AccessProbePlan,
+    AccessScoringResult,
     Endpoint,
+    FeatureObservation,
     FeatureVector,
     HttpMethod,
     InputPoint,
@@ -89,6 +100,22 @@ class _ProbeRun:
 
 
 @dataclass(frozen=True, slots=True)
+class AccessProbeObservation:
+    """The executed reference/comparison pair behind an ``AccessCandidate``.
+
+    Same reporting-join purpose as :class:`ProbeObservation`, but for the
+    separate BAC pipeline (ADR-012/ADR-014): credential-stripped or
+    identifier-substituted GET re-sends, never an injection probe.
+    """
+
+    candidate_id: str
+    access_probe_plan: AccessProbePlan
+    reference_response: ResponseSnapshot
+    comparison_response: ResponseSnapshot
+    features: Mapping[str, FeatureObservation] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisResult:
     adapter_result: LegacyAdapterResult | None
     scoring_results: tuple[ScoringResult, ...]
@@ -100,6 +127,8 @@ class AnalysisResult:
     crawl_result: StaticCrawlResult | None = None
     combined_result: CombinedDiscoveryResult | None = None
     feature_vectors: tuple[FeatureVector, ...] = ()
+    access_scoring_results: tuple[AccessScoringResult, ...] = ()
+    access_probe_observations: tuple[AccessProbeObservation, ...] = ()
 
     @property
     def dynamic_crawl_result(self) -> DynamicCrawlResult | None:
@@ -133,6 +162,7 @@ def analyze_legacy_records(
     transport: RequestTransport | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
+    enable_access: bool = False,
 ) -> AnalysisResult:
     """Run adapter-compatible records through the implemented v0.1 pipeline."""
 
@@ -166,6 +196,7 @@ def analyze_legacy_records(
         max_body_bytes=max_body_bytes,
         initial_warnings=adapter_result.warnings,
         adapter_result=adapter_result,
+        enable_access=enable_access,
     )
 
 
@@ -176,6 +207,7 @@ def analyze_discovery_result(
     transport: RequestTransport | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
+    enable_access: bool = False,
 ) -> AnalysisResult:
     """Analyze READY GET contexts from a canonical native discovery result."""
 
@@ -196,6 +228,7 @@ def analyze_discovery_result(
         ),
         discovery_result=discovery_result,
         allowed_methods=frozenset({HttpMethod.GET}),
+        enable_access=enable_access,
     )
 
 
@@ -217,6 +250,7 @@ def analyze_url(
     ]
     | None = None,
     elide_sensitive_forms: bool = False,
+    enable_access: bool = False,
 ) -> AnalysisResult:
     """Analyze Static discovery, or explicit Static-plus-Dynamic discovery."""
 
@@ -269,6 +303,7 @@ def analyze_url(
             transport=transport,
             timeout_seconds=timeout_seconds,
             max_body_bytes=max_body_bytes,
+            enable_access=enable_access,
         )
         return replace(
             analysis,
@@ -308,6 +343,7 @@ def analyze_url(
         transport=transport,
         timeout_seconds=timeout_seconds,
         max_body_bytes=max_body_bytes,
+        enable_access=enable_access,
     )
     return replace(analysis, crawl_result=crawl_result)
 
@@ -372,6 +408,7 @@ def _analyze_contexts(
     adapter_result: LegacyAdapterResult | None = None,
     discovery_result: CanonicalDiscoveryResult | None = None,
     allowed_methods: frozenset[HttpMethod] | None = None,
+    enable_access: bool = False,
 ) -> AnalysisResult:
     active_transport = transport if transport is not None else UrlLibTransport()
     executor = RequestExecutor(
@@ -383,6 +420,9 @@ def _analyze_contexts(
     collector_label = _collector_label(discovery_result)
     runs: dict[str, list[_ProbeRun]] = {}
     warnings = list(initial_warnings)
+    access_scoring_results: list[AccessScoringResult] = []
+    access_probe_observations: list[AccessProbeObservation] = []
+    credential_strip_planned_templates: set[str] = set()
     started = monotonic()
 
     for input_point, request_template, context in sorted(
@@ -424,6 +464,39 @@ def _analyze_contexts(
             )
         )
 
+        # BAC (opt-in): re-send the same GET with credentials stripped (once
+        # per template) or a numeric identifier substituted. These are extra
+        # network requests beyond the injection baseline/probe, so they run
+        # only when access checking is explicitly enabled -- keeping the
+        # request budget explicit. Non-destructive, GET-only, scored in the
+        # separate access family (ADR-014/ADR-035).
+        if enable_access:
+            template_id = request_template.id or ""
+            if template_id not in credential_strip_planned_templates:
+                credential_strip_planned_templates.add(template_id)
+                credential_plan = plan_credential_strip(request_template)
+                if credential_plan is not None:
+                    _run_access_plan(
+                        credential_plan,
+                        transport=active_transport,
+                        timeout_seconds=timeout_seconds,
+                        max_body_bytes=max_body_bytes,
+                        access_scoring_results=access_scoring_results,
+                        access_probe_observations=access_probe_observations,
+                    )
+            identifier_plan = plan_identifier_substitution(
+                input_point, request_template
+            )
+            if identifier_plan is not None:
+                _run_access_plan(
+                    identifier_plan,
+                    transport=active_transport,
+                    timeout_seconds=timeout_seconds,
+                    max_body_bytes=max_body_bytes,
+                    access_scoring_results=access_scoring_results,
+                    access_probe_observations=access_probe_observations,
+                )
+
     scoring_results: list[ScoringResult] = []
     feature_vectors: list[FeatureVector] = []
     probe_observations: list[ProbeObservation] = []
@@ -455,6 +528,8 @@ def _analyze_contexts(
         elapsed_seconds=elapsed_seconds,
         discovery_result=discovery_result,
         feature_vectors=tuple(feature_vectors),
+        access_scoring_results=tuple(access_scoring_results),
+        access_probe_observations=tuple(access_probe_observations),
     )
 
 
@@ -464,6 +539,41 @@ def _collector_label(discovery_result: CanonicalDiscoveryResult | None) -> str:
     if discovery_result is None:
         return "legacy adapter"
     return discovery_result.discovery_metadata.collector_kind.value
+
+
+def _run_access_plan(
+    plan: AccessProbePlan,
+    *,
+    transport: RequestTransport,
+    timeout_seconds: float,
+    max_body_bytes: int,
+    access_scoring_results: list[AccessScoringResult],
+    access_probe_observations: list[AccessProbeObservation],
+) -> None:
+    _require_loopback_request(plan.reference_request.url)
+    _require_loopback_request(plan.comparison_request.url)
+    execution: AccessProbeExecutionResult = execute_access_plan(
+        plan,
+        transport=transport,
+        timeout_seconds=timeout_seconds,
+        max_body_bytes=max_body_bytes,
+    )
+    features = extract_access_features(
+        plan,
+        execution.reference_response,
+        execution.comparison_response,
+    )
+    result = score_access_plan(plan, features)
+    access_scoring_results.append(result)
+    access_probe_observations.append(
+        AccessProbeObservation(
+            candidate_id=result.candidate.id or "",
+            access_probe_plan=plan,
+            reference_response=execution.reference_response,
+            comparison_response=execution.comparison_response,
+            features=features,
+        )
+    )
 
 
 def _require_loopback_request(url: str) -> None:

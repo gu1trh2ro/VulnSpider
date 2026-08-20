@@ -1032,6 +1032,241 @@ ADR-004(one-at-a-time)는 유지된다. 2인 리뷰 대상.
 
 ---
 
+## ADR-032 — Focused verification과 rule-based confidence update
+
+**Status:** Accepted
+
+**Date:** 2026-08-18
+
+**Decision:** 랭킹된 Top-K 위에 마지막 파이프라인 단계인 focused verification을
+추가한다. 각 상위 후보에 대해 같은 계열의 *변형* 페이로드를 제안하고
+(`verification/proposal.py`), 결정적 validator로 반드시 게이트한 뒤
+(`verification/validator.py`), 승인된 것만 loopback 대상에 재전송해 feature
+vector를 다시 수집하고(`planner.py` + 기존 executor/extractor), baseline vector와
+차분해(`delta.py`), 검토된 규칙으로 confidence를 갱신한다(`confidence.py`). 결과는
+`VerificationResult` 레코드(`docs/TEAM_INTERFACES_V0_2.md` §3)로 직렬화한다. CLI는
+opt-in `--verify`/`--verify-output`로 별도 `vulnspider-verification.json`만 쓰며,
+frozen v0.1 출력·분석 리포트·decision 리포트는 바뀌지 않는다.
+
+**Context:** `docs/PROTOTYPE_V0_2.md` §4.3–4.4가 남긴 마지막 milestone(석현
+소유). `AnalysisResult`는 이미 InputPoint별 baseline `FeatureVector`와 실행된
+`ProbePlan`(baseline `RequestInstance` 포함)을 보존하므로, discovery를 건드리지
+않고 재탐색을 계획할 수 있다.
+
+**규칙(요지):**
+
+- 차이가 작으면(discriminating feature 이동 없음, 관측 플립은 0값 아티팩트 제외)
+  → **UNCHANGED**, prior 유지.
+- 유형별 신호가 재현되면(baseline도 이미 의심) → **SUPPORTED(keep)**, prior 유지
+  ("차이가 크지 않으면 confidence 유지").
+- baseline이 놓친 신호가 새로 드러나면(예: sentinel `'`로는 안 났는데 out-of-range
+  `-1`에서 SQL 에러) → **SUPPORTED(raise)** ("baseline으로는 의심이 크지 않았지만
+  실제 취약 지점").
+- 반사되지만 안전하게 entity-encoding됨 → **WEAKENED(lower)**.
+- 응답은 크게 바뀌었지만 유형별 신호가 없음 → **INCONCLUSIVE_ERROR**, prior 유지
+  ("단순 에러"). BOUNDARY 페이로드에서 흔하다.
+
+**Safety:** 네트워크·페이로드 실행 변경이라 2인 리뷰 대상. 모델 출력은 신뢰하지
+않으며 validator 승인 전에는 전송되지 않고(거부된 제안은 실행 provenance가 존재할
+수 없게 `from_objects`에서 강제), 페이로드는 read-only(스택 쿼리·파괴적 키워드
+금지, 상태 변경 없음)이고 loopback 한정이며 ADR-004(one-at-a-time)를 유지한다.
+prior는 `RankScore`가 아니라 calibrated probability(ADR-022의 pre-verification
+prior)에서 시작하므로 도메인 규칙 6·7을 지킨다.
+
+**Alternatives:**
+
+- 변화 크기만으로 취약/에러 판정 → 기각. 길이·상태는 어떤 페이로드에서도 흔들려
+  구분자가 못 된다. `sql_error_pattern`(SQLi)과 raw 반사(XSS)만이 구분자다.
+- RankScore를 confidence로 합산/대체 → 기각(규칙 6·7, contract forbidden
+  reconstruction).
+- 실제 LLM 클라이언트 즉시 구현 → 보류. provider-neutral 경계 + 결정적 기본
+  proposer만 구현하고, GPT/Gemini는 같은 validator 게이트 뒤에 끼우는 후속
+  milestone(API 비교 하니스·키 취급 필요)으로 둔다.
+
+**Consequences:**
+
+- 새 패키지 `src/vulnspider/verification/`(proposal/validator/planner/delta/
+  confidence/result/focused)와 opt-in CLI 플래그, `test_verification.py`·
+  `test_verification_cli.py` 추가. 전체 unit 682개 + format/lint/type green.
+- `VerificationResult`는 이제 구현된 producer 레코드다. `VerificationEvidence`
+  세부 스키마·confidence 임계값은 규칙 v1로 고정했고 팀 리뷰 대상이다.
+- **미완/후속:** 실제 GPT/Gemini proposer, HTML verification 리포트, decision
+  리포트와의 결합, per-payload 재현 시 소폭 가점 여부(현재 strict keep), FORM/POST
+  대상 확대 검증.
+
+---
+
+## ADR-033 — Confidence 상수의 코퍼스 보정, 평가 arm, 최종 리포트 결합
+
+**Status:** Accepted
+
+**Date:** 2026-08-18
+
+**Decision:** ADR-032의 confidence 갱신에서 손으로 고른 상수(`SUPPORT_GAIN=0.6`,
+`WEAKEN_FACTOR=0.5`)를 제거하고, 검증 결과를 **범주형 신호**(SUPPORT_NEW,
+SUPPORT_REPRODUCED, WEAKEN, INCONCLUSIVE, UNCHANGED, NOT_EXECUTED)로 보고, 그
+신호의 **로그우도비(LLR)를 prior의 로그오즈에 더하는** 방식으로 바꾼다.
+
+`logit(posterior) = logit(prior) + LLR(family, signal)`
+
+LLR은 라벨된 검증 코퍼스에서 `P(signal|취약)/P(signal|안전)`로 추정하며(Dirichlet
+평활), `|LLR|`을 `max_abs_llr`(기본 1.0 logit)로 클램프한다. 이는
+`scoring/calibration.py`의 `NaiveBayesRates.log_likelihood_ratio`가 feature에
+쓰는 것과 같은 weight-of-evidence 합성을 검증 신호에 적용한 것이다.
+
+**"점수가 크게 변하지 않게":** 로그오즈 가법 갱신은 단조·유계이고, 캡이 한 번의
+검증이 점수를 세게 흔들지 못하게 보장한다(기본 캡에서 prior 0.5는 최대 ±0.23
+이동). 무학습 기본 모델(`VerificationConfidenceModel.default`)은 작은 고정 LLR을
+쓰며 SUPPORT_REPRODUCED는 기본 0(재현은 기본적으로 유지) — 재현에 가점할지는
+코퍼스가 결정한다(ADR-032가 남긴 open question을 데이터로 닫음).
+
+**평가 arm:** `corpus/verification_fitting.py`가 leave-one-application-out로
+prior의 Brier와 posterior의 Brier를 비교한다(`evaluate_verification_arm`). 개선이
+양수면 학습된 LLR을 배포할 근거이고, 음수면 검증이 이 코퍼스에서 보정 정보를 더하지
+못한다는 정직한 결과다(캡이 이미 보수성을 보장). 라벨/프로토콜은
+`corpus/verification_collection.py`(`verification-corpus-v1` JSONL)가 소유하며,
+`docs/EVALUATION_PROTOCOL.md` §3 키로 ground truth와 조인한다.
+
+**최종 리포트 결합:** `--verify`를 켜면 검증을 리포트 생성 **이전**에 실행하고, 그
+결과를 `reporting/decision_html_report.py`에 넘긴다. 리포트의 헤드라인 점수는 이제
+검증 이전 확률이 아니라 **검증 이후 최종 신뢰도**(`CandidateVerification
+.final_confidence`)이며, 후보 카드에 검증 판정(뒷받침/약화/보류)과 검증 전후 점수
+변화를 함께 표시한다. 리포트는 아무것도 재계산하지 않고 권위 있는 값을 표시만 한다
+(ARCHITECTURE.md).
+
+**CLI:** `corpus verify-collect`(라벨 앱에서 검증 신호 수집), `corpus verify-fit`(
+모델 적합 + `--report`로 arm 평가), analyze/`-u`의 `--verification-model`(적합 모델
+로드; 기본은 보수적 내장 모델).
+
+**Safety/규칙:** prior는 여전히 calibrated probability(ADR-022의 pre-verification
+prior)이지 RankScore가 아니다(규칙 6·7). 신호 추출은 결정적이고 모델과 무관하므로
+수집은 모델 독립이다. 네트워크/페이로드 실행 정책은 ADR-032와 동일(2인 리뷰).
+
+**Alternatives:**
+
+- 상수를 유지하고 손튜닝 → 기각. 근거 없는 값이라 확률 스케일을 오염시키고 방어 불가.
+- outcome(SUPPORTED/WEAKENED) 단위로만 LLR 학습 → 기각. 재현/신규 구분이 사라져
+  ADR-032의 "재현 유지" 의도를 잃는다. 그래서 더 세분화된 signal로 학습한다.
+- 캡 없이 학습 LLR 사용 → 기각. 소규모 코퍼스에서 분리 가능한 신호가 과신을
+  유발한다. 캡이 "크게 변하지 않게"를 보장한다.
+
+**Consequences:**
+
+- `confidence-rule-v1`→`v2`. `VerificationConfidence`에 `signal`·`model_version`
+  추가, `VerificationResult` JSON에 반영. 기존 34개 검증 테스트는 기본 모델로 유지
+  (수치는 더 완만). 신규 15개 테스트(calibration/arm/collection/CLI/report).
+- **코퍼스 수집 완료:** `tools/build_verification_corpus.py`가
+  `tools/corpus_target_site.py`의 라벨 loopback 앱(DVWA와 동일한 신호 계열: 에러
+  기반/블라인드 SQLi, raw/이스케이프 XSS, 안전)을 띄워 실제 검증을 돌려 코퍼스를
+  수집한다. 산출물: `data/corpus/verification-corpus.jsonl`(146 샘플, 14 앱),
+  `verification-model.json`(적합 모델), `verification-arm.json`. **out-of-fold
+  Brier 0.136→0.102(+0.034 개선).** 학습 결과 SUPPORT_REPRODUCED=+1.0(취약 20/안전
+  0), WEAKEN=−1.0(안전 20/0), UNCHANGED은 SQLI에서 −0.407(블라인드 SQLi가 UNCHANGED로
+  떨어져 약하게만 안전). NOT_EXECUTED·INCONCLUSIVE는 증거 없음이라 항상 0으로 고정,
+  미관측 신호는 기본 LLR로 폴백(스무딩 아티팩트 방지). 적합 모델은
+  `--verification-model`로 사용하며 내장 기본은 여전히 보수적 무학습 모델.
+- **미완/후속:** 실제 DVWA 대상(로그인·세션·보안 쿠키 인증 크롤 필요, 현 크롤러
+  미지원), 캡·평활 하이퍼파라미터의 코퍼스 기반 선택, 적합 모델을 기본값으로 승격할지
+  여부.
+
+---
+
+## ADR-034 — 단일 대시보드 리포트와 INCONCLUSIVE 게이트 정밀화
+
+**Status:** Accepted
+
+**Date:** 2026-08-18
+
+**Decision (리포트 통합):** 최종 산출물을 **하나의 end-to-end HTML 대시보드**로
+모은다. 단순 `-u` 모드는 이제 `vulnspider-report.html`을 **기본 생성**하며
+(`--no-html`로 끔, `--html-output`로 경로 지정), 이 대시보드가 URL→탐색→랭킹→검증
+결과를 한 파일에 담는 "그 리포트"다(자체 완결형, 오프라인). decision **JSON**
+리포트에도 검증 후 최종 신뢰도를 반영해(`decision_report`에 `verification` 요약과
+후보별 `final_confidence`/`verification_outcome`/`prior_probability` 추가) JSON과
+HTML이 같은 최종 점수를 제시한다. crawl/analysis/verification JSON은 유지하되,
+읽는 리포트가 아니라 기계 판독용 export로 위치한다. `analyze` 서브커맨드는
+`--html-output`가 기존처럼 옵트인(하위호환).
+
+**Decision (검증 후 재정렬):** 리포트의 **표시 순서와 헤드라인 점수는 검증 후 최종
+신뢰도** 기준으로 다시 정렬한다(HTML 카드·상단 후보 차트·decision JSON의
+`verification_order` 모두). 단 **Top-K 선택(어떤 K개를 검증할지)은 여전히 검증 이전
+확률**로 정한다 — 선택 멤버십은 바뀌지 않고 같은 집합을 최종 신뢰도로 재정렬만 한다.
+정렬은 안정(stable)이라 미검증 시 기존 확률 순서가 유지되고, 원래 우선순위는 각
+항목의 `selection_rank`로 보존한다. conformal recall 보장은 선택 로직의 일부라 검증
+이전 확률 기준을 유지한다. 근거: "무엇을 먼저 검증할지"는 prior가 답하지만, 리포트가
+제시하는 "최종 점수"라면 카드 배치도 그 점수와 일치해야 사용자 혼란이 없다.
+
+**Decision (INCONCLUSIVE 정밀화):** `INCONCLUSIVE_ERROR`를 **실제 에러**에만
+한정한다 — transport 실패, 또는 **payload가 유발한 5xx**(baseline이 5xx가 아니었던
+경우). 길이만 바뀌거나 non-5xx(예: 400/404 입력 거부)로 바뀐 경우는 취약 신호가
+없으면 benign difference로 보고 `UNCHANGED`로 유지한다. probe/baseline status code를
+`update_confidence`에 전달해 판정한다(feature 스키마·scoring·corpus 불변).
+
+**Context:** 사용자 요구 — end-to-end 웹 대시보드 하나만 원함, 그리고 boundary/길이
+노이즈로 INCONCLUSIVE가 과다 생성되는 문제. INCONCLUSIVE와 UNCHANGED 모두 prior를
+유지하므로 과다 생성은 점수가 아니라 리포트 라벨 노이즈 문제였고, 5xx 게이트가 그
+라벨을 실제 서버 에러로만 한정한다.
+
+**Alternatives:**
+
+- 리포트를 계속 파일 여러 개로 → 기각(사용자 요구: 하나의 대시보드).
+- INCONCLUSIVE를 length ratio로도 판정(기존) → 기각. marker와 mutation의 길이 차만
+  으로도 트리거되어 오탐. status 기반이 정확.
+- 새 feature(`server_error_5xx`) 추가 → 보류. status code를 confidence 규칙에 직접
+  전달하는 편이 스키마/코퍼스를 건드리지 않아 더 작다.
+
+**Consequences:**
+
+- `-u`가 HTML 리포트를 기본 생성(파일 하나 추가). decision JSON 스키마에 검증 필드
+  추가(하위호환: `probability`는 그대로 prior). `_material_context_change` 제거,
+  `_payload_induced_server_error` 도입. 신규/수정 테스트로 5xx→INCONCLUSIVE,
+  length-only→UNCHANGED, non-5xx→UNCHANGED 확인. 전체 unit 699 green.
+- **미완/후속:** 요청 예산 상한·요청 간 딜레이·candidate별 baseline 재사용(요청 수
+  2N→N+1, 추출기 provenance 완화 필요)은 이번에 범위 제외(요청에 따라 선택 안 됨).
+  `analyze`도 HTML 기본화할지, JSON export를 옵션화할지는 후속 논의.
+
+---
+
+## ADR-035 — BAC 관측·랭킹·검증을 native 파이프라인에 통합
+
+**Status:** Accepted
+
+**Date:** 2026-08-19
+
+**Decision:** 66e5321에서 개발한 BAC 관측 계층(`access/planner.py`·`executor.py`)을
+현재 브랜치의 native 분석 경로에 통합한다. `_analyze_contexts`가 각 GET 컨텍스트에
+대해 **CREDENTIAL_STRIP**(쿠키/Authorization 제거 재요청)·**IDENTIFIER_SUBSTITUTION**
+(숫자 id +1 재요청)을 실행해 `AnalysisResult`에 `access_scoring_results`·
+`access_probe_observations`를 담는다. `build_decision_candidates`는 BAC 후보를
+calibrated probability로 SQLi/XSS와 함께 랭킹하고(BAC 모델은 optional — 없으면 조용히
+제외), 대시보드는 BAC 후보를 endpoint·check_kind·reference/comparison 재전송으로
+렌더한다. **BAC 전용 검증**(`verification/access_verify.py`)은 IDENTIFIER_SUBSTITUTION
+후보를 다른 id(+2/+5/−1)로 재확인해, 여러 id에서 재현되면 confidence 유지(SUPPORT_
+REPRODUCED), 하나도 재현 안 되면 약화(WEAKEN)한다 — injection과 같은 신호/LLR 모델
+재사용. 이로써 ADR-014의 "BAC deferred(scorer만 있고 관측 없음)"를 관측·랭킹·검증까지
+확장한다.
+
+**Context:** 데모 앱의 IDOR를 스캔이 실제로 후보로 잡게 하려는 사용자 요청. GET 한정·
+비파괴(ADR-012 non-goals 준수: 로그인/세션/역할 매트릭스 없음).
+
+**Alternatives:**
+
+- BAC를 selection_priority로만 표시(66e5321의 combined_report 방식) → 기각. 현재
+  대시보드는 calibrated probability 기반이라 스케일 통일이 필요.
+- BAC 검증을 injection verification 프레임(페이로드 mutation)에 억지로 넣기 → 기각.
+  BAC는 페이로드가 아니라 식별자/자격증명 재확인이라 별도 경량 경로가 맞다.
+
+**Consequences:**
+
+- pipeline/cli_decision/decision_html_report 통합, `access/{planner,executor}.py`
+  복원, `verification/access_verify.py` 신규. 전체 unit 710 green. 데모 스캔에서
+  BAC 후보가 랭킹·대시보드·검증에 나타남.
+- **한계/후속:** IDENTIFIER_SUBSTITUTION은 순차 id 앱에서 과탐 경향(데모에서 BAC 다수).
+  CREDENTIAL_STRIP 전용 검증은 미구현(관측만). 부수로 e5ceb2d의 --top-k 상한 회귀
+  (test_decision_cli top-k 50) 동반 수정.
+
+---
+
 ## New Decision Template
 
 ```text

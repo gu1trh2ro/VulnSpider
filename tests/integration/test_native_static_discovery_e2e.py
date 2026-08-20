@@ -216,7 +216,7 @@ class NativeStaticDiscoveryEndToEndTests(unittest.TestCase):
                         "--url",
                         root_url,
                         "--top-k",
-                        "100",
+                        "20",
                         "--output",
                         str(json_path),
                         "--html-output",
