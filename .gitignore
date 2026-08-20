@@ -14,3 +14,8 @@ dist/
 .coverage
 .coverage.*
 htmlcov/
+
+# Local LLM model binaries (see models/README.md) — large, not committed
+models/*.gguf
+models/*.whl
+models/*.bin

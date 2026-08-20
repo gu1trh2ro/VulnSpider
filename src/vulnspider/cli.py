@@ -52,6 +52,11 @@ from vulnspider.pipeline import (
 from vulnspider.reporting import write_crawl_report
 from vulnspider.reporting.json_report import write_json_document
 from vulnspider.verification import (
+    LLM_MODEL_PATH_ENV,
+    DeterministicMutationProposer,
+    LLMProposerError,
+    LocalLLMMutationProposer,
+    PayloadProposer,
     VerificationConfidenceModel,
     VerificationConfig,
     verify_analysis,
@@ -192,6 +197,27 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         dest="simple_verification_model",
         help="Fitted confidence model JSON from 'corpus verify-fit'.",
+    )
+    parser.add_argument(
+        "--verify-proposer",
+        choices=("deterministic", "llm"),
+        default="deterministic",
+        dest="simple_verify_proposer",
+        help=(
+            "Payload proposer for verification: 'deterministic' (default) or "
+            "'llm' (local fine-tuned vulnspider-3b GGUF). LLM suggestions still "
+            "pass the deterministic validator."
+        ),
+    )
+    parser.add_argument(
+        "--llm-model",
+        type=Path,
+        default=None,
+        dest="simple_llm_model",
+        help=(
+            "Path to the local vulnspider-3b GGUF model for --verify-proposer "
+            f"llm (default: ${LLM_MODEL_PATH_ENV})."
+        ),
     )
     parser.add_argument(
         "--access-control",
@@ -369,6 +395,27 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     analyze.add_argument(
+        "--verify-proposer",
+        choices=("deterministic", "llm"),
+        default="deterministic",
+        help=(
+            "Which payload proposer focused verification uses: the reproducible "
+            "'deterministic' baseline (default), or 'llm' to suggest variants "
+            "with the local fine-tuned vulnspider-3b GGUF model. Every "
+            "suggestion still passes the same deterministic validator before it "
+            "is sent."
+        ),
+    )
+    analyze.add_argument(
+        "--llm-model",
+        type=Path,
+        default=None,
+        help=(
+            "Path to the local vulnspider-3b GGUF model for --verify-proposer "
+            f"llm (default: the ${LLM_MODEL_PATH_ENV} environment variable)."
+        ),
+    )
+    analyze.add_argument(
         "--access-control",
         dest="access_control",
         action="store_true",
@@ -518,9 +565,11 @@ def main(
         access_verify_config = None
         if args.verify or args.verify_output is not None:
             confidence_model = _load_verification_model(args.verification_model)
+            proposer = _build_verification_proposer(args)
             verification_run = verify_analysis(
                 analysis,
                 config=VerificationConfig(
+                    proposer=proposer,
                     transport=transport,
                     confidence_model=confidence_model,
                     max_candidates=args.top_k,
@@ -674,6 +723,8 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         ),
         verify_output=args.simple_verify_output,
         verification_model=args.simple_verification_model,
+        verify_proposer=args.simple_verify_proposer,
+        llm_model=args.simple_llm_model,
         access_control=args.simple_access_control,
         max_pages=None,
         max_depth=None,
@@ -726,6 +777,35 @@ def _reject_shared_verify_destination(
                 "--verify-output must differ from the analysis, HTML, and "
                 "crawl report destinations"
             )
+
+
+def _build_verification_proposer(args: argparse.Namespace) -> PayloadProposer:
+    """Select the focused-verification proposer from the CLI flags.
+
+    The default reproducible baseline, or the local fine-tuned vulnspider-3b
+    GGUF model behind the same validator gate. The model path comes from
+    --llm-model or the environment; a missing model surfaces as a CLIError
+    before any request is sent.
+    """
+
+    proposer_kind = getattr(args, "verify_proposer", "deterministic")
+    if proposer_kind != "llm":
+        return DeterministicMutationProposer()
+    model_path = getattr(args, "llm_model", None)
+    resolved = str(model_path) if model_path is not None else os.environ.get(
+        LLM_MODEL_PATH_ENV
+    )
+    if not resolved:
+        raise CLIError(
+            "--verify-proposer llm requires the vulnspider-3b GGUF model: pass "
+            f"--llm-model PATH or set ${LLM_MODEL_PATH_ENV}"
+        )
+    if not Path(resolved).is_file():
+        raise CLIError(f"--llm-model path does not exist: {resolved}")
+    try:
+        return LocalLLMMutationProposer(model_path=resolved)
+    except LLMProposerError as exc:
+        raise CLIError(str(exc)) from exc
 
 
 def _load_verification_model(path: Path | None) -> VerificationConfidenceModel:
