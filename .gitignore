@@ -19,3 +19,5 @@ htmlcov/
 models/*.gguf
 models/*.whl
 models/*.bin
+models/.cache/
+models/*.log

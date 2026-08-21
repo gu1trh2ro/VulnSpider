@@ -38,6 +38,7 @@ from vulnspider.verification.proposal import (
     MutationProposalError,
     MutationSubject,
     PayloadProposal,
+    verification_identifier,
 )
 
 PROVIDER_LOCAL_LLM = "local-llm-vulnspider-3b"
@@ -59,6 +60,13 @@ DEFAULT_MAX_RETRIES = 3
 # The model emits 3 (XSS) or 4 (SQLi) by design; the cap only guards against a
 # model that ignores its instructions and floods the validator.
 MAX_LLM_PROPOSALS = 6
+
+# For reflected-XSS the model's free-form value is wrapped as the *region* of the
+# pipeline's sentinel marker (``identifier + "Z" + region + "Z"``) so the reused
+# encoding extractor can measure whether the region's dangerous characters were
+# entity-encoded. The region is bounded so the whole payload stays reflectable
+# and inside the validator's length gate.
+SENTINEL_REGION_MAX_LEN = 96
 
 # The only families this proposer maps onto, keyed by the two vulnerability
 # types the focused-verification proposer path handles (BAC has its own module).
@@ -150,15 +158,40 @@ def build_candidate_prompt(subject: MutationSubject) -> dict[str, Any]:
     }
 
 
+def _type_hint(vulnerability_type: VulnerabilityType) -> str:
+    """A short, appended nudge that keeps the trained format but sharpens output.
+
+    Kept minimal so the fine-tuned model still anchors on the training prompt:
+    it only forbids the two failure modes we observed -- echoing the baseline
+    value (rejected as unchanged) and, for XSS, pre-encoding the characters the
+    encoding extractor needs to see raw.
+    """
+
+    if vulnerability_type == VulnerabilityType.REFLECTED_XSS:
+        return (
+            "Additional constraints: every value must contain the raw "
+            "characters < > \" ' written literally (never URL-encoded like "
+            "%3C and never HTML-entity-encoded like &lt;), and must differ "
+            "from the original parameter value."
+        )
+    if vulnerability_type == VulnerabilityType.SQLI:
+        return "Additional constraints: every value must differ from the original parameter value."
+    return ""
+
+
 def build_user_prompt(subject: MutationSubject) -> str:
     """The trained user message: the minimal candidate plus the rules sentinel."""
 
     candidate_json = json.dumps(build_candidate_prompt(subject), indent=2)
-    return (
+    prompt = (
         "Generate safe verification values for the following candidate.\n\n"
         f"Candidate:\n{candidate_json}\n\n"
         f"{_TRAINING_RULES_SENTINEL}"
     )
+    hint = _type_hint(VulnerabilityType(subject.vulnerability_type))
+    if hint:
+        prompt = f"{prompt}\n\n{hint}"
+    return prompt
 
 
 def _extract_json_object(content: str) -> dict[str, Any]:
@@ -178,6 +211,21 @@ def _extract_json_object(content: str) -> dict[str, Any]:
     return parsed
 
 
+def _sentinel_region(value: str) -> str:
+    """Sanitise a model value into a sentinel region.
+
+    Keeps printable ASCII (the validator's charset) and the dangerous
+    ``< > " '`` the encoding extractor looks for, drops the ``Z`` sentinel
+    delimiter so it cannot close the region early, and bounds the length so the
+    wrapped payload stays reflectable and within the validator's gate.
+    """
+
+    cleaned = "".join(
+        ch for ch in value if 0x20 <= ord(ch) <= 0x7E and ch != "Z"
+    )
+    return cleaned[:SENTINEL_REGION_MAX_LEN]
+
+
 def map_payloads_to_proposals(
     subject: MutationSubject,
     payloads: list[dict[str, Any]],
@@ -185,11 +233,14 @@ def map_payloads_to_proposals(
     """Turn the model's ``payloads`` array into validated-candidate proposals.
 
     Each suggested ``value`` becomes one :class:`PayloadProposal` in the single
-    family allowed for the candidate type. A reflected-XSS suggestion carries
-    its own value as the reflection marker so the reused feature extractor can
-    attribute a reflection to it; a SQLi suggestion carries no marker. Entries
-    without a usable string value are dropped -- the model occasionally emits a
-    null-valued row, which cannot be sent.
+    family allowed for the candidate type. For reflected-XSS the model's value is
+    *wrapped* as the region of the pipeline's sentinel marker
+    (``identifier + "Z" + region + "Z"``): the alphanumeric identifier survives
+    any encoding so the reflection is attributed reliably, and the region carries
+    the model's chosen characters so the encoding extractor can measure whether
+    they were entity-encoded. A SQLi suggestion is sent verbatim with no marker.
+    Entries without a usable string value are dropped -- the model occasionally
+    emits a null-valued row, which cannot be sent.
     """
 
     family = _FAMILY_FOR_TYPE.get(VulnerabilityType(subject.vulnerability_type))
@@ -205,22 +256,35 @@ def map_payloads_to_proposals(
         value = payload.get("value")
         if not isinstance(value, str) or not value:
             continue
+        index = len(proposals)
+        if is_reflection:
+            region = _sentinel_region(value)
+            if not region:
+                continue
+            marker = verification_identifier(subject.candidate_id, family, index)
+            mutated_value = f"{marker}Z{region}Z"
+            reflection_marker = mutated_value
+        else:
+            mutated_value = value
+            reflection_marker = None
         rationale = payload.get("rationale")
         if not isinstance(rationale, str) or not rationale:
             rationale = "Local model suggested a same-family verification value."
         kind = payload.get("kind")
         if isinstance(kind, str) and kind:
             rationale = f"[{kind}] {rationale}"
+        if is_reflection:
+            rationale = f"{rationale} (model chars: {value})"
         proposals.append(
             PayloadProposal(
                 candidate_id=subject.candidate_id,
                 input_point_id=subject.input_point_id,
                 vulnerability_type=subject.vulnerability_type,
                 family=family,
-                variant_index=len(proposals),
-                mutated_value=value,
+                variant_index=index,
+                mutated_value=mutated_value,
                 based_on_value=subject.baseline_value,
-                reflection_marker=value if is_reflection else None,
+                reflection_marker=reflection_marker,
                 rationale=rationale,
                 provider=PROVIDER_LOCAL_LLM,
                 proposer_version=LLM_PROPOSER_VERSION,

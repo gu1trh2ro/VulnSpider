@@ -153,12 +153,43 @@ class MappingTests(unittest.TestCase):
         )
         self.assertEqual(len({p.id for p in proposals}), len(proposals))
 
-    def test_xss_maps_to_html_sentinel_with_marker(self) -> None:
+    def test_xss_wraps_model_value_in_sentinel_marker(self) -> None:
         proposer = LocalLLMMutationProposer(llm=FakeLlama(payloads=_XSS_PAYLOADS))
         proposals = proposer.propose(_subject(VulnerabilityType.REFLECTED_XSS, "7"))
         self.assertEqual({p.family for p in proposals}, {MutationFamily.HTML_SENTINEL})
+        validator = PayloadValidator()
         for proposal in proposals:
-            self.assertEqual(proposal.reflection_marker, proposal.mutated_value)
+            value = proposal.mutated_value
+            # hybrid marker: identifier + "Z" + region + "Z"
+            self.assertEqual(proposal.reflection_marker, value)
+            self.assertTrue(value.startswith("VULNSPIDER_"))
+            self.assertGreaterEqual(value.count("Z"), 2)
+            identifier = value.split("Z", 1)[0]  # what the extractor keys on
+            self.assertNotIn("Z", identifier)
+            self.assertTrue(validator.validate(proposal).accepted)
+
+    def test_xss_region_preserves_raw_breakout_characters(self) -> None:
+        payloads = [{"kind": "reflection_marker", "value": '"><svg>', "rationale": "x"}]
+        proposer = LocalLLMMutationProposer(llm=FakeLlama(payloads=payloads))
+        (proposal,) = proposer.propose(_subject(VulnerabilityType.REFLECTED_XSS, "7"))
+        # the region (between the Z delimiters) keeps the raw < > " the encoder needs
+        region = proposal.mutated_value.split("Z", 1)[1].rsplit("Z", 1)[0]
+        for char in '<>"':
+            self.assertIn(char, region)
+
+    def test_xss_region_strips_sentinel_delimiter(self) -> None:
+        payloads = [{"kind": "reflection_marker", "value": 'aZbZc<>', "rationale": "x"}]
+        proposer = LocalLLMMutationProposer(llm=FakeLlama(payloads=payloads))
+        (proposal,) = proposer.propose(_subject(VulnerabilityType.REFLECTED_XSS, "7"))
+        region = proposal.mutated_value.split("Z", 1)[1].rsplit("Z", 1)[0]
+        self.assertNotIn("Z", region)
+
+    def test_xss_hint_added_to_prompt(self) -> None:
+        from vulnspider.verification.llm_proposal import build_user_prompt
+
+        text = build_user_prompt(_subject(VulnerabilityType.REFLECTED_XSS, "7"))
+        self.assertIn("raw", text.lower())
+        self.assertIn("differ from the original", text)
 
     def test_kind_is_recorded_in_rationale(self) -> None:
         proposer = LocalLLMMutationProposer(llm=FakeLlama(payloads=_SQLI_PAYLOADS))
@@ -305,6 +336,96 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(verification.results, ())
         self.assertEqual(verification.final_outcome, ResultStatus.NOT_EXECUTED)
         self.assertEqual(verification.final_confidence, target.prior_probability)
+
+
+@dataclass
+class _XssTransport:
+    """Loopback fake that either reflects the value raw or entity-encodes it."""
+
+    mode: str  # "raw" | "safe"
+    calls: list[RequestInstance] = field(default_factory=list)
+
+    def send(self, request: RequestInstance, *, timeout_seconds: float) -> TransportResponse:
+        self.calls.append(request)
+        values = [value for _name, value in (request.query or request.form)]
+        target = values[-1] if values else ""
+        body = target if self.mode == "raw" else html.escape(target)
+        return TransportResponse(200, f"<div>{body}</div>".encode(), {}, 1.0, "utf-8")
+
+
+def _xss_target(mode: str) -> VerificationTarget:
+    endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")
+    input_point = InputPoint(
+        endpoint_id=endpoint.id or "",
+        endpoint_fingerprint=endpoint.fingerprint,
+        location=InputLocation.QUERY,
+        name="q",
+        baseline_value="hello",
+    )
+    template = RequestTemplate(
+        endpoint_id=endpoint.id or "",
+        endpoint_fingerprint=endpoint.fingerprint,
+        method=HttpMethod.GET,
+        url="http://127.0.0.1/search?q=hello",
+        query=(("q", "hello"),),
+        completeness=RequestContextCompleteness.COMPLETE,
+        context_key="k",
+    )
+    context = InputPointRequestContext.from_objects(input_point, template)
+    plan = ProbePlanner().plan(input_point, template, context)
+    execution = RequestExecutor(transport=_XssTransport(mode)).execute_plan(plan)
+    vector = combine_input_point_features(
+        [
+            extract_minimal_features(
+                input_point,
+                plan,
+                execution.response_pair,
+                execution.baseline_response,
+                execution.probe_response,
+            )
+        ]
+    )
+    candidate = next(
+        result.candidate
+        for result in generate_candidates(vector)
+        if result.candidate.vulnerability_type == VulnerabilityType.REFLECTED_XSS
+    )
+    prior = (
+        CalibratedScorer.from_prior(heuristic_prior_for_family("REFLECTED_XSS"))
+        .probability(vector.features)
+        .probability
+    )
+    return VerificationTarget(
+        candidate_id=candidate.id or "",
+        selection_rank=1,
+        vulnerability_type=candidate.vulnerability_type,
+        input_point=input_point,
+        baseline_request=plan.baseline_request,
+        baseline_feature_vector=vector,
+        prior_probability=prior,
+    )
+
+
+class HybridMarkerXssTests(unittest.TestCase):
+    """The sentinel-wrapped XSS payload is measurable: raw -> support, safe -> weaken."""
+
+    _PAYLOAD = [{"kind": "reflection_marker", "value": '"><svg title="xss-probe">', "rationale": "raw breakout"}]
+
+    def _run(self, mode: str):
+        config = VerificationConfig(
+            proposer=LocalLLMMutationProposer(llm=FakeLlama(payloads=self._PAYLOAD)),
+            transport=_XssTransport(mode),
+        )
+        return verify_target(_xss_target(mode), config=config)
+
+    def test_raw_reflection_supports(self) -> None:
+        verification = self._run("raw")
+        self.assertEqual(verification.final_outcome, ResultStatus.SUPPORTED)
+
+    def test_safe_encoding_weakens_and_lowers_confidence(self) -> None:
+        verification = self._run("safe")
+        self.assertEqual(verification.final_outcome, ResultStatus.WEAKENED)
+        self.assertLess(verification.final_confidence, verification.prior_probability)
 
 
 if __name__ == "__main__":
