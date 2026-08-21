@@ -22,6 +22,7 @@ rejected payload execute, and it never sends a request off the loopback.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from ipaddress import ip_address
 from typing import Any
@@ -107,6 +108,11 @@ class VerificationConfig:
     confidence_model: VerificationConfidenceModel = field(
         default_factory=VerificationConfidenceModel.default
     )
+    # Optional per-candidate progress hook: called ``(index, total, target)``
+    # just before each candidate is verified, so a caller (the CLI) can report
+    # progress during a long run (e.g. the LLM proposer). Purely observational --
+    # it never changes what is verified.
+    progress: Callable[[int, int, "VerificationTarget"], None] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,10 +219,15 @@ def verify_analysis(
 
     config = config or VerificationConfig()
     targets, warnings = build_targets(analysis, max_candidates=config.max_candidates)
-    candidates = tuple(verify_target(target, config=config) for target in targets)
+    total = len(targets)
+    verified: list[CandidateVerification] = []
+    for index, target in enumerate(targets, start=1):
+        if config.progress is not None:
+            config.progress(index, total, target)
+        verified.append(verify_target(target, config=config))
     return VerificationRun(
         contract_version=VERIFICATION_CONTRACT_VERSION,
-        candidates=candidates,
+        candidates=tuple(verified),
         warnings=tuple(warnings),
     )
 
