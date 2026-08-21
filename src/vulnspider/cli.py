@@ -52,6 +52,11 @@ from vulnspider.pipeline import (
 from vulnspider.reporting import write_crawl_report
 from vulnspider.reporting.json_report import write_json_document
 from vulnspider.verification import (
+    LLM_MODEL_PATH_ENV,
+    DeterministicMutationProposer,
+    LLMProposerError,
+    LocalLLMMutationProposer,
+    PayloadProposer,
     VerificationConfidenceModel,
     VerificationConfig,
     verify_analysis,
@@ -192,6 +197,33 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         dest="simple_verification_model",
         help="Fitted confidence model JSON from 'corpus verify-fit'.",
+    )
+    parser.add_argument(
+        "--verify-proposer",
+        choices=("deterministic", "llm"),
+        default="deterministic",
+        dest="simple_verify_proposer",
+        help=(
+            "Payload proposer for verification: 'deterministic' (default) or "
+            "'llm' (local fine-tuned vulnspider-3b GGUF). LLM suggestions still "
+            "pass the deterministic validator."
+        ),
+    )
+    parser.add_argument(
+        "--llm-model",
+        type=Path,
+        default=None,
+        dest="simple_llm_model",
+        help=(
+            "Path to the local vulnspider-3b GGUF model for --verify-proposer "
+            f"llm (default: ${LLM_MODEL_PATH_ENV})."
+        ),
+    )
+    parser.add_argument(
+        "--open",
+        dest="simple_open_report",
+        action="store_true",
+        help="When the scan finishes, open the HTML dashboard report in the browser.",
     )
     parser.add_argument(
         "--access-control",
@@ -369,6 +401,33 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     analyze.add_argument(
+        "--verify-proposer",
+        choices=("deterministic", "llm"),
+        default="deterministic",
+        help=(
+            "Which payload proposer focused verification uses: the reproducible "
+            "'deterministic' baseline (default), or 'llm' to suggest variants "
+            "with the local fine-tuned vulnspider-3b GGUF model. Every "
+            "suggestion still passes the same deterministic validator before it "
+            "is sent."
+        ),
+    )
+    analyze.add_argument(
+        "--llm-model",
+        type=Path,
+        default=None,
+        help=(
+            "Path to the local vulnspider-3b GGUF model for --verify-proposer "
+            f"llm (default: the ${LLM_MODEL_PATH_ENV} environment variable)."
+        ),
+    )
+    analyze.add_argument(
+        "--open",
+        dest="open_report",
+        action="store_true",
+        help="When the run finishes, open the HTML dashboard report in the browser.",
+    )
+    analyze.add_argument(
         "--access-control",
         dest="access_control",
         action="store_true",
@@ -426,6 +485,7 @@ def main(
     if args.command != "analyze":
         if not simple_mode:
             parser.error(f"unsupported command: {args.command}")
+    stage = "초기화"
     try:
         if simple_mode:
             args = _simple_analysis_args(args)
@@ -450,6 +510,11 @@ def main(
                     args.crawl_output if simple_mode else None,
                 ),
             )
+        stage = "크롤 + 분석"
+        _progress(
+            f"[*] {stage} 시작 -> "
+            f"{args.url if args.input is None else args.input}"
+        )
         if args.input is not None:
             _reject_native_policy_with_legacy_input(args)
             records = _load_legacy_records(args.input)
@@ -514,22 +579,51 @@ def main(
                 file=sys.stderr,
             )
             return 4
+        _progress(
+            "[OK] 분석 완료 -- "
+            f"endpoints={len(analysis.endpoints)}, "
+            f"input_points={len(analysis.input_points)}"
+        )
         verification_run = None
         access_verify_config = None
         if args.verify or args.verify_output is not None:
+            stage = "검증 (focused verification)"
             confidence_model = _load_verification_model(args.verification_model)
+            proposer = _build_verification_proposer(args)
+            proposer_kind = getattr(args, "verify_proposer", "deterministic")
+            _progress(
+                f"[*] {stage} 시작 -- proposer={proposer_kind}, top-k={args.top_k}"
+            )
+            if proposer_kind == "llm":
+                _progress(
+                    "    로컬 LLM 모델 로딩 중 (최초 1회, 수 초~수십 초 소요될 수 있음) …"
+                )
             verification_run = verify_analysis(
                 analysis,
                 config=VerificationConfig(
+                    proposer=proposer,
                     transport=transport,
                     confidence_model=confidence_model,
                     max_candidates=args.top_k,
+                    progress=_verify_candidate_progress,
                 ),
+            )
+            _counts = verification_run.counts()
+            _progress(
+                "[OK] 검증 완료 -- "
+                f"후보 {_counts['candidates_verified']}, "
+                f"제안 {_counts['proposals']}, "
+                f"통과 {_counts['accepted']}/차단 {_counts['rejected']}, "
+                f"supported {_counts['supported']}, "
+                f"weakened {_counts['weakened']}, "
+                f"unchanged {_counts['unchanged']}"
             )
             access_verify_config = AccessVerificationConfig(
                 transport=transport,
                 confidence_model=confidence_model,
             )
+        stage = "리포트 작성"
+        _progress(f"[*] {stage} 시작 …")
         outcome = analyze_and_report(
             analysis,
             target_url=_analysis_target(analysis),
@@ -553,6 +647,7 @@ def main(
                     args.crawl_output if simple_mode else None,
                 ),
             )
+        _progress("[OK] 리포트 작성 완료")
     except _SimpleDegradedCrawl:
         _print_partial_simple_result(args)
         print(
@@ -595,34 +690,20 @@ def main(
     except (OSError, ValueError) as exc:
         if simple_mode and crawl_published:
             _print_partial_simple_result(args)
-        print(f"vulnspider: error: {exc}", file=sys.stderr)
+        _progress(f"[ERROR] '{stage}' 단계에서 실패했습니다")
+        print(
+            f"vulnspider: error [{stage}]: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
         return 2
     if analysis.combined_result is not None and analysis.combined_result.degraded:
         return 4
-    if simple_mode:
-        mode = "static-only" if not args.dynamic else "dynamic"
-        print(
-            "vulnspider: scan complete "
-            f"(mode={mode}, selected={selected_count})"
-        )
-        print(
-            "vulnspider: crawl output: "
-            f"{args.crawl_output.resolve(strict=False)}"
-        )
-        print(
-            "vulnspider: analysis output: "
-            f"{args.output.resolve(strict=False)}"
-        )
-        if verification_output is not None:
-            print(
-                "vulnspider: verification output: "
-                f"{verification_output.resolve(strict=False)}"
-            )
-        if args.html_output is not None:
-            print(
-                "vulnspider: report (open this): "
-                f"{args.html_output.resolve(strict=False)}"
-            )
+    _print_completion(
+        args,
+        simple_mode=simple_mode,
+        selected_count=selected_count,
+        verification_output=verification_output,
+    )
     return 0
 
 
@@ -674,6 +755,9 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         ),
         verify_output=args.simple_verify_output,
         verification_model=args.simple_verification_model,
+        verify_proposer=args.simple_verify_proposer,
+        llm_model=args.simple_llm_model,
+        open_report=args.simple_open_report,
         access_control=args.simple_access_control,
         max_pages=None,
         max_depth=None,
@@ -726,6 +810,103 @@ def _reject_shared_verify_destination(
                 "--verify-output must differ from the analysis, HTML, and "
                 "crawl report destinations"
             )
+
+
+def _build_verification_proposer(args: argparse.Namespace) -> PayloadProposer:
+    """Select the focused-verification proposer from the CLI flags.
+
+    The default reproducible baseline, or the local fine-tuned vulnspider-3b
+    GGUF model behind the same validator gate. The model path comes from
+    --llm-model or the environment; a missing model surfaces as a CLIError
+    before any request is sent.
+    """
+
+    proposer_kind = getattr(args, "verify_proposer", "deterministic")
+    if proposer_kind != "llm":
+        return DeterministicMutationProposer()
+    model_path = getattr(args, "llm_model", None)
+    resolved = str(model_path) if model_path is not None else os.environ.get(
+        LLM_MODEL_PATH_ENV
+    )
+    if not resolved:
+        raise CLIError(
+            "--verify-proposer llm requires the vulnspider-3b GGUF model: pass "
+            f"--llm-model PATH or set ${LLM_MODEL_PATH_ENV}"
+        )
+    if not Path(resolved).is_file():
+        raise CLIError(f"--llm-model path does not exist: {resolved}")
+    try:
+        return LocalLLMMutationProposer(model_path=resolved)
+    except LLMProposerError as exc:
+        raise CLIError(str(exc)) from exc
+
+
+def _progress(message: str) -> None:
+    """Emit a pipeline-stage progress line to stderr (stdout stays data-only)."""
+
+    print(f"vulnspider: {message}", file=sys.stderr, flush=True)
+
+
+def _verify_candidate_progress(index: int, total: int, target: Any) -> None:
+    """Per-candidate verification progress (the long, LLM-heavy stage)."""
+
+    _progress(
+        f"    - 검증 {index}/{total}: "
+        f"{target.vulnerability_type.value} rank {target.selection_rank}"
+    )
+
+
+def _report_uri(path: Path) -> str:
+    """A clickable file:// URI (absolute, forward slashes) for a report path."""
+
+    return path.resolve(strict=False).as_uri()
+
+
+def _open_report(path: Path) -> bool:
+    """Best-effort open of the HTML report in the default browser."""
+
+    import webbrowser
+
+    try:
+        return webbrowser.open(_report_uri(path))
+    except Exception:  # pragma: no cover - platform/display dependent
+        return False
+
+
+def _print_completion(
+    args: argparse.Namespace,
+    *,
+    simple_mode: bool,
+    selected_count: int,
+    verification_output: Path | None,
+) -> None:
+    """Final stdout summary with output paths and a clickable dashboard link.
+
+    Printed for both the simple and the ``analyze`` mode (the latter had no
+    completion output before), so a run always ends by telling the user where
+    the report is -- and opens it when ``--open`` was given.
+    """
+
+    if simple_mode:
+        mode = "static-only" if not args.dynamic else "dynamic"
+    else:
+        mode = "dynamic" if args.dynamic else "static"
+    print(f"vulnspider: [OK] scan complete (mode={mode}, selected={selected_count})")
+    if simple_mode:
+        print(f"vulnspider: crawl output:        {args.crawl_output.resolve(strict=False)}")
+    print(f"vulnspider: analysis output:     {args.output.resolve(strict=False)}")
+    if verification_output is not None:
+        print(
+            "vulnspider: verification output: "
+            f"{verification_output.resolve(strict=False)}"
+        )
+    if args.html_output is not None:
+        print(f"vulnspider: dashboard report ->  {_report_uri(args.html_output)}")
+        if getattr(args, "open_report", False):
+            if _open_report(args.html_output):
+                print("vulnspider: (opened the dashboard in your browser)")
+            else:
+                print("vulnspider: (could not auto-open; use the link above)")
 
 
 def _load_verification_model(path: Path | None) -> VerificationConfidenceModel:

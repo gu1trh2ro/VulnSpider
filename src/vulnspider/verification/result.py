@@ -93,6 +93,8 @@ class VerificationResult:
     proposer_version: str
     mutation_family: MutationFamily
     mutated_value: str
+    based_on_value: str | None
+    rationale: str
     validator_policy_version: str
     validator_decision: str
     validator_rejection_reasons: tuple[str, ...]
@@ -196,6 +198,8 @@ class VerificationResult:
         object.__setattr__(instance, "proposer_version", proposal.proposer_version)
         object.__setattr__(instance, "mutation_family", proposal.family)
         object.__setattr__(instance, "mutated_value", proposal.mutated_value)
+        object.__setattr__(instance, "based_on_value", proposal.based_on_value)
+        object.__setattr__(instance, "rationale", proposal.rationale)
         object.__setattr__(
             instance,
             "validator_policy_version",
@@ -244,6 +248,8 @@ class VerificationResult:
             "proposer_version": self.proposer_version,
             "mutation_family": self.mutation_family.value,
             "mutated_value": self.mutated_value,
+            "based_on_value": self.based_on_value,
+            "rationale": self.rationale,
             "validator": {
                 "policy_version": self.validator_policy_version,
                 "decision": self.validator_decision,
