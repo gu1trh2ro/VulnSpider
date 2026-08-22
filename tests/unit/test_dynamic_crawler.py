@@ -177,6 +177,44 @@ class FakeDynamicBrowser:
 
 
 class DynamicCrawlerTests(unittest.TestCase):
+    def test_authentication_state_change_link_is_never_navigated(self) -> None:
+        root = "http://127.0.0.1:8080/start"
+        profile = "http://127.0.0.1:8080/account/profile"
+        logout = "http://127.0.0.1:8080/logout.php"
+        browser = FakeDynamicBrowser(
+            {
+                root: rendered_snapshot(
+                    root,
+                    '<a href="/logout.php"></a>'
+                    '<a href="/account/profile"></a>',
+                ),
+                profile: rendered_snapshot(profile),
+            }
+        )
+
+        result = DynamicCrawler(browser=browser, clock=lambda: 0.0).crawl(
+            root,
+            DynamicCrawlPolicy(),
+            DynamicRequestAuthority(root, allow_rendered_navigation=True),
+        )
+
+        assert browser.session is not None
+        self.assertEqual(browser.session.navigation_calls, [root, profile])
+        self.assertNotIn(logout, result.visited_urls)
+        self.assertEqual(result.completion, DynamicCrawlCompletion.COMPLETE)
+        warnings = [
+            warning
+            for warning in result.discovery.warnings
+            if warning.code == "DYNAMIC_UNSAFE_NAVIGATION_SUPPRESSED"
+        ]
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0].details["action_token"], "logout")
+        self.assertEqual(
+            warnings[0].details["reason"],
+            "AUTHENTICATION_STATE_CHANGE",
+        )
+        self.assertNotIn(logout, repr(warnings[0].details))
+
     def test_allowed_network_candidate_enters_dynamic_canonical_discovery(self) -> None:
         root = "http://127.0.0.1:8080/start"
         candidate, reason = browser_module._safe_network_discovery_candidate(

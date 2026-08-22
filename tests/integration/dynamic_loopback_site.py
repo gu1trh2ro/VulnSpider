@@ -1152,6 +1152,37 @@ class DynamicLoopbackSite:
                         "text/html; charset=utf-8",
                     )
                     return
+                if route == "/simple-cli-unsafe":
+                    html = """<!doctype html>
+                    <html><body>
+                      <a href="/logout.php">Logout</a>
+                      <a href="/account/profile?profile_id=one">Profile</a>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/account/profile":
+                    self._send(
+                        200,
+                        b"<html><body>profile</body></html>",
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/logout.php":
+                    self.send_response(302)
+                    self.send_header("Location", "/login.php")
+                    self.end_headers()
+                    return
+                if route == "/login.php":
+                    self._send(
+                        200,
+                        b"<html><body>login</body></html>",
+                        "text/html; charset=utf-8",
+                    )
+                    return
                 if route == "/simple-cli.css":
                     self._send(
                         200,
@@ -1745,6 +1776,7 @@ class DynamicLoopbackSite:
         self.final_e2e_url = navigation_origin + "/final-e2e"
         self.final_e2e_follow_url = navigation_origin + "/final-e2e/follow"
         self.simple_cli_url = navigation_origin + "/simple-cli"
+        self.simple_cli_unsafe_url = navigation_origin + "/simple-cli-unsafe"
         self.simple_cli_follow_url = (
             navigation_origin + "/simple-cli/follow?simple_dynamic=rendered"
         )

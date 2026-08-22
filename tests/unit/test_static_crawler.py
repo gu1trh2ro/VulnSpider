@@ -53,6 +53,38 @@ class FakeTransport:
 
 
 class StaticCrawlerTests(unittest.TestCase):
+    def test_authentication_state_change_link_never_reaches_transport(self) -> None:
+        profile_url = "http://example.test/account/profile"
+        logout_url = "http://example.test/logout.php?confirm=yes"
+        transport = FakeTransport(
+            {
+                ROOT_URL: html_response(
+                    '<a href="/logout.php?confirm=yes">Logout</a>'
+                    '<a href="/account/profile">Profile</a>'
+                ),
+                profile_url: html_response("<p>profile</p>"),
+            }
+        )
+
+        result = StaticCrawler(
+            transport=transport,
+            clock=lambda: 0.0,
+        ).crawl(ROOT_URL)
+
+        self.assertEqual(
+            [request.url for request in transport.requests],
+            [ROOT_URL, profile_url],
+        )
+        self.assertNotIn(logout_url, result.visited_urls)
+        self.assertNotIn(
+            logout_url,
+            {template.url for template in result.discovery.request_templates},
+        )
+        self.assertIn(
+            "UNSAFE_NAVIGATION_SUPPRESSED",
+            {warning.code for warning in result.discovery.warnings},
+        )
+
     def test_crawls_same_origin_and_merges_extractor_results(self) -> None:
         page_b_url = "http://example.test/page-b?x=1&x=1"
         transport = FakeTransport(

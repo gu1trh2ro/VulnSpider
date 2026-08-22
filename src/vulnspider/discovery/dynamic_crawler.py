@@ -46,6 +46,9 @@ from vulnspider.discovery.dynamic_browser import (
 from vulnspider.discovery.network_canonicalization import (
     canonicalize_network_discovery,
 )
+from vulnspider.discovery.navigation_safety import (
+    authentication_state_change_token,
+)
 from vulnspider.discovery.rendered_dom import (
     RenderedDomExtractionResult,
     RenderedDomPolicy,
@@ -886,6 +889,19 @@ class DynamicCrawler:
                     {
                         "destination_fingerprint": _url_fingerprint(candidate),
                         "link_id": link.id,
+                    },
+                )
+                continue
+            unsafe_token = authentication_state_change_token(candidate)
+            if unsafe_token is not None:
+                state.warn(
+                    "DYNAMIC_UNSAFE_NAVIGATION_SUPPRESSED",
+                    "Authentication state-changing navigation was suppressed.",
+                    {
+                        "action_token": unsafe_token,
+                        "destination_fingerprint": _url_fingerprint(candidate),
+                        "link_id": link.id,
+                        "reason": "AUTHENTICATION_STATE_CHANGE",
                     },
                 )
                 continue

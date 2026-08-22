@@ -31,6 +31,9 @@ from vulnspider.discovery.html_extractor import (
     extract_static_html,
     extract_static_html_with_sensitive_form_elision,
 )
+from vulnspider.discovery.navigation_safety import (
+    authentication_state_change_token,
+)
 from vulnspider.domain import (
     Endpoint,
     HttpMethod,
@@ -765,6 +768,19 @@ class StaticCrawler:
                     {
                         "destination_fingerprint": _url_fingerprint(candidate),
                         "link_id": link.id,
+                    },
+                )
+                continue
+            unsafe_token = authentication_state_change_token(candidate)
+            if unsafe_token is not None:
+                state.warn(
+                    "UNSAFE_NAVIGATION_SUPPRESSED",
+                    "Authentication state-changing navigation was suppressed.",
+                    {
+                        "action_token": unsafe_token,
+                        "destination_fingerprint": _url_fingerprint(candidate),
+                        "link_id": link.id,
+                        "reason": "AUTHENTICATION_STATE_CHANGE",
                     },
                 )
                 continue

@@ -25,6 +25,9 @@ from vulnspider.discovery.contracts import (
     discovery_run_id_for,
     scope_id_for_root,
 )
+from vulnspider.discovery.navigation_safety import (
+    authentication_state_change_token,
+)
 from vulnspider.domain import (
     Endpoint,
     HttpMethod,
@@ -1511,6 +1514,21 @@ def extract_static_html(
             occurrence_index=occurrence_index,
         )
         links.append(link)
+        unsafe_token = authentication_state_change_token(crawl_url)
+        if unsafe_token is not None:
+            builder.add_warning(
+                "UNSAFE_NAVIGATION_SUPPRESSED",
+                "Authentication state-changing navigation was suppressed.",
+                {
+                    "action_token": unsafe_token,
+                    "destination_fingerprint": stable_fingerprint(
+                        "crawler-url", crawl_url
+                    )[:16],
+                    "link_id": link.id,
+                    "reason": "AUTHENTICATION_STATE_CHANGE",
+                },
+            )
+            continue
         builder.add_url_surface(
             crawl_url,
             observation_key=f"link:{link.id}",
