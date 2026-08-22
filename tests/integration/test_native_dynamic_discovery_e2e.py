@@ -306,8 +306,23 @@ class NativeDynamicDiscoveryE2ETests(unittest.TestCase):
         discovery = analysis.discovery_result
         combined = analysis.combined_result
         self.assertEqual(evidence.exit_code, 0)
-        self.assertEqual(evidence.stdout, "")
-        self.assertEqual(evidence.stderr, "")
+        self.assertIn("vulnspider: [OK] scan complete", evidence.stdout)
+        self.assertIn("mode=dynamic", evidence.stdout)
+        self.assertIn("vulnspider: analysis output:", evidence.stdout)
+        self.assertIn("vulnspider: dashboard report ->", evidence.stdout)
+        self.assertIn("vulnspider: [*]", evidence.stderr)
+        self.assertIn("vulnspider: [OK]", evidence.stderr)
+        cli_output = evidence.stdout + evidence.stderr
+        self.assertNotIn("[ERROR]", cli_output)
+        self.assertNotIn("Traceback", cli_output)
+        for secret_marker in (
+            PASSWORD_SENTINEL,
+            "credential",
+            "cookie",
+            "authorization",
+            "session",
+        ):
+            self.assertNotIn(secret_marker.casefold(), cli_output.casefold())
         self.assertIsNotNone(discovery)
         self.assertIsNotNone(combined)
         assert discovery is not None
