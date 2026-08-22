@@ -1157,6 +1157,7 @@ class DynamicLoopbackSite:
                     <html><body>
                       <a href="/logout.php">Logout</a>
                       <a href="/account/profile?profile_id=one">Profile</a>
+                      <a href="https://www.youtube.com/watch?v=test">External</a>
                     </body></html>"""
                     self._send(
                         200,

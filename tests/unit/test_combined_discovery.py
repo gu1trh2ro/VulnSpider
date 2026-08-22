@@ -137,6 +137,51 @@ class _Producer:
 
 
 class CombinedDiscoveryOrchestrationTests(unittest.TestCase):
+    def test_off_scope_link_cannot_be_promoted_by_combined_merge(self) -> None:
+        html = (
+            '<a href="/local?id=1">local</a>'
+            '<a href="https://www.youtube.com/watch?v=test">external</a>'
+        )
+        static_result = _static_result(html=html)
+        dynamic_result = _dynamic_result(html=html)
+        orchestrator = NativeDiscoveryOrchestrator(
+            static_crawler=_Producer([], "static", static_result),
+            dynamic_crawler=_Producer([], "dynamic", dynamic_result),
+        )
+
+        combined = orchestrator.discover(
+            ROOT_URL,
+            authority=DynamicRequestAuthority(ROOT_URL),
+        )
+
+        for discovery in (
+            static_result.discovery,
+            dynamic_result.discovery,
+            combined.discovery,
+        ):
+            self.assertFalse(
+                any(
+                    "www.youtube.com" in template.url
+                    for template in discovery.request_templates
+                )
+            )
+            self.assertFalse(
+                any(
+                    endpoint.host == "www.youtube.com"
+                    for endpoint in discovery.endpoints
+                )
+            )
+            self.assertTrue(
+                all(
+                    "www.youtube.com" not in template.url
+                    for _point, template, _context in discovery.ready_contexts()
+                )
+            )
+        self.assertIn(
+            "OFF_SCOPE_LINK",
+            {warning.code for warning in combined.discovery.warnings},
+        )
+
     def test_runs_static_then_dynamic_and_exposes_degraded_completion(self) -> None:
         log: list[str] = []
         orchestrator = NativeDiscoveryOrchestrator(

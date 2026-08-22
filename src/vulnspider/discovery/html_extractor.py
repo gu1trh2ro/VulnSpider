@@ -862,6 +862,16 @@ class CanonicalDiscoveryBuilder:
                 },
             )
             return
+        if not _same_http_origin(self.scope.root_url, action_url):
+            self.add_warning(
+                "OFF_SCOPE_FORM_ACTION",
+                "Cross-origin form action was excluded from request construction.",
+                {
+                    "action_fingerprint": _redacted_url_fingerprint(action_url),
+                    "reason": "EXACT_ORIGIN_MISMATCH",
+                },
+            )
+            return
         action_provenance = (
             "explicit"
             if form.raw_action is not None and form.raw_action.strip()
@@ -1514,6 +1524,19 @@ def extract_static_html(
             occurrence_index=occurrence_index,
         )
         links.append(link)
+        if not _same_http_origin(scope.root_url, crawl_url):
+            builder.add_warning(
+                "OFF_SCOPE_LINK",
+                "Cross-origin link was excluded from request construction.",
+                {
+                    "destination_fingerprint": stable_fingerprint(
+                        "crawler-url", crawl_url
+                    )[:16],
+                    "link_id": link.id,
+                    "reason": "EXACT_ORIGIN_MISMATCH",
+                },
+            )
+            continue
         unsafe_token = authentication_state_change_token(crawl_url)
         if unsafe_token is not None:
             builder.add_warning(
@@ -1684,6 +1707,20 @@ def _resolve_http_url(
         )
     )
     return resolved_url, crawl_url
+
+
+def _same_http_origin(root_url: str, candidate_url: str) -> bool:
+    """Compare exact scheme, normalized host, and effective port."""
+
+    return _http_origin(root_url) == _http_origin(candidate_url)
+
+
+def _http_origin(url: str) -> tuple[str, str, int]:
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    host = parts.hostname.casefold() if parts.hostname is not None else ""
+    effective_port = parts.port or (80 if scheme == "http" else 443)
+    return scheme, host, effective_port
 
 
 def _query_occurrences(raw_query: str) -> tuple[tuple[str, str, str], ...]:

@@ -72,6 +72,40 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
                 for warning in dynamic["discovery"]["warnings"]
             },
         )
+        for discovery in (
+            crawl_report["crawl"]["static_crawl"]["discovery"],
+            dynamic["discovery"],
+            crawl_report["crawl"]["discovery"],
+        ):
+            self.assertFalse(
+                any(
+                    "www.youtube.com" in template["url"]
+                    for template in discovery["request_templates"]
+                )
+            )
+            self.assertFalse(
+                any(
+                    endpoint["host"] == "www.youtube.com"
+                    for endpoint in discovery["endpoints"]
+                )
+            )
+            self.assertFalse(
+                any(
+                    item["status"] == "READY"
+                    and item["input_point_id"]
+                    in {
+                        point["id"]
+                        for point in discovery["input_points"]
+                        if point["endpoint_id"]
+                        in {
+                            endpoint["id"]
+                            for endpoint in discovery["endpoints"]
+                            if endpoint["host"] == "www.youtube.com"
+                        }
+                    }
+                    for item in discovery["probe_readiness"]
+                )
+            )
         self.assertNotIn("Cookie", crawl_text)
         self.assertNotIn("Authorization", crawl_text)
         self.assertNotIn("Cookie", analysis_text)
