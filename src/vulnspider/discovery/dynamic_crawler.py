@@ -48,6 +48,7 @@ from vulnspider.discovery.network_canonicalization import (
 )
 from vulnspider.discovery.navigation_safety import (
     authentication_state_change_token,
+    automatic_navigation_within_root_path,
 )
 from vulnspider.discovery.rendered_dom import (
     RenderedDomExtractionResult,
@@ -68,7 +69,7 @@ from vulnspider.domain import (
 )
 
 
-DYNAMIC_CRAWLER_VERSION = "native-dynamic-crawler/1.0"
+DYNAMIC_CRAWLER_VERSION = "native-dynamic-crawler/1.1"
 DYNAMIC_SCOPE_POLICY_VERSION = "same-origin-v1"
 _REQUIRED_SAFETY_INVARIANT = (
     DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION
@@ -905,6 +906,23 @@ class DynamicCrawler:
                     },
                 )
                 continue
+            if (
+                not state.authority.allows_navigation(candidate)
+                and not automatic_navigation_within_root_path(
+                    state.root_url,
+                    candidate,
+                )
+            ):
+                state.warn(
+                    "DYNAMIC_OFF_PATH_SCOPE_LINK",
+                    "Rendered link was outside the implicit root path scope.",
+                    {
+                        "destination_fingerprint": _url_fingerprint(candidate),
+                        "link_id": link.id,
+                        "reason": "ROOT_PATH_SCOPE_MISMATCH",
+                    },
+                )
+                continue
             if not (
                 state.authority.allows_navigation(candidate)
                 or state.authority.allows_rendered_navigation(candidate)
@@ -1001,9 +1019,10 @@ class _SimpleRenderedRequestAuthority:
         return self.authority.root_url
 
     def allows_navigation(self, url: str) -> bool:
-        return self.authority.allows_navigation(
-            url
-        ) or self.authority.allows_rendered_navigation(url)
+        return self.authority.allows_navigation(url) or (
+            self.authority.allows_rendered_navigation(url)
+            and automatic_navigation_within_root_path(self.root_url, url)
+        )
 
 
 def _url_fingerprint(url: str) -> str:

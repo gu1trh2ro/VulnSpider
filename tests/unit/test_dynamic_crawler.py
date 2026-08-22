@@ -177,6 +177,104 @@ class FakeDynamicBrowser:
 
 
 class DynamicCrawlerTests(unittest.TestCase):
+    def test_implicit_navigation_stays_within_directory_root_path(self) -> None:
+        root = "http://127.0.0.1:8080/vulnerabilities/sqli/"
+        child = "http://127.0.0.1:8080/vulnerabilities/sqli/help"
+        sibling = "http://127.0.0.1:8080/about.php?csrf=OFFPATH_SECRET"
+        browser = FakeDynamicBrowser(
+            {
+                root: rendered_snapshot(
+                    root,
+                    '<a href="/about.php?csrf=OFFPATH_SECRET"></a>'
+                    '<a href="/vulnerabilities/sqli/help"></a>',
+                ),
+                child: rendered_snapshot(child),
+            }
+        )
+
+        result = DynamicCrawler(browser=browser, clock=lambda: 0.0).crawl(
+            root,
+            DynamicCrawlPolicy(),
+            DynamicRequestAuthority(root, allow_rendered_navigation=True),
+        )
+
+        assert browser.session is not None
+        self.assertEqual(browser.session.navigation_calls, [root, child])
+        self.assertNotIn(sibling, result.visited_urls)
+        self.assertEqual(result.completion, DynamicCrawlCompletion.COMPLETE)
+        warnings = [
+            warning
+            for warning in result.discovery.warnings
+            if warning.code == "OFF_PATH_SCOPE_LINK"
+        ]
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(
+            warnings[0].details["reason"],
+            "ROOT_PATH_SCOPE_MISMATCH",
+        )
+        self.assertNotIn(sibling, repr(warnings[0].details))
+        serialized = repr(result.to_dict())
+        self.assertNotIn("OFFPATH_SECRET", serialized)
+        self.assertNotIn(
+            sibling,
+            {template.url for template in result.discovery.request_templates},
+        )
+        self.assertFalse(
+            any(endpoint.path == "/about.php" for endpoint in result.discovery.endpoints)
+        )
+        self.assertFalse(
+            any(
+                point.name == "csrf" for point in result.discovery.input_points
+            )
+        )
+        self.assertIn(
+            "OFF_PATH_SCOPE_LINK",
+            {warning.code for warning in result.discovery.warnings},
+        )
+
+    def test_exact_grant_can_extend_directory_root_path_scope(self) -> None:
+        root = "http://127.0.0.1:8080/vulnerabilities/sqli/"
+        granted = "http://127.0.0.1:8080/about.php?x=1"
+        browser = FakeDynamicBrowser(
+            {
+                root: rendered_snapshot(root, '<a href="/about.php?x=1"></a>'),
+                granted: rendered_snapshot(granted),
+            }
+        )
+
+        result = DynamicCrawler(browser=browser, clock=lambda: 0.0).crawl(
+            root,
+            DynamicCrawlPolicy(),
+            DynamicRequestAuthority(
+                root,
+                navigation_urls=(granted,),
+                allow_rendered_navigation=True,
+            ),
+        )
+
+        assert browser.session is not None
+        self.assertEqual(browser.session.navigation_calls, [root, granted])
+        self.assertEqual(result.completion, DynamicCrawlCompletion.COMPLETE)
+        self.assertIn(
+            granted,
+            {template.url for template in result.discovery.request_templates},
+        )
+        self.assertTrue(
+            any(
+                point.name == "x" for point in result.discovery.input_points
+            )
+        )
+        self.assertTrue(
+            any(
+                point.name == "x"
+                for point, _template, _context in result.discovery.ready_contexts()
+            )
+        )
+        self.assertNotIn(
+            "DYNAMIC_OFF_PATH_SCOPE_LINK",
+            {warning.code for warning in result.discovery.warnings},
+        )
+
     def test_authentication_state_change_link_is_never_navigated(self) -> None:
         root = "http://127.0.0.1:8080/start"
         profile = "http://127.0.0.1:8080/account/profile"
@@ -205,7 +303,7 @@ class DynamicCrawlerTests(unittest.TestCase):
         warnings = [
             warning
             for warning in result.discovery.warnings
-            if warning.code == "DYNAMIC_UNSAFE_NAVIGATION_SUPPRESSED"
+            if warning.code == "UNSAFE_NAVIGATION_SUPPRESSED"
         ]
         self.assertEqual(len(warnings), 1)
         self.assertEqual(warnings[0].details["action_token"], "logout")
@@ -437,7 +535,7 @@ class DynamicCrawlerTests(unittest.TestCase):
         )
         self.assertNotIn(root + "#cycle", result.visited_urls)
         self.assertIn(
-            "DYNAMIC_OFF_AUTHORITY_LINK",
+            "OFF_SCOPE_LINK",
             {warning.code for warning in result.discovery.warnings},
         )
         self.assertIn(

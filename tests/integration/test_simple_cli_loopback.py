@@ -58,6 +58,7 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertEqual(crawl_report["completion"], "COMPLETE")
         requested_paths = [request.path for request in primary_requests]
         self.assertEqual(requested_paths.count("/logout.php"), 0)
+        self.assertEqual(requested_paths.count("/account"), 0)
         self.assertIn("/account/profile", requested_paths)
         dynamic = crawl_report["crawl"]["dynamic_crawl"]
         self.assertEqual(dynamic["termination_reason"], "FRONTIER_EXHAUSTED")
@@ -66,7 +67,7 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
             {urlsplit(item).path for item in dynamic["visited_urls"]},
         )
         self.assertIn(
-            "DYNAMIC_UNSAFE_NAVIGATION_SUPPRESSED",
+            "UNSAFE_NAVIGATION_SUPPRESSED",
             {
                 warning["code"]
                 for warning in dynamic["discovery"]["warnings"]
@@ -110,6 +111,8 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertNotIn("Authorization", crawl_text)
         self.assertNotIn("Cookie", analysis_text)
         self.assertNotIn("Authorization", analysis_text)
+        self.assertNotIn("LOOPBACK_CSRF_SECRET", crawl_text)
+        self.assertNotIn("LOOPBACK_CSRF_SECRET", analysis_text)
 
     def test_simple_cli_blocked_post_json_is_not_executed(self) -> None:
         stdout = StringIO()

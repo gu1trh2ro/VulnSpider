@@ -1156,6 +1156,9 @@ class DynamicLoopbackSite:
                     html = """<!doctype html>
                     <html><body>
                       <a href="/logout.php">Logout</a>
+                      <a href="/account?action=logout&amp;csrf=LOOPBACK_CSRF_SECRET">
+                        Query Logout
+                      </a>
                       <a href="/account/profile?profile_id=one">Profile</a>
                       <a href="https://www.youtube.com/watch?v=test">External</a>
                     </body></html>"""

@@ -27,6 +27,7 @@ from vulnspider.discovery.contracts import (
 )
 from vulnspider.discovery.navigation_safety import (
     authentication_state_change_token,
+    automatic_navigation_within_root_path,
 )
 from vulnspider.domain import (
     Endpoint,
@@ -39,7 +40,7 @@ from vulnspider.domain import (
     stable_fingerprint,
 )
 
-EXTRACTOR_VERSION = "native-static-html/1.0"
+EXTRACTOR_VERSION = "native-static-html/1.1"
 SCOPE_POLICY_VERSION = "same-origin-v1"
 
 _NON_DATA_INPUT_TYPES = frozenset({"button", "image", "reset", "submit"})
@@ -1523,7 +1524,6 @@ def extract_static_html(
             raw_query=urlsplit(crawl_url).query,
             occurrence_index=occurrence_index,
         )
-        links.append(link)
         if not _same_http_origin(scope.root_url, crawl_url):
             builder.add_warning(
                 "OFF_SCOPE_LINK",
@@ -1552,6 +1552,31 @@ def extract_static_html(
                 },
             )
             continue
+        if not automatic_navigation_within_root_path(
+            scope.root_url,
+            crawl_url,
+        ):
+            try:
+                path_scope_granted = (
+                    request_authorizer is not None
+                    and request_authorizer(crawl_url) is True
+                )
+            except Exception:  # noqa: BLE001 - scope ambiguity fails closed.
+                path_scope_granted = False
+            if not path_scope_granted:
+                builder.add_warning(
+                    "OFF_PATH_SCOPE_LINK",
+                    "Link was outside the implicit root path scope.",
+                    {
+                        "destination_fingerprint": stable_fingerprint(
+                            "crawler-url", crawl_url
+                        )[:16],
+                        "link_id": link.id,
+                        "reason": "ROOT_PATH_SCOPE_MISMATCH",
+                    },
+                )
+                continue
+        links.append(link)
         builder.add_url_surface(
             crawl_url,
             observation_key=f"link:{link.id}",
@@ -1591,7 +1616,7 @@ def extract_static_html(
             DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION
         )
     discovery = builder.build(
-        link_count=len(links),
+        link_count=len(valid_links),
         form_count=len(parser.forms),
         safety_invariants=tuple(
             sorted(active_invariants, key=lambda item: item.value)

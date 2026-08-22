@@ -85,6 +85,36 @@ class StaticCrawlerTests(unittest.TestCase):
             {warning.code for warning in result.discovery.warnings},
         )
 
+    def test_query_driven_logout_never_reaches_transport_or_artifact(self) -> None:
+        sentinel = "STATIC_CSRF_SECRET_123"
+        unsafe_url = (
+            "http://example.test/account?action=logout&csrf=" + sentinel
+        )
+        transport = FakeTransport(
+            {
+                ROOT_URL: html_response(
+                    '<a href="/safe?x=1">Safe</a>'
+                    f'<a href="{unsafe_url}">Logout</a>'
+                ),
+                "http://example.test/safe?x=1": html_response("<p>safe</p>"),
+            }
+        )
+
+        result = StaticCrawler(
+            transport=transport,
+            clock=lambda: 0.0,
+        ).crawl(ROOT_URL)
+
+        self.assertNotIn(
+            unsafe_url,
+            [request.url for request in transport.requests],
+        )
+        self.assertNotIn(sentinel, repr(result.to_dict()))
+        self.assertNotIn(
+            unsafe_url,
+            {template.url for template in result.discovery.request_templates},
+        )
+
     def test_crawls_same_origin_and_merges_extractor_results(self) -> None:
         page_b_url = "http://example.test/page-b?x=1&x=1"
         transport = FakeTransport(

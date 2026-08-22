@@ -4,6 +4,7 @@ import unittest
 
 from vulnspider.discovery.navigation_safety import (
     authentication_state_change_token,
+    automatic_navigation_within_root_path,
 )
 
 
@@ -15,6 +16,9 @@ class NavigationSafetyTests(unittest.TestCase):
             "http://example.test/LOGOFF": "logoff",
             "http://example.test/auth/LOGOUT.HTML?next=/": "logout",
             "http://example.test/auth/%73ignout": "signout",
+            "http://example.test/account?action=logout": "logout",
+            "http://example.test/account?do=SIGNOUT.PHP": "signout",
+            "http://example.test/account?logoff=1": "logoff",
         }
 
         for url, expected in cases.items():
@@ -36,6 +40,53 @@ class NavigationSafetyTests(unittest.TestCase):
         self.assertEqual(
             [authentication_state_change_token(url) for _ in range(3)],
             ["signout", "signout", "signout"],
+        )
+
+    def test_directory_root_bounds_implicit_navigation_by_path_segment(self) -> None:
+        root = "http://example.test/vulnerabilities/sqli/"
+
+        self.assertTrue(
+            automatic_navigation_within_root_path(
+                root,
+                "http://example.test/vulnerabilities/sqli/help",
+            )
+        )
+        self.assertFalse(
+            automatic_navigation_within_root_path(
+                root,
+                "http://example.test/vulnerabilities/sqli-other",
+            )
+        )
+        self.assertFalse(
+            automatic_navigation_within_root_path(
+                root,
+                "http://example.test/about.php",
+            )
+        )
+
+    def test_encoded_traversal_and_separators_fail_path_scope_closed(self) -> None:
+        root = "http://example.test/area/"
+        for path in (
+            "/area/%2e%2e/admin",
+            "/area/%252e%252e/admin",
+            "/area%2fadmin",
+            "/area/%5cadmin",
+            "/area/../admin",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(
+                    automatic_navigation_within_root_path(
+                        root,
+                        "http://example.test" + path,
+                    )
+                )
+
+    def test_file_shaped_root_retains_origin_wide_path_behavior(self) -> None:
+        self.assertTrue(
+            automatic_navigation_within_root_path(
+                "http://example.test/area/start",
+                "http://example.test/account/profile",
+            )
         )
 
 

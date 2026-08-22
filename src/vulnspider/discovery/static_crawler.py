@@ -43,7 +43,7 @@ from vulnspider.domain import (
     stable_fingerprint,
 )
 
-CRAWLER_VERSION = "native-static-crawler/1.0"
+CRAWLER_VERSION = "native-static-crawler/1.1"
 SCOPE_POLICY_VERSION = "same-origin-v1"
 
 DEFAULT_MAX_PAGES = 10
