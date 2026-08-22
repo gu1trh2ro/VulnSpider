@@ -64,7 +64,9 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(captured), 1)
-        self.assertEqual(stderr.getvalue(), "")
+        self.assertIn("vulnspider: [*]", stderr.getvalue())
+        self.assertIn("vulnspider: [OK]", stderr.getvalue())
+        self.assertNotIn("[ERROR]", stderr.getvalue())
         self.assertEqual(sentinel_requests, ())
         self.assertFalse(any(item.method == "POST" for item in primary_requests))
         self.assertEqual(
@@ -186,7 +188,9 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(captured), 1)
-        self.assertEqual(stderr.getvalue(), "")
+        self.assertIn("vulnspider: [*]", stderr.getvalue())
+        self.assertIn("vulnspider: [OK]", stderr.getvalue())
+        self.assertNotIn("[ERROR]", stderr.getvalue())
         # Simple mode now writes the HTML dashboard by default, so the summary
         # prints a fourth line pointing at it (ADR-034).
         self.assertEqual(len(stdout.getvalue().splitlines()), 4)
