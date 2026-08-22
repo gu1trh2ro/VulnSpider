@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 from tests.integration.dynamic_loopback_site import DynamicLoopbackSite
 import vulnspider.cli as cli_module
@@ -23,6 +24,96 @@ SENTINEL = "SIMPLE_SECRET_SENTINEL_51af"
 
 
 class SimpleDynamicCliLoopbackTests(unittest.TestCase):
+    def test_simple_cli_suppresses_authentication_state_change_navigation(
+        self,
+    ) -> None:
+        stdout = StringIO()
+        stderr = StringIO()
+        original_cwd = Path.cwd()
+        with TemporaryDirectory(prefix="vulnspider-unsafe-navigation-") as workdir:
+            os.chdir(workdir)
+            try:
+                with DynamicLoopbackSite() as site:
+                    with (
+                        redirect_stdout(stdout),
+                        redirect_stderr(stderr),
+                    ):
+                        exit_code = cli_module.main(
+                            ["-u", site.simple_cli_unsafe_url, "--no-html"]
+                        )
+                    primary_requests = site.primary_requests
+                crawl_path = Path(workdir) / "vulnspider-crawl.json"
+                analysis_path = Path(workdir) / "vulnspider-analysis.json"
+                crawl_created = crawl_path.is_file()
+                analysis_created = analysis_path.is_file()
+                crawl_text = crawl_path.read_text(encoding="utf-8")
+                analysis_text = analysis_path.read_text(encoding="utf-8")
+                crawl_report = json.loads(crawl_text)
+            finally:
+                os.chdir(original_cwd)
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(crawl_created)
+        self.assertTrue(analysis_created)
+        self.assertEqual(crawl_report["completion"], "COMPLETE")
+        requested_paths = [request.path for request in primary_requests]
+        self.assertEqual(requested_paths.count("/logout.php"), 0)
+        self.assertEqual(requested_paths.count("/account"), 0)
+        self.assertIn("/account/profile", requested_paths)
+        dynamic = crawl_report["crawl"]["dynamic_crawl"]
+        self.assertEqual(dynamic["termination_reason"], "FRONTIER_EXHAUSTED")
+        self.assertNotIn(
+            "/logout.php",
+            {urlsplit(item).path for item in dynamic["visited_urls"]},
+        )
+        self.assertIn(
+            "UNSAFE_NAVIGATION_SUPPRESSED",
+            {
+                warning["code"]
+                for warning in dynamic["discovery"]["warnings"]
+            },
+        )
+        for discovery in (
+            crawl_report["crawl"]["static_crawl"]["discovery"],
+            dynamic["discovery"],
+            crawl_report["crawl"]["discovery"],
+        ):
+            self.assertFalse(
+                any(
+                    "www.youtube.com" in template["url"]
+                    for template in discovery["request_templates"]
+                )
+            )
+            self.assertFalse(
+                any(
+                    endpoint["host"] == "www.youtube.com"
+                    for endpoint in discovery["endpoints"]
+                )
+            )
+            self.assertFalse(
+                any(
+                    item["status"] == "READY"
+                    and item["input_point_id"]
+                    in {
+                        point["id"]
+                        for point in discovery["input_points"]
+                        if point["endpoint_id"]
+                        in {
+                            endpoint["id"]
+                            for endpoint in discovery["endpoints"]
+                            if endpoint["host"] == "www.youtube.com"
+                        }
+                    }
+                    for item in discovery["probe_readiness"]
+                )
+            )
+        self.assertNotIn("Cookie", crawl_text)
+        self.assertNotIn("Authorization", crawl_text)
+        self.assertNotIn("Cookie", analysis_text)
+        self.assertNotIn("Authorization", analysis_text)
+        self.assertNotIn("LOOPBACK_CSRF_SECRET", crawl_text)
+        self.assertNotIn("LOOPBACK_CSRF_SECRET", analysis_text)
+
     def test_simple_cli_blocked_post_json_is_not_executed(self) -> None:
         stdout = StringIO()
         stderr = StringIO()
@@ -64,7 +155,9 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(captured), 1)
-        self.assertEqual(stderr.getvalue(), "")
+        self.assertIn("vulnspider: [*]", stderr.getvalue())
+        self.assertIn("vulnspider: [OK]", stderr.getvalue())
+        self.assertNotIn("[ERROR]", stderr.getvalue())
         self.assertEqual(sentinel_requests, ())
         self.assertFalse(any(item.method == "POST" for item in primary_requests))
         self.assertEqual(
@@ -186,7 +279,9 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(captured), 1)
-        self.assertEqual(stderr.getvalue(), "")
+        self.assertIn("vulnspider: [*]", stderr.getvalue())
+        self.assertIn("vulnspider: [OK]", stderr.getvalue())
+        self.assertNotIn("[ERROR]", stderr.getvalue())
         # Simple mode now writes the HTML dashboard by default, so the summary
         # prints a fourth line pointing at it (ADR-034).
         self.assertEqual(len(stdout.getvalue().splitlines()), 4)

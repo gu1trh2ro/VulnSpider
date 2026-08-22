@@ -36,10 +36,11 @@ def _static_result(
     *,
     safe: bool = True,
     html: str = HTML,
+    root_url: str = ROOT_URL,
 ) -> StaticCrawlResult:
     extraction = extract_static_html(
         html,
-        ROOT_URL,
+        root_url,
         discovery_metadata=DiscoveryMetadata(
             collector_kind=CollectorKind.NATIVE_STATIC,
             collector_version="combined-test-static/1",
@@ -51,9 +52,9 @@ def _static_result(
         sensitive_form_policy=(SensitiveFormElisionPolicy() if safe else None),
     )
     return StaticCrawlResult(
-        root_url=ROOT_URL,
-        visited_urls=(ROOT_URL,),
-        processed_urls=(ROOT_URL,),
+        root_url=root_url,
+        visited_urls=(root_url,),
+        processed_urls=(root_url,),
         discovery=extraction.discovery,
     )
 
@@ -81,10 +82,11 @@ def _dynamic_result(
     *,
     completion: DynamicCrawlCompletion = DynamicCrawlCompletion.COMPLETE,
     html: str = HTML,
+    root_url: str = ROOT_URL,
 ) -> DynamicCrawlResult:
     extraction = extract_static_html(
         html,
-        ROOT_URL,
+        root_url,
         discovery_metadata=DiscoveryMetadata(
             collector_kind=CollectorKind.NATIVE_DYNAMIC,
             collector_version="combined-test-dynamic/1",
@@ -93,14 +95,14 @@ def _dynamic_result(
         sensitive_form_policy=SensitiveFormElisionPolicy(),
     )
     rendered = RenderedDomExtractionResult(
-        source_url=ROOT_URL,
+        source_url=root_url,
         snapshot_fingerprint=stable_fingerprint("combined-test-snapshot"),
         navigable_links=extraction.navigable_links,
         discovery=extraction.discovery,
     )
     page = DynamicPageResult(
-        requested_url=ROOT_URL,
-        page_url=ROOT_URL,
+        requested_url=root_url,
+        page_url=root_url,
         parent_url=None,
         depth=0,
         component=rendered,
@@ -111,8 +113,8 @@ def _dynamic_result(
         else DynamicCrawlTerminationReason.COMPLETED_WITH_FAILURES
     )
     return DynamicCrawlResult(
-        root_url=ROOT_URL,
-        visited_urls=(ROOT_URL,),
+        root_url=root_url,
+        visited_urls=(root_url,),
         pages=(page,),
         completion=completion,
         termination_reason=termination,
@@ -137,6 +139,91 @@ class _Producer:
 
 
 class CombinedDiscoveryOrchestrationTests(unittest.TestCase):
+    def test_off_path_link_cannot_be_promoted_by_combined_merge(self) -> None:
+        root = "http://127.0.0.1:8080/area/"
+        off_path = "http://127.0.0.1:8080/outside?csrf=OFFPATH_SECRET"
+        html = (
+            '<a href="/area/local?id=1">local</a>'
+            f'<a href="{off_path}">outside</a>'
+        )
+        static_result = _static_result(html=html, root_url=root)
+        dynamic_result = _dynamic_result(html=html, root_url=root)
+        combined = NativeDiscoveryOrchestrator(
+            static_crawler=_Producer([], "static", static_result),
+            dynamic_crawler=_Producer([], "dynamic", dynamic_result),
+        ).discover(root, authority=DynamicRequestAuthority(root))
+
+        for discovery in (
+            static_result.discovery,
+            dynamic_result.discovery,
+            combined.discovery,
+        ):
+            self.assertNotIn(
+                off_path,
+                {template.url for template in discovery.request_templates},
+            )
+            self.assertFalse(
+                any(
+                    endpoint.path == "/outside"
+                    for endpoint in discovery.endpoints
+                )
+            )
+            self.assertFalse(
+                any(point.name == "csrf" for point in discovery.input_points)
+            )
+            self.assertFalse(
+                any(
+                    point.name == "csrf"
+                    for point, _template, _context in discovery.ready_contexts()
+                )
+            )
+            self.assertNotIn("OFFPATH_SECRET", repr(discovery.to_dict()))
+
+    def test_off_scope_link_cannot_be_promoted_by_combined_merge(self) -> None:
+        html = (
+            '<a href="/local?id=1">local</a>'
+            '<a href="https://www.youtube.com/watch?v=test">external</a>'
+        )
+        static_result = _static_result(html=html)
+        dynamic_result = _dynamic_result(html=html)
+        orchestrator = NativeDiscoveryOrchestrator(
+            static_crawler=_Producer([], "static", static_result),
+            dynamic_crawler=_Producer([], "dynamic", dynamic_result),
+        )
+
+        combined = orchestrator.discover(
+            ROOT_URL,
+            authority=DynamicRequestAuthority(ROOT_URL),
+        )
+
+        for discovery in (
+            static_result.discovery,
+            dynamic_result.discovery,
+            combined.discovery,
+        ):
+            self.assertFalse(
+                any(
+                    "www.youtube.com" in template.url
+                    for template in discovery.request_templates
+                )
+            )
+            self.assertFalse(
+                any(
+                    endpoint.host == "www.youtube.com"
+                    for endpoint in discovery.endpoints
+                )
+            )
+            self.assertTrue(
+                all(
+                    "www.youtube.com" not in template.url
+                    for _point, template, _context in discovery.ready_contexts()
+                )
+            )
+        self.assertIn(
+            "OFF_SCOPE_LINK",
+            {warning.code for warning in combined.discovery.warnings},
+        )
+
     def test_runs_static_then_dynamic_and_exposes_degraded_completion(self) -> None:
         log: list[str] = []
         orchestrator = NativeDiscoveryOrchestrator(

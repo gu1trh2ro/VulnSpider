@@ -171,6 +171,12 @@ python tools\verification_detail_report.py `
 |---|---|
 | 실행해도 아무 출력·파일 없음 | `python -m vulnspider.cli`로 실행함 → `python -m vulnspider`로 변경 |
 | `ModuleNotFoundError: playwright` 또는 브라우저 오류 | 동적 모드인데 playwright 미설치 → 설치하거나 `--static-only`/`analyze`(정적) 사용 |
+| `PLAYWRIGHT_PACKAGE_MISSING`, `CHROMIUM_EXECUTABLE_MISSING` 등 | Dynamic capability preflight 실패(exit 2). 표시된 setup hint를 따르고, Chromium 누락 시 `python -m playwright install chromium` 실행 |
+| `DYNAMIC_INCOMPLETE` | 검증된 partial crawl만 남은 fail-closed 상태(exit 4). analysis는 쓰지 않는다. CLI의 `termination`, `warnings`, `browser_errors`, `redirect_blocks`와 crawl JSON의 `crawl.dynamic_crawl`을 확인 |
+| `DYNAMIC_INCOMPLETE`와 `redirect_blocks` | redirect target도 exact Dynamic authority 검사를 통과해야 한다. source가 logout/authentication/기타 상태 변경이면 target을 grant하지 않는다. 그 외 의도한 same-origin target만 `--dynamic-allow-navigation URL`로 허용. 현재 crawler는 authenticated browser session import/login 자동화를 지원하지 않음 |
+| `OFF_PATH_SCOPE_LINK` / `DYNAMIC_OFF_PATH_SCOPE_LINK` | `/area/`처럼 directory-shaped root에서 implicit link/probe surface와 rendered navigation은 그 subtree로 제한된다. 의도한 same-origin 외부 경로는 exact `--dynamic-allow-navigation URL` grant로만 확장한다 |
+| `AUTHENTICATION_REQUIRED`가 표시되지 않음 | 현재 구현은 URL/DOM 문자열만으로 인증 필요를 단정하지 않아 이 코드를 생성하지 않는다. 로그인/session/security cookie가 필요한 DVWA는 현재 authenticated crawl 지원 범위 밖이며 login page를 원래 취약 페이지 분석으로 해석하면 안 됨 |
+| `completion=COMPLETE`, `degraded=false` | Dynamic frontier가 실패 없이 종료된 정상 crawl. simple mode에서는 crawl artifact 작성 후 READY context 분석과 analysis artifact 작성을 계속함 |
 | `verification permits only localhost ...` | 외부 대상에 `--verify` 사용 → 외부는 `--verify` 제거, 검증은 loopback 대상에서만 |
 | 후보가 거의 안 잡힘 | 정적 크롤로는 JS 렌더 링크를 못 볼 수 있음 → 동적 모드 사용, `--dynamic-max-pages/-depth` 상향 |
 | 다른 저장소 코드가 실행되는 듯함 | 오래된 editable 설치본이 가림 → `PYTHONPATH=src`를 명시 |

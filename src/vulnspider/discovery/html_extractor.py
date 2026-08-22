@@ -25,6 +25,10 @@ from vulnspider.discovery.contracts import (
     discovery_run_id_for,
     scope_id_for_root,
 )
+from vulnspider.discovery.navigation_safety import (
+    authentication_state_change_token,
+    automatic_navigation_within_root_path,
+)
 from vulnspider.domain import (
     Endpoint,
     HttpMethod,
@@ -36,7 +40,7 @@ from vulnspider.domain import (
     stable_fingerprint,
 )
 
-EXTRACTOR_VERSION = "native-static-html/1.0"
+EXTRACTOR_VERSION = "native-static-html/1.1"
 SCOPE_POLICY_VERSION = "same-origin-v1"
 
 _NON_DATA_INPUT_TYPES = frozenset({"button", "image", "reset", "submit"})
@@ -859,6 +863,16 @@ class CanonicalDiscoveryBuilder:
                 },
             )
             return
+        if not _same_http_origin(self.scope.root_url, action_url):
+            self.add_warning(
+                "OFF_SCOPE_FORM_ACTION",
+                "Cross-origin form action was excluded from request construction.",
+                {
+                    "action_fingerprint": _redacted_url_fingerprint(action_url),
+                    "reason": "EXACT_ORIGIN_MISMATCH",
+                },
+            )
+            return
         action_provenance = (
             "explicit"
             if form.raw_action is not None and form.raw_action.strip()
@@ -1510,6 +1524,58 @@ def extract_static_html(
             raw_query=urlsplit(crawl_url).query,
             occurrence_index=occurrence_index,
         )
+        if not _same_http_origin(scope.root_url, crawl_url):
+            builder.add_warning(
+                "OFF_SCOPE_LINK",
+                "Cross-origin link was excluded from request construction.",
+                {
+                    "destination_fingerprint": stable_fingerprint(
+                        "crawler-url", crawl_url
+                    )[:16],
+                    "link_id": link.id,
+                    "reason": "EXACT_ORIGIN_MISMATCH",
+                },
+            )
+            continue
+        unsafe_token = authentication_state_change_token(crawl_url)
+        if unsafe_token is not None:
+            builder.add_warning(
+                "UNSAFE_NAVIGATION_SUPPRESSED",
+                "Authentication state-changing navigation was suppressed.",
+                {
+                    "action_token": unsafe_token,
+                    "destination_fingerprint": stable_fingerprint(
+                        "crawler-url", crawl_url
+                    )[:16],
+                    "link_id": link.id,
+                    "reason": "AUTHENTICATION_STATE_CHANGE",
+                },
+            )
+            continue
+        if not automatic_navigation_within_root_path(
+            scope.root_url,
+            crawl_url,
+        ):
+            try:
+                path_scope_granted = (
+                    request_authorizer is not None
+                    and request_authorizer(crawl_url) is True
+                )
+            except Exception:  # noqa: BLE001 - scope ambiguity fails closed.
+                path_scope_granted = False
+            if not path_scope_granted:
+                builder.add_warning(
+                    "OFF_PATH_SCOPE_LINK",
+                    "Link was outside the implicit root path scope.",
+                    {
+                        "destination_fingerprint": stable_fingerprint(
+                            "crawler-url", crawl_url
+                        )[:16],
+                        "link_id": link.id,
+                        "reason": "ROOT_PATH_SCOPE_MISMATCH",
+                    },
+                )
+                continue
         links.append(link)
         builder.add_url_surface(
             crawl_url,
@@ -1550,7 +1616,7 @@ def extract_static_html(
             DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION
         )
     discovery = builder.build(
-        link_count=len(links),
+        link_count=len(valid_links),
         form_count=len(parser.forms),
         safety_invariants=tuple(
             sorted(active_invariants, key=lambda item: item.value)
@@ -1666,6 +1732,20 @@ def _resolve_http_url(
         )
     )
     return resolved_url, crawl_url
+
+
+def _same_http_origin(root_url: str, candidate_url: str) -> bool:
+    """Compare exact scheme, normalized host, and effective port."""
+
+    return _http_origin(root_url) == _http_origin(candidate_url)
+
+
+def _http_origin(url: str) -> tuple[str, str, int]:
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    host = parts.hostname.casefold() if parts.hostname is not None else ""
+    effective_port = parts.port or (80 if scheme == "http" else 443)
+    return scheme, host, effective_port
 
 
 def _query_occurrences(raw_query: str) -> tuple[tuple[str, str, str], ...]:

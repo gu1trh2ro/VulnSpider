@@ -23,6 +23,92 @@ SENSITIVE_FORM_POLICY = SensitiveFormElisionPolicy()
 
 
 class StaticHtmlExtractorAdversarialTests(unittest.TestCase):
+    def test_off_scope_links_never_become_executable_request_objects(self) -> None:
+        source_url = "http://localhost:4280/root"
+        external_urls = {
+            "https://www.youtube.com/watch?v=test",
+            "http://localhost:8080/other?port=1",
+            "https://localhost/secure?scheme=1",
+            "http://127.0.0.1:4280/ip?host=1",
+        }
+        result = extract_static_html(
+            """
+            <a href="/local?id=1">Local</a>
+            <a href="https://www.youtube.com/watch?v=test">YouTube</a>
+            <a href="http://localhost:8080/other?port=1">Port</a>
+            <a href="https://localhost/secure?scheme=1">Scheme</a>
+            <a href="http://127.0.0.1:4280/ip?host=1">Host</a>
+            <form action="https://outside.test/submit" method="get">
+              <input name="external_form" value="never">
+            </form>
+            """,
+            source_url,
+        )
+
+        self.assertIn(
+            "http://localhost:4280/local?id=1",
+            {template.url for template in result.discovery.request_templates},
+        )
+        self.assertTrue(
+            external_urls.isdisjoint(
+                template.url for template in result.discovery.request_templates
+            )
+        )
+        self.assertNotIn(
+            "external_form",
+            {point.name for point in result.discovery.input_points},
+        )
+        external_hosts = {"www.youtube.com", "localhost:8080", "127.0.0.1:4280"}
+        self.assertTrue(
+            external_hosts.isdisjoint(
+                endpoint.host for endpoint in result.discovery.endpoints
+            )
+        )
+        self.assertTrue(
+            all(
+                template.url.startswith("http://localhost:4280/")
+                for template in result.discovery.request_templates
+            )
+        )
+        self.assertEqual(
+            {warning.code for warning in result.discovery.warnings}
+            & {"OFF_SCOPE_LINK", "OFF_SCOPE_FORM_ACTION"},
+            {"OFF_SCOPE_LINK", "OFF_SCOPE_FORM_ACTION"},
+        )
+        self.assertTrue(
+            external_urls.isdisjoint(
+                link.crawl_url for link in result.navigable_links
+            )
+        )
+        result.discovery.validate()
+
+    def test_suppressed_link_query_values_are_never_serialized(self) -> None:
+        sentinel = "CSRF_SECRET_123"
+        result = extract_static_html(
+            f"""
+            <a href="/account?action=logout&amp;csrf={sentinel}">Logout</a>
+            <a href="https://outside.test/path?csrf={sentinel}">Outside</a>
+            <a href="/safe?q=ok">Safe</a>
+            """,
+            SOURCE_URL,
+        )
+
+        serialized = json.dumps(result.to_dict(), sort_keys=True)
+        self.assertNotIn(sentinel, serialized)
+        self.assertEqual(
+            {link.crawl_url for link in result.navigable_links},
+            {"http://example.test/safe?q=ok"},
+        )
+        self.assertEqual(
+            {template.url for template in result.discovery.request_templates},
+            {"http://example.test/safe?q=ok"},
+        )
+        self.assertEqual(
+            {warning.code for warning in result.discovery.warnings}
+            & {"OFF_SCOPE_LINK", "UNSAFE_NAVIGATION_SUPPRESSED"},
+            {"OFF_SCOPE_LINK", "UNSAFE_NAVIGATION_SUPPRESSED"},
+        )
+
     def test_preserves_raw_query_tokens_and_repeated_occurrences(self) -> None:
         raw_query = (
             "tag=a&tag=a&q=&flag&q=%2Fadmin%2Fusers&"
@@ -159,10 +245,11 @@ class StaticHtmlExtractorAdversarialTests(unittest.TestCase):
         self.assertIn("LINK_HREF_MISSING", codes)
         self.assertEqual(codes.count("LINK_SCHEME_UNSUPPORTED"), 4)
         self.assertIn("LINK_URL_MALFORMED", codes)
-        self.assertIn(
+        self.assertNotIn(
             "https://outside.test/path?q=1",
             {item.crawl_url for item in result.navigable_links},
         )
+        self.assertIn("OFF_SCOPE_LINK", codes)
         warning_payload = json.dumps(
             [
                 (item.code, item.message, dict(item.details))

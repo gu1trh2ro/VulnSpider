@@ -71,6 +71,25 @@ _DEFAULT_VERIFICATION_OUTPUT = Path("vulnspider-verification.json")
 _SIMPLE_DEFAULT_TOP_K = 10
 _MAX_TOP_K = 20
 _SIMPLE_DEFAULT_DYNAMIC_MAX_DEPTH = 2
+_DYNAMIC_DEGRADATION_WARNING_CODES = frozenset(
+    {
+        "DYNAMIC_CLEANUP_INCOMPLETE",
+        "DYNAMIC_DEPTH_BUDGET_EXHAUSTED",
+        "DYNAMIC_ELAPSED_BUDGET_EXHAUSTED",
+        "DYNAMIC_HTTP_ERROR",
+        "DYNAMIC_NAVIGATION_BUDGET_EXHAUSTED",
+        "DYNAMIC_OPERATIONAL_FAILURE",
+        "DYNAMIC_PAGE_BUDGET_EXHAUSTED",
+    }
+)
+_DYNAMIC_RUNTIME_ERROR_CODES = frozenset(
+    {
+        DynamicBrowserErrorCode.PLAYWRIGHT_START_FAILED,
+        DynamicBrowserErrorCode.BROWSER_LAUNCH_FAILED,
+        DynamicBrowserErrorCode.CONTEXT_CREATE_FAILED,
+        DynamicBrowserErrorCode.PAGE_CREATE_FAILED,
+    }
+)
 
 # `analyze` and simple `-u` mode run the calibrated Top-K algorithm directly, so
 # `decide` no longer exists. This maps only the corpus-building tooling.
@@ -85,6 +104,10 @@ class CLIError(ValueError):
 
 class _SimpleDegradedCrawl(RuntimeError):
     """Stop the simple adapter before probes when crawl is degraded."""
+
+    def __init__(self, crawl: CombinedDiscoveryResult) -> None:
+        super().__init__(crawl.dynamic_crawl.termination_reason.value)
+        self.crawl = crawl
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -544,7 +567,7 @@ def main(
                         type(crawl) is CombinedDiscoveryResult
                         and crawl.degraded
                     ):
-                        raise _SimpleDegradedCrawl
+                        raise _SimpleDegradedCrawl(crawl)
 
                 on_crawl_validated = publish_crawl
             analysis = analyze_url(
@@ -573,11 +596,7 @@ def main(
             and analysis.combined_result.degraded
         ):
             _print_partial_simple_result(args)
-            print(
-                "vulnspider: error: DYNAMIC_INCOMPLETE: "
-                "crawl result is degraded; analysis was not written",
-                file=sys.stderr,
-            )
+            _print_dynamic_incomplete(analysis.combined_result)
             return 4
         _progress(
             "[OK] 분석 완료 -- "
@@ -648,13 +667,9 @@ def main(
                 ),
             )
         _progress("[OK] 리포트 작성 완료")
-    except _SimpleDegradedCrawl:
+    except _SimpleDegradedCrawl as exc:
         _print_partial_simple_result(args)
-        print(
-            "vulnspider: error: DYNAMIC_INCOMPLETE: "
-            "crawl result is degraded; analysis was not written",
-            file=sys.stderr,
-        )
+        _print_dynamic_incomplete(exc.crawl)
         return 4
     except (DiscoveryContractError, DynamicIntegrityError, DynamicCrawlerError):
         if simple_mode and crawl_published:
@@ -960,6 +975,69 @@ def _print_partial_simple_result(args: argparse.Namespace) -> None:
         "vulnspider: crawl output: "
         f"{args.crawl_output.resolve(strict=False)}"
     )
+
+
+def _print_dynamic_incomplete(crawl: CombinedDiscoveryResult) -> None:
+    """Print only canonical, secret-free reasons from a degraded crawl."""
+
+    dynamic = crawl.dynamic_crawl
+    warning_codes = sorted(
+        {
+            warning.code
+            for warning in dynamic.warnings
+            if warning.code in _DYNAMIC_DEGRADATION_WARNING_CODES
+        }
+    )
+    browser_error_codes: set[DynamicBrowserErrorCode] = set()
+    for warning in dynamic.warnings:
+        raw_code = warning.details.get("error_code")
+        try:
+            browser_error_codes.add(DynamicBrowserErrorCode(raw_code))
+        except (TypeError, ValueError):
+            continue
+
+    details = [f"termination={dynamic.termination_reason.value}"]
+    if warning_codes:
+        details.append(f"warnings={','.join(warning_codes)}")
+    if browser_error_codes:
+        details.append(
+            "browser_errors="
+            + ",".join(
+                code.value
+                for code in sorted(browser_error_codes, key=lambda item: item.value)
+            )
+        )
+    redirect_blocks = dynamic.browser_audit.redirect_block_count
+    if redirect_blocks:
+        details.append(f"redirect_blocks={redirect_blocks}")
+    print(
+        "vulnspider: error: DYNAMIC_INCOMPLETE: "
+        + "; ".join(details)
+        + "; analysis was not written",
+        file=sys.stderr,
+    )
+
+    if redirect_blocks:
+        print(
+            "vulnspider: hint: a redirect target was blocked by exact Dynamic "
+            "authority. Inspect the source and Location/final path; do not grant "
+            "authentication, logout, or other state-changing transitions. Grant "
+            "only an intended same-origin target with --dynamic-allow-navigation. "
+            "Authenticated browser-session import is not supported.",
+            file=sys.stderr,
+        )
+    elif browser_error_codes.intersection(_DYNAMIC_RUNTIME_ERROR_CODES):
+        print(
+            "vulnspider: hint: verify the Playwright/Chromium runtime; run "
+            "'python -m playwright install chromium' if Chromium is missing.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "vulnspider: hint: inspect crawl.dynamic_crawl.termination_reason and "
+            "crawl.dynamic_crawl.discovery.warnings in the crawl output.",
+            file=sys.stderr,
+        )
 
 
 def _normalized_destination(destination: Path) -> str:
