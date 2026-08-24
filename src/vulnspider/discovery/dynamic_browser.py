@@ -764,11 +764,13 @@ class DynamicRequestAuthority:
 
     def __post_init__(self) -> None:
         root_url = _canonical_authority_url(self.root_url)
+        
         if not _is_loopback_url(root_url):
             raise DynamicBrowserError(
                 DynamicBrowserErrorCode.INVALID_AUTHORITY,
                 "Dynamic browser root must use an explicit loopback authority.",
             )
+        
         try:
             navigation_inputs = tuple(self.navigation_urls)
             grant_inputs = tuple(self.resource_grants)

@@ -436,9 +436,12 @@ def _render_warnings(warnings: Sequence[str]) -> str:
         return ""
     items = "".join(f"<li>{_esc(item)}</li>" for item in warnings)
     return (
+        '<details>'
+        '<summary class="lab" style="cursor: pointer; outline: none;">Warnings (클릭해서 접기/펴기)</summary>'
         '<div class="notice">'
         '<div class="lab">Warnings</div>'
         f"<ul>{items}</ul></div>"
+        '</details>'
     )
 
 

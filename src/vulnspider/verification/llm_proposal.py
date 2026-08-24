@@ -41,7 +41,8 @@ from vulnspider.verification.proposal import (
     verification_identifier,
 )
 
-PROVIDER_LOCAL_LLM = "local-llm-vulnspider-3b"
+#PROVIDER_LOCAL_LLM = "local-llm-vulnspider-3b"
+PROVIDER_LOCAL_LLM = "local-llm-vulnspider-llama3.1-8b"
 LLM_PROPOSER_VERSION = "local-llm-mutation-v1"
 
 # Environment variable the CLI consults for the GGUF model path when
@@ -99,6 +100,7 @@ SYSTEM_PROMPT = (
     "- modify the target host\n"
     "- modify the target path\n"
     "- modify the HTTP method\n\n"
+    "- use ANY special characters (use ONLY English letters and numbers)\n\n"
     "The application code will insert your generated value into\n"
     "the exact input position.\n\n"
     "Return JSON only."
@@ -343,6 +345,7 @@ class LocalLLMMutationProposer:
                 n_ctx=self.n_ctx,
                 n_gpu_layers=self.n_gpu_layers,
                 verbose=self.verbose,
+                chat_format="llama-3",
             )
         except Exception as exc:  # pragma: no cover - environment dependent
             raise LLMProposerError(

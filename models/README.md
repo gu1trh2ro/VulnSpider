@@ -6,27 +6,29 @@
 
 ## 여기에 저장할 파일
 
-HuggingFace `lsk0228/vulnspider-3b_v3`(게이트 저장소, 로그인 필요)에서 받습니다:
+HuggingFace `lsk0228/vulnspider-3b_v3 또는 lsk0228/vulnspider-llama3.1-8b`(게이트 저장소, 로그인 필요)에서 받습니다:
 
 | 파일 | 용도 |
 |---|---|
-| `vulnspider-3b_v3.gguf` | 파인튜닝 모델 본체 (llama.cpp GGUF) |
+| `vulnspider-3b_v3.gguf` | 파인튜닝 3b 모델 (llama.cpp GGUF) |
+| `vulnspider-llama3.1-8b.gguf` | 파인튜닝 8b 모델 (llama.cpp GGUF) |
 | `llama_cpp_python-0.3.34-py3-none-win_amd64.whl` | 프리빌트 실행 엔진 (Windows / Python 3) |
 
 받는 URL:
 
 - <https://huggingface.co/lsk0228/vulnspider-3b_v3/resolve/main/vulnspider-3b_v3.gguf>
+- <https://huggingface.co/lsk0228/vulnspider-3b_v3/resolve/main/vulnspider-llama3.1-8b.gguf>
 - <https://huggingface.co/lsk0228/vulnspider-3b_v3/resolve/main/llama_cpp_python-0.3.34-py3-none-win_amd64.whl>
 
 ## 저장 후 사용법
 
 ```powershell
 # 1) 실행 엔진 설치 (프리빌트 wheel)
-pip install .\models\llama_cpp_python-0.3.34-py3-none-win_amd64.whl
+(README_DYNAMIC_TESTING.md를 참고)
 
 # 2) 빠른 모델 sanity 체크 (네트워크 요청 없음)
 $env:PYTHONPATH = "src"
-python tools\llm_verify_demo.py --model .\models\vulnspider-3b_v3.gguf
+
 
 # 3) 실전 end-to-end (loopback 데모 서버 대상)
 python demo_target_server.py            # 별도 창: http://127.0.0.1:8899

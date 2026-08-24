@@ -1,0 +1,441 @@
+{
+  "input_points": {
+    "inp_265ceca9ea8fd83d": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-cli/static?simple_static=source",
+      "parameter_name": "simple_static",
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": "source",
+      "body": null
+    },
+    "inp_2a30aa55eb0471f7": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-cli/page-b?simple_page_b=second",
+      "parameter_name": "simple_page_b",
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": "second",
+      "body": null
+    },
+    "inp_36d85d571d855890": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-cli",
+      "parameter_name": "page",
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null
+    },
+    "inp_4c08518b3a39d086": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-allowed-xhr?category=book&tag=a&tag=b",
+      "parameter_name": "tag",
+      "parameter_location": "query",
+      "parameter_occurrence": 1,
+      "original_value": "b",
+      "body": null
+    },
+    "inp_85cffff02593bb7f": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-cli/follow?simple_dynamic=rendered",
+      "parameter_name": "simple_dynamic",
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": "rendered",
+      "body": null
+    },
+    "inp_ae979b97e04652af": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-allowed-xhr?category=book&tag=a&tag=b",
+      "parameter_name": "tag",
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": "a",
+      "body": null
+    },
+    "inp_b0da8594052b5401": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-cli/page-a-search?page_a_form=a",
+      "parameter_name": "page_a_form",
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": "a",
+      "body": null
+    },
+    "inp_b872919a1fb12c8c": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-allowed-fetch?keyword=phone&page=1",
+      "parameter_name": "keyword",
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": "phone",
+      "body": null
+    },
+    "inp_ba0637be7ac2da3d": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-allowed-xhr?category=book&tag=a&tag=b",
+      "parameter_name": "category",
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": "book",
+      "body": null
+    },
+    "inp_ec2be0a5e1c1ba08": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-cli/page-b-search?page_b_form=b",
+      "parameter_name": "page_b_form",
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": "b",
+      "body": null
+    },
+    "inp_edc4341e27dedbcc": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-allowed-fetch?keyword=phone&page=1",
+      "parameter_name": "page",
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": "1",
+      "body": null
+    }
+  },
+  "endpoints": {
+    "ep_0a20e6fe8ac8cef1": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39774/simple-page-a-outside",
+      "parameter_name": null,
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null,
+      "baseline_auth_context_id": "authenticated_user",
+      "resources": [],
+      "auth_contexts": [
+        {
+          "context_id": "authenticated_user",
+          "role": "user",
+          "is_anonymous": false
+        },
+        {
+          "context_id": "anonymous",
+          "role": "anonymous",
+          "is_anonymous": true
+        },
+        {
+          "context_id": "admin",
+          "role": "admin",
+          "is_anonymous": false
+        }
+      ]
+    },
+    "ep_0d76820537daa15c": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-cli/static",
+      "parameter_name": null,
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null,
+      "baseline_auth_context_id": "authenticated_user",
+      "resources": [],
+      "auth_contexts": [
+        {
+          "context_id": "authenticated_user",
+          "role": "user",
+          "is_anonymous": false
+        },
+        {
+          "context_id": "anonymous",
+          "role": "anonymous",
+          "is_anonymous": true
+        },
+        {
+          "context_id": "admin",
+          "role": "admin",
+          "is_anonymous": false
+        }
+      ]
+    },
+    "ep_18e1a6e73d301344": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-allowed-xhr",
+      "parameter_name": null,
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null,
+      "baseline_auth_context_id": "authenticated_user",
+      "resources": [],
+      "auth_contexts": [
+        {
+          "context_id": "authenticated_user",
+          "role": "user",
+          "is_anonymous": false
+        },
+        {
+          "context_id": "anonymous",
+          "role": "anonymous",
+          "is_anonymous": true
+        },
+        {
+          "context_id": "admin",
+          "role": "admin",
+          "is_anonymous": false
+        }
+      ]
+    },
+    "ep_1a33a8522093b0ae": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-cli/page-a-search",
+      "parameter_name": null,
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null,
+      "baseline_auth_context_id": "authenticated_user",
+      "resources": [],
+      "auth_contexts": [
+        {
+          "context_id": "authenticated_user",
+          "role": "user",
+          "is_anonymous": false
+        },
+        {
+          "context_id": "anonymous",
+          "role": "anonymous",
+          "is_anonymous": true
+        },
+        {
+          "context_id": "admin",
+          "role": "admin",
+          "is_anonymous": false
+        }
+      ]
+    },
+    "ep_a220717832c20d9b": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-cli/page-b",
+      "parameter_name": null,
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null,
+      "baseline_auth_context_id": "authenticated_user",
+      "resources": [],
+      "auth_contexts": [
+        {
+          "context_id": "authenticated_user",
+          "role": "user",
+          "is_anonymous": false
+        },
+        {
+          "context_id": "anonymous",
+          "role": "anonymous",
+          "is_anonymous": true
+        },
+        {
+          "context_id": "admin",
+          "role": "admin",
+          "is_anonymous": false
+        }
+      ]
+    },
+    "ep_a517cf0a942984cf": {
+      "method": "POST",
+      "url": "http://127.0.0.1:39775/simple-denied-post",
+      "parameter_name": null,
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null,
+      "baseline_auth_context_id": "authenticated_user",
+      "resources": [],
+      "auth_contexts": [
+        {
+          "context_id": "authenticated_user",
+          "role": "user",
+          "is_anonymous": false
+        },
+        {
+          "context_id": "anonymous",
+          "role": "anonymous",
+          "is_anonymous": true
+        },
+        {
+          "context_id": "admin",
+          "role": "admin",
+          "is_anonymous": false
+        }
+      ]
+    },
+    "ep_a714b7a5051badd2": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-allowed-fetch",
+      "parameter_name": null,
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null,
+      "baseline_auth_context_id": "authenticated_user",
+      "resources": [],
+      "auth_contexts": [
+        {
+          "context_id": "authenticated_user",
+          "role": "user",
+          "is_anonymous": false
+        },
+        {
+          "context_id": "anonymous",
+          "role": "anonymous",
+          "is_anonymous": true
+        },
+        {
+          "context_id": "admin",
+          "role": "admin",
+          "is_anonymous": false
+        }
+      ]
+    },
+    "ep_aa44362836ce55ff": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-cli",
+      "parameter_name": null,
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null,
+      "baseline_auth_context_id": "authenticated_user",
+      "resources": [],
+      "auth_contexts": [
+        {
+          "context_id": "authenticated_user",
+          "role": "user",
+          "is_anonymous": false
+        },
+        {
+          "context_id": "anonymous",
+          "role": "anonymous",
+          "is_anonymous": true
+        },
+        {
+          "context_id": "admin",
+          "role": "admin",
+          "is_anonymous": false
+        }
+      ]
+    },
+    "ep_cc99380d69774a6c": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-cli/follow",
+      "parameter_name": null,
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null,
+      "baseline_auth_context_id": "authenticated_user",
+      "resources": [],
+      "auth_contexts": [
+        {
+          "context_id": "authenticated_user",
+          "role": "user",
+          "is_anonymous": false
+        },
+        {
+          "context_id": "anonymous",
+          "role": "anonymous",
+          "is_anonymous": true
+        },
+        {
+          "context_id": "admin",
+          "role": "admin",
+          "is_anonymous": false
+        }
+      ]
+    },
+    "ep_e934e594135bfc72": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39774/simple-outside",
+      "parameter_name": null,
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null,
+      "baseline_auth_context_id": "authenticated_user",
+      "resources": [],
+      "auth_contexts": [
+        {
+          "context_id": "authenticated_user",
+          "role": "user",
+          "is_anonymous": false
+        },
+        {
+          "context_id": "anonymous",
+          "role": "anonymous",
+          "is_anonymous": true
+        },
+        {
+          "context_id": "admin",
+          "role": "admin",
+          "is_anonymous": false
+        }
+      ]
+    },
+    "ep_f0014ada35396057": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-cli/page-b-search",
+      "parameter_name": null,
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null,
+      "baseline_auth_context_id": "authenticated_user",
+      "resources": [],
+      "auth_contexts": [
+        {
+          "context_id": "authenticated_user",
+          "role": "user",
+          "is_anonymous": false
+        },
+        {
+          "context_id": "anonymous",
+          "role": "anonymous",
+          "is_anonymous": true
+        },
+        {
+          "context_id": "admin",
+          "role": "admin",
+          "is_anonymous": false
+        }
+      ]
+    },
+    "ep_fddbcffc6a5445e8": {
+      "method": "GET",
+      "url": "http://127.0.0.1:39775/simple-allowed-private",
+      "parameter_name": null,
+      "parameter_location": "query",
+      "parameter_occurrence": 0,
+      "original_value": null,
+      "body": null,
+      "baseline_auth_context_id": "authenticated_user",
+      "resources": [],
+      "auth_contexts": [
+        {
+          "context_id": "authenticated_user",
+          "role": "user",
+          "is_anonymous": false
+        },
+        {
+          "context_id": "anonymous",
+          "role": "anonymous",
+          "is_anonymous": true
+        },
+        {
+          "context_id": "admin",
+          "role": "admin",
+          "is_anonymous": false
+        }
+      ]
+    }
+  }
+}

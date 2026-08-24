@@ -1,280 +1,287 @@
 {
   "candidates": [
     {
-      "access_probe_plan_id": "accplan_28215c10202be47b",
-      "candidate_id": "acand_50fd39bd4724d812",
-      "category": "BROKEN_ACCESS_CONTROL",
-      "check_kind": "IDENTIFIER_SUBSTITUTION",
-      "endpoint_id": "ep_322fc24f988637e8",
+      "candidate_id": "cand_0f60c84fce3b2317",
       "evidence": [
         {
-          "access_probe_plan_id": "accplan_28215c10202be47b",
-          "candidate_id": "acand_50fd39bd4724d812",
-          "check_kind": "IDENTIFIER_SUBSTITUTION",
-          "contribution": 20.0,
-          "feature_name": "access_body_size_similarity_ratio",
-          "feature_value": 1.0,
+          "candidate_id": "cand_0f60c84fce3b2317",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f0b89ffe65868161",
           "observed": true,
-          "reason": "Comparison response body is similarly sized to the reference response, suggesting it received substantive content rather than a rejection/error page.",
+          "reason": "Observed response-length difference raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
           "weight": 20.0
         },
         {
-          "access_probe_plan_id": "accplan_28215c10202be47b",
-          "candidate_id": "acand_50fd39bd4724d812",
-          "check_kind": "IDENTIFIER_SUBSTITUTION",
-          "contribution": 55.0,
-          "feature_name": "access_unauthorized_success",
-          "feature_value": 1.0,
+          "candidate_id": "cand_0f60c84fce3b2317",
+          "contribution": 0.0,
+          "feature_name": "sql_error_pattern",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f0b89ffe65868161",
           "observed": true,
-          "reason": "Comparison request was not denied (2xx) despite missing credentials or referencing a different identifier -- the primary Broken Access Control signal.",
-          "weight": 55.0
+          "reason": "Observed new SQL error pattern raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_0f60c84fce3b2317",
+          "contribution": 0.0,
+          "feature_name": "status_code_changed",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f0b89ffe65868161",
+          "observed": true,
+          "reason": "Observed status-code change raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
         }
       ],
-      "input_point_id": "inp_d4dd485c03213a20",
+      "feature_vector_id": "fv_f0b89ffe65868161",
+      "input_point_id": "inp_ba0637be7ac2da3d",
       "rank": 1,
-      "raw_rank_score": 75.0,
+      "raw_rank_score": 0.0,
       "raw_rank_score_max": 75.0,
-      "resource_owner_context": "baseline value observed during discovery for query.id",
-      "resource_reference": "query.id on GET /product",
-      "scorer_version": "access-control-weighted-v1",
-      "selection_priority": 1.0,
-      "subject_context": "ORIGINAL"
+      "scorer_version": "sqli-weighted-v1",
+      "selection_priority": 0.0,
+      "vulnerability_type": "SQLI"
     },
     {
-      "access_probe_plan_id": "accplan_ffdd50d4f5b2df89",
-      "candidate_id": "acand_59d69bfb131e7677",
-      "category": "BROKEN_ACCESS_CONTROL",
-      "check_kind": "CREDENTIAL_STRIP",
-      "endpoint_id": "ep_68c3b8da39dc4ca1",
+      "candidate_id": "cand_15d146272033e394",
       "evidence": [
         {
-          "access_probe_plan_id": "accplan_ffdd50d4f5b2df89",
-          "candidate_id": "acand_59d69bfb131e7677",
-          "check_kind": "CREDENTIAL_STRIP",
-          "contribution": 20.0,
-          "feature_name": "access_body_size_similarity_ratio",
-          "feature_value": 1.0,
+          "candidate_id": "cand_15d146272033e394",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_582d7a21316488da",
           "observed": true,
-          "reason": "Comparison response body is similarly sized to the reference response, suggesting it received substantive content rather than a rejection/error page.",
+          "reason": "Observed response-length difference raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
           "weight": 20.0
         },
         {
-          "access_probe_plan_id": "accplan_ffdd50d4f5b2df89",
-          "candidate_id": "acand_59d69bfb131e7677",
-          "check_kind": "CREDENTIAL_STRIP",
-          "contribution": 55.0,
-          "feature_name": "access_unauthorized_success",
-          "feature_value": 1.0,
+          "candidate_id": "cand_15d146272033e394",
+          "contribution": 0.0,
+          "feature_name": "sql_error_pattern",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_582d7a21316488da",
           "observed": true,
-          "reason": "Comparison request was not denied (2xx) despite missing credentials or referencing a different identifier -- the primary Broken Access Control signal.",
-          "weight": 55.0
+          "reason": "Observed new SQL error pattern raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_15d146272033e394",
+          "contribution": 0.0,
+          "feature_name": "status_code_changed",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_582d7a21316488da",
+          "observed": true,
+          "reason": "Observed status-code change raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
         }
       ],
-      "input_point_id": null,
+      "feature_vector_id": "fv_582d7a21316488da",
+      "input_point_id": "inp_b872919a1fb12c8c",
       "rank": 2,
-      "raw_rank_score": 75.0,
+      "raw_rank_score": 0.0,
       "raw_rank_score_max": 75.0,
-      "resource_owner_context": "credentials observed during discovery (session cookie or Authorization header)",
-      "resource_reference": "GET /account",
-      "scorer_version": "access-control-weighted-v1",
-      "selection_priority": 1.0,
-      "subject_context": "ANONYMOUS"
+      "scorer_version": "sqli-weighted-v1",
+      "selection_priority": 0.0,
+      "vulnerability_type": "SQLI"
     },
     {
-      "candidate_id": "cand_404bdc9da19de1ee",
-      "category": "INJECTION",
+      "candidate_id": "cand_19369789874221c5",
       "evidence": [
         {
-          "candidate_id": "cand_404bdc9da19de1ee",
-          "contribution": 20.0,
+          "candidate_id": "cand_19369789874221c5",
+          "contribution": 0.0,
           "feature_name": "response_length_diff_ratio",
-          "feature_value": 1.0,
-          "feature_vector_id": "fv_5f30f4f83a1483da",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_bfb2af0696c36c4d",
           "observed": true,
           "reason": "Observed response-length difference raises SQLi verification priority.",
           "vulnerability_type": "SQLI",
           "weight": 20.0
         },
         {
-          "candidate_id": "cand_404bdc9da19de1ee",
-          "contribution": 35.0,
+          "candidate_id": "cand_19369789874221c5",
+          "contribution": 0.0,
           "feature_name": "sql_error_pattern",
-          "feature_value": 1.0,
-          "feature_vector_id": "fv_5f30f4f83a1483da",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_bfb2af0696c36c4d",
           "observed": true,
           "reason": "Observed new SQL error pattern raises SQLi verification priority.",
           "vulnerability_type": "SQLI",
           "weight": 35.0
         },
         {
-          "candidate_id": "cand_404bdc9da19de1ee",
-          "contribution": 20.0,
+          "candidate_id": "cand_19369789874221c5",
+          "contribution": 0.0,
           "feature_name": "status_code_changed",
-          "feature_value": 1.0,
-          "feature_vector_id": "fv_5f30f4f83a1483da",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_bfb2af0696c36c4d",
           "observed": true,
           "reason": "Observed status-code change raises SQLi verification priority.",
           "vulnerability_type": "SQLI",
           "weight": 20.0
         }
       ],
-      "feature_vector_id": "fv_5f30f4f83a1483da",
-      "input_point_id": "inp_d4dd485c03213a20",
+      "feature_vector_id": "fv_bfb2af0696c36c4d",
+      "input_point_id": "inp_4c08518b3a39d086",
       "rank": 3,
-      "raw_rank_score": 75.0,
+      "raw_rank_score": 0.0,
       "raw_rank_score_max": 75.0,
       "scorer_version": "sqli-weighted-v1",
-      "selection_priority": 1.0,
+      "selection_priority": 0.0,
       "vulnerability_type": "SQLI"
     },
     {
-      "candidate_id": "cand_84b05c14a9207160",
-      "category": "INJECTION",
+      "candidate_id": "cand_2978f1f91a59545a",
       "evidence": [
         {
-          "candidate_id": "cand_84b05c14a9207160",
-          "contribution": 35.0,
+          "candidate_id": "cand_2978f1f91a59545a",
+          "contribution": 0.0,
           "feature_name": "marker_reflected",
-          "feature_value": 1.0,
-          "feature_vector_id": "fv_5f30f4f83a1483da",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_5b7f83325251423e",
           "observed": true,
           "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
           "vulnerability_type": "REFLECTED_XSS",
           "weight": 35.0
         },
         {
-          "candidate_id": "cand_84b05c14a9207160",
-          "contribution": 10.0,
+          "candidate_id": "cand_2978f1f91a59545a",
+          "contribution": 0.0,
           "feature_name": "response_length_diff_ratio",
-          "feature_value": 1.0,
-          "feature_vector_id": "fv_5f30f4f83a1483da",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_5b7f83325251423e",
           "observed": true,
           "reason": "Observed response-length difference raises Reflected XSS verification priority.",
           "vulnerability_type": "REFLECTED_XSS",
           "weight": 10.0
         }
       ],
-      "feature_vector_id": "fv_5f30f4f83a1483da",
-      "input_point_id": "inp_d4dd485c03213a20",
+      "feature_vector_id": "fv_5b7f83325251423e",
+      "input_point_id": "inp_265ceca9ea8fd83d",
       "rank": 4,
-      "raw_rank_score": 45.0,
+      "raw_rank_score": 0.0,
       "raw_rank_score_max": 45.0,
       "scorer_version": "reflected-xss-weighted-v1",
-      "selection_priority": 1.0,
+      "selection_priority": 0.0,
       "vulnerability_type": "REFLECTED_XSS"
     },
     {
-      "candidate_id": "cand_eac1909d851334ed",
-      "category": "INJECTION",
+      "candidate_id": "cand_3570d3f2f6b0dd3f",
       "evidence": [
         {
-          "candidate_id": "cand_eac1909d851334ed",
-          "contribution": 35.0,
+          "candidate_id": "cand_3570d3f2f6b0dd3f",
+          "contribution": 0.0,
           "feature_name": "marker_reflected",
-          "feature_value": 1.0,
-          "feature_vector_id": "fv_9daab12b3a2ccbb0",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_1a08fbafd83949f8",
           "observed": true,
           "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
           "vulnerability_type": "REFLECTED_XSS",
           "weight": 35.0
         },
         {
-          "candidate_id": "cand_eac1909d851334ed",
-          "contribution": 5.348837209302325,
+          "candidate_id": "cand_3570d3f2f6b0dd3f",
+          "contribution": 0.0,
           "feature_name": "response_length_diff_ratio",
-          "feature_value": 0.5348837209302325,
-          "feature_vector_id": "fv_9daab12b3a2ccbb0",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_1a08fbafd83949f8",
           "observed": true,
           "reason": "Observed response-length difference raises Reflected XSS verification priority.",
           "vulnerability_type": "REFLECTED_XSS",
           "weight": 10.0
         }
       ],
-      "feature_vector_id": "fv_9daab12b3a2ccbb0",
-      "input_point_id": "inp_9fa3cda4a4d5fc17",
+      "feature_vector_id": "fv_1a08fbafd83949f8",
+      "input_point_id": "inp_2a30aa55eb0471f7",
       "rank": 5,
-      "raw_rank_score": 40.348837209302324,
+      "raw_rank_score": 0.0,
       "raw_rank_score_max": 45.0,
       "scorer_version": "reflected-xss-weighted-v1",
-      "selection_priority": 0.896640826873385,
+      "selection_priority": 0.0,
       "vulnerability_type": "REFLECTED_XSS"
     },
     {
-      "candidate_id": "cand_9254d3edae7924bc",
-      "category": "INJECTION",
+      "candidate_id": "cand_44461391a465bd0e",
       "evidence": [
         {
-          "candidate_id": "cand_9254d3edae7924bc",
-          "contribution": 10.69767441860465,
+          "candidate_id": "cand_44461391a465bd0e",
+          "contribution": 0.0,
           "feature_name": "response_length_diff_ratio",
-          "feature_value": 0.5348837209302325,
-          "feature_vector_id": "fv_9daab12b3a2ccbb0",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_e6741bd5713ddf2f",
           "observed": true,
           "reason": "Observed response-length difference raises SQLi verification priority.",
           "vulnerability_type": "SQLI",
           "weight": 20.0
         },
         {
-          "candidate_id": "cand_9254d3edae7924bc",
+          "candidate_id": "cand_44461391a465bd0e",
           "contribution": 0.0,
           "feature_name": "sql_error_pattern",
           "feature_value": 0.0,
-          "feature_vector_id": "fv_9daab12b3a2ccbb0",
+          "feature_vector_id": "fv_e6741bd5713ddf2f",
           "observed": true,
           "reason": "Observed new SQL error pattern raises SQLi verification priority.",
           "vulnerability_type": "SQLI",
           "weight": 35.0
         },
         {
-          "candidate_id": "cand_9254d3edae7924bc",
+          "candidate_id": "cand_44461391a465bd0e",
           "contribution": 0.0,
           "feature_name": "status_code_changed",
           "feature_value": 0.0,
-          "feature_vector_id": "fv_9daab12b3a2ccbb0",
+          "feature_vector_id": "fv_e6741bd5713ddf2f",
           "observed": true,
           "reason": "Observed status-code change raises SQLi verification priority.",
           "vulnerability_type": "SQLI",
           "weight": 20.0
         }
       ],
-      "feature_vector_id": "fv_9daab12b3a2ccbb0",
-      "input_point_id": "inp_9fa3cda4a4d5fc17",
+      "feature_vector_id": "fv_e6741bd5713ddf2f",
+      "input_point_id": "inp_edc4341e27dedbcc",
       "rank": 6,
-      "raw_rank_score": 10.69767441860465,
+      "raw_rank_score": 0.0,
       "raw_rank_score_max": 75.0,
       "scorer_version": "sqli-weighted-v1",
-      "selection_priority": 0.14263565891472868,
+      "selection_priority": 0.0,
       "vulnerability_type": "SQLI"
     },
     {
-      "candidate_id": "cand_94fad813cd3c3b9a",
-      "category": "INJECTION",
+      "candidate_id": "cand_546b128ca53894d5",
       "evidence": [
         {
-          "candidate_id": "cand_94fad813cd3c3b9a",
+          "candidate_id": "cand_546b128ca53894d5",
           "contribution": 0.0,
           "feature_name": "marker_reflected",
           "feature_value": 0.0,
-          "feature_vector_id": "fv_41654dbefb99f777",
+          "feature_vector_id": "fv_f0b89ffe65868161",
           "observed": true,
           "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
           "vulnerability_type": "REFLECTED_XSS",
           "weight": 35.0
         },
         {
-          "candidate_id": "cand_94fad813cd3c3b9a",
+          "candidate_id": "cand_546b128ca53894d5",
           "contribution": 0.0,
           "feature_name": "response_length_diff_ratio",
           "feature_value": 0.0,
-          "feature_vector_id": "fv_41654dbefb99f777",
+          "feature_vector_id": "fv_f0b89ffe65868161",
           "observed": true,
           "reason": "Observed response-length difference raises Reflected XSS verification priority.",
           "vulnerability_type": "REFLECTED_XSS",
           "weight": 10.0
         }
       ],
-      "feature_vector_id": "fv_41654dbefb99f777",
-      "input_point_id": "inp_6e280419696d6e68",
+      "feature_vector_id": "fv_f0b89ffe65868161",
+      "input_point_id": "inp_ba0637be7ac2da3d",
       "rank": 7,
       "raw_rank_score": 0.0,
       "raw_rank_score_max": 45.0,
@@ -283,69 +290,1858 @@
       "vulnerability_type": "REFLECTED_XSS"
     },
     {
-      "candidate_id": "cand_ba118a7d272951e9",
-      "category": "INJECTION",
+      "candidate_id": "cand_5b14a14bb5e4acf7",
       "evidence": [
         {
-          "candidate_id": "cand_ba118a7d272951e9",
+          "candidate_id": "cand_5b14a14bb5e4acf7",
+          "contribution": 0.0,
+          "feature_name": "marker_reflected",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_cea675e262838228",
+          "observed": true,
+          "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_5b14a14bb5e4acf7",
           "contribution": 0.0,
           "feature_name": "response_length_diff_ratio",
           "feature_value": 0.0,
-          "feature_vector_id": "fv_41654dbefb99f777",
+          "feature_vector_id": "fv_cea675e262838228",
+          "observed": true,
+          "reason": "Observed response-length difference raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 10.0
+        }
+      ],
+      "feature_vector_id": "fv_cea675e262838228",
+      "input_point_id": "inp_85cffff02593bb7f",
+      "rank": 8,
+      "raw_rank_score": 0.0,
+      "raw_rank_score_max": 45.0,
+      "scorer_version": "reflected-xss-weighted-v1",
+      "selection_priority": 0.0,
+      "vulnerability_type": "REFLECTED_XSS"
+    },
+    {
+      "candidate_id": "cand_5f5cb33cfaa420f8",
+      "evidence": [
+        {
+          "candidate_id": "cand_5f5cb33cfaa420f8",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f06ed6107b43f343",
           "observed": true,
           "reason": "Observed response-length difference raises SQLi verification priority.",
           "vulnerability_type": "SQLI",
           "weight": 20.0
         },
         {
-          "candidate_id": "cand_ba118a7d272951e9",
+          "candidate_id": "cand_5f5cb33cfaa420f8",
           "contribution": 0.0,
           "feature_name": "sql_error_pattern",
           "feature_value": 0.0,
-          "feature_vector_id": "fv_41654dbefb99f777",
+          "feature_vector_id": "fv_f06ed6107b43f343",
           "observed": true,
           "reason": "Observed new SQL error pattern raises SQLi verification priority.",
           "vulnerability_type": "SQLI",
           "weight": 35.0
         },
         {
-          "candidate_id": "cand_ba118a7d272951e9",
+          "candidate_id": "cand_5f5cb33cfaa420f8",
           "contribution": 0.0,
           "feature_name": "status_code_changed",
           "feature_value": 0.0,
-          "feature_vector_id": "fv_41654dbefb99f777",
+          "feature_vector_id": "fv_f06ed6107b43f343",
           "observed": true,
           "reason": "Observed status-code change raises SQLi verification priority.",
           "vulnerability_type": "SQLI",
           "weight": 20.0
         }
       ],
-      "feature_vector_id": "fv_41654dbefb99f777",
-      "input_point_id": "inp_6e280419696d6e68",
-      "rank": 8,
+      "feature_vector_id": "fv_f06ed6107b43f343",
+      "input_point_id": "inp_ec2be0a5e1c1ba08",
+      "rank": 9,
       "raw_rank_score": 0.0,
       "raw_rank_score_max": 75.0,
       "scorer_version": "sqli-weighted-v1",
       "selection_priority": 0.0,
       "vulnerability_type": "SQLI"
+    },
+    {
+      "candidate_id": "cand_7b6bef599a33c8ff",
+      "evidence": [
+        {
+          "candidate_id": "cand_7b6bef599a33c8ff",
+          "contribution": 0.0,
+          "feature_name": "marker_reflected",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f06ed6107b43f343",
+          "observed": true,
+          "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_7b6bef599a33c8ff",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f06ed6107b43f343",
+          "observed": true,
+          "reason": "Observed response-length difference raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 10.0
+        }
+      ],
+      "feature_vector_id": "fv_f06ed6107b43f343",
+      "input_point_id": "inp_ec2be0a5e1c1ba08",
+      "rank": 10,
+      "raw_rank_score": 0.0,
+      "raw_rank_score_max": 45.0,
+      "scorer_version": "reflected-xss-weighted-v1",
+      "selection_priority": 0.0,
+      "vulnerability_type": "REFLECTED_XSS"
     }
   ],
-  "categories": [
-    "SQLI",
-    "REFLECTED_XSS",
-    "BROKEN_ACCESS_CONTROL"
+  "crawl_reference": {
+    "collector_kind": "NATIVE_COMBINED",
+    "discovery_run_id": "discovery_deba6652bd66035b",
+    "discovery_snapshot_id": "dsnap_0455f75f9a76df716645ee252ca2fdca",
+    "input_point_ids": [
+      "inp_265ceca9ea8fd83d",
+      "inp_2a30aa55eb0471f7",
+      "inp_36d85d571d855890",
+      "inp_4c08518b3a39d086",
+      "inp_85cffff02593bb7f",
+      "inp_ae979b97e04652af",
+      "inp_b0da8594052b5401",
+      "inp_b872919a1fb12c8c",
+      "inp_ba0637be7ac2da3d",
+      "inp_ec2be0a5e1c1ba08",
+      "inp_edc4341e27dedbcc"
+    ]
+  },
+  "executed_input_point_ids": [
+    "inp_265ceca9ea8fd83d",
+    "inp_2a30aa55eb0471f7",
+    "inp_4c08518b3a39d086",
+    "inp_85cffff02593bb7f",
+    "inp_ae979b97e04652af",
+    "inp_b0da8594052b5401",
+    "inp_b872919a1fb12c8c",
+    "inp_ba0637be7ac2da3d",
+    "inp_ec2be0a5e1c1ba08",
+    "inp_edc4341e27dedbcc"
+  ],
+  "feature_vectors": [
+    {
+      "feature_schema_version": "feature-v0.1",
+      "features": [
+        {
+          "extractor_version": "reflection-v1",
+          "missing_reason": null,
+          "name": "marker_reflected",
+          "observed": true,
+          "source": "reflection_marker_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "response_length_diff_ratio",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "sql-signal-v1",
+          "missing_reason": null,
+          "name": "sql_error_pattern",
+          "observed": true,
+          "source": "sql_error_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "status_code_changed",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        }
+      ],
+      "id": "fv_130a3ff51aaab84e",
+      "input_point_id": "inp_ae979b97e04652af",
+      "probe_run_ids": [
+        "pair_7325a028f9e7f88d"
+      ]
+    },
+    {
+      "feature_schema_version": "feature-v0.1",
+      "features": [
+        {
+          "extractor_version": "reflection-v1",
+          "missing_reason": null,
+          "name": "marker_reflected",
+          "observed": true,
+          "source": "reflection_marker_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "response_length_diff_ratio",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "sql-signal-v1",
+          "missing_reason": null,
+          "name": "sql_error_pattern",
+          "observed": true,
+          "source": "sql_error_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "status_code_changed",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        }
+      ],
+      "id": "fv_1a08fbafd83949f8",
+      "input_point_id": "inp_2a30aa55eb0471f7",
+      "probe_run_ids": [
+        "pair_e54f19d3b619adb4"
+      ]
+    },
+    {
+      "feature_schema_version": "feature-v0.1",
+      "features": [
+        {
+          "extractor_version": "reflection-v1",
+          "missing_reason": null,
+          "name": "marker_reflected",
+          "observed": true,
+          "source": "reflection_marker_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "response_length_diff_ratio",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "sql-signal-v1",
+          "missing_reason": null,
+          "name": "sql_error_pattern",
+          "observed": true,
+          "source": "sql_error_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "status_code_changed",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        }
+      ],
+      "id": "fv_582d7a21316488da",
+      "input_point_id": "inp_b872919a1fb12c8c",
+      "probe_run_ids": [
+        "pair_9d6a992384a79fbd"
+      ]
+    },
+    {
+      "feature_schema_version": "feature-v0.1",
+      "features": [
+        {
+          "extractor_version": "reflection-v1",
+          "missing_reason": null,
+          "name": "marker_reflected",
+          "observed": true,
+          "source": "reflection_marker_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "response_length_diff_ratio",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "sql-signal-v1",
+          "missing_reason": null,
+          "name": "sql_error_pattern",
+          "observed": true,
+          "source": "sql_error_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "status_code_changed",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        }
+      ],
+      "id": "fv_5b7f83325251423e",
+      "input_point_id": "inp_265ceca9ea8fd83d",
+      "probe_run_ids": [
+        "pair_e2cf6cd5a589fb6e"
+      ]
+    },
+    {
+      "feature_schema_version": "feature-v0.1",
+      "features": [
+        {
+          "extractor_version": "reflection-v1",
+          "missing_reason": null,
+          "name": "marker_reflected",
+          "observed": true,
+          "source": "reflection_marker_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "response_length_diff_ratio",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "sql-signal-v1",
+          "missing_reason": null,
+          "name": "sql_error_pattern",
+          "observed": true,
+          "source": "sql_error_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "status_code_changed",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        }
+      ],
+      "id": "fv_b5f3ccc70f303625",
+      "input_point_id": "inp_b0da8594052b5401",
+      "probe_run_ids": [
+        "pair_890e71a168de097a"
+      ]
+    },
+    {
+      "feature_schema_version": "feature-v0.1",
+      "features": [
+        {
+          "extractor_version": "reflection-v1",
+          "missing_reason": null,
+          "name": "marker_reflected",
+          "observed": true,
+          "source": "reflection_marker_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "response_length_diff_ratio",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "sql-signal-v1",
+          "missing_reason": null,
+          "name": "sql_error_pattern",
+          "observed": true,
+          "source": "sql_error_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "status_code_changed",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        }
+      ],
+      "id": "fv_bfb2af0696c36c4d",
+      "input_point_id": "inp_4c08518b3a39d086",
+      "probe_run_ids": [
+        "pair_7f4822422f6b9d3d"
+      ]
+    },
+    {
+      "feature_schema_version": "feature-v0.1",
+      "features": [
+        {
+          "extractor_version": "reflection-v1",
+          "missing_reason": null,
+          "name": "marker_reflected",
+          "observed": true,
+          "source": "reflection_marker_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "response_length_diff_ratio",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "sql-signal-v1",
+          "missing_reason": null,
+          "name": "sql_error_pattern",
+          "observed": true,
+          "source": "sql_error_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "status_code_changed",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        }
+      ],
+      "id": "fv_cea675e262838228",
+      "input_point_id": "inp_85cffff02593bb7f",
+      "probe_run_ids": [
+        "pair_73620a392cdc8814"
+      ]
+    },
+    {
+      "feature_schema_version": "feature-v0.1",
+      "features": [
+        {
+          "extractor_version": "reflection-v1",
+          "missing_reason": null,
+          "name": "marker_reflected",
+          "observed": true,
+          "source": "reflection_marker_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "response_length_diff_ratio",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "sql-signal-v1",
+          "missing_reason": null,
+          "name": "sql_error_pattern",
+          "observed": true,
+          "source": "sql_error_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "status_code_changed",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        }
+      ],
+      "id": "fv_e6741bd5713ddf2f",
+      "input_point_id": "inp_edc4341e27dedbcc",
+      "probe_run_ids": [
+        "pair_701cd068af2b34d8"
+      ]
+    },
+    {
+      "feature_schema_version": "feature-v0.1",
+      "features": [
+        {
+          "extractor_version": "reflection-v1",
+          "missing_reason": null,
+          "name": "marker_reflected",
+          "observed": true,
+          "source": "reflection_marker_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "response_length_diff_ratio",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "sql-signal-v1",
+          "missing_reason": null,
+          "name": "sql_error_pattern",
+          "observed": true,
+          "source": "sql_error_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "status_code_changed",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        }
+      ],
+      "id": "fv_f06ed6107b43f343",
+      "input_point_id": "inp_ec2be0a5e1c1ba08",
+      "probe_run_ids": [
+        "pair_4ceb8602d81e5ab1"
+      ]
+    },
+    {
+      "feature_schema_version": "feature-v0.1",
+      "features": [
+        {
+          "extractor_version": "reflection-v1",
+          "missing_reason": null,
+          "name": "marker_reflected",
+          "observed": true,
+          "source": "reflection_marker_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "response_length_diff_ratio",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "sql-signal-v1",
+          "missing_reason": null,
+          "name": "sql_error_pattern",
+          "observed": true,
+          "source": "sql_error_probe",
+          "value": 0.0
+        },
+        {
+          "extractor_version": "differential-v1",
+          "missing_reason": null,
+          "name": "status_code_changed",
+          "observed": true,
+          "source": "response_diff",
+          "value": 0.0
+        }
+      ],
+      "id": "fv_f0b89ffe65868161",
+      "input_point_id": "inp_ba0637be7ac2da3d",
+      "probe_run_ids": [
+        "pair_8f2efb2868f98455"
+      ]
+    }
+  ],
+  "probe_observations": [
+    {
+      "baseline_response": {
+        "body_bytes_hash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+        "body_length_bytes": 2,
+        "elapsed_ms": 0.0,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_b154d7a8fe2deaa1",
+        "probe_plan_id": "probe_0d17eb3becde7bf8",
+        "request_id": "req_138bf06059f58555",
+        "request_role": "baseline",
+        "status_code": 200
+      },
+      "feature_vector_id": "fv_e6741bd5713ddf2f",
+      "input_point_id": "inp_edc4341e27dedbcc",
+      "probe_plan": {
+        "baseline_request": {
+          "id": "req_138bf06059f58555",
+          "method": "GET"
+        },
+        "changed_fields": [
+          "query.page"
+        ],
+        "id": "probe_0d17eb3becde7bf8",
+        "input_point_id": "inp_edc4341e27dedbcc",
+        "marker_strategy": "neutral-reflection-marker-v1",
+        "probe_family": "REFLECTION_MARKER",
+        "probe_request": {
+          "id": "req_d4d785a75de349c3",
+          "method": "GET"
+        },
+        "request_context_id": "ipctx_b345ede5ae4c87c6",
+        "request_template_id": "rt_8b2b10300d621e5c"
+      },
+      "probe_response": {
+        "body_bytes_hash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+        "body_length_bytes": 2,
+        "elapsed_ms": 0.0,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_49ccc9730aba4621",
+        "probe_plan_id": "probe_0d17eb3becde7bf8",
+        "request_id": "req_d4d785a75de349c3",
+        "request_role": "probe",
+        "status_code": 200
+      },
+      "response_pair_ids": [
+        "pair_701cd068af2b34d8"
+      ]
+    },
+    {
+      "baseline_response": {
+        "body_bytes_hash": "7903b49d9f3589df066c550e54054933ef898de17f16497cae5402cbac071d73",
+        "body_length_bytes": 46,
+        "elapsed_ms": 14.999999999417923,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_a54e2a58bded95f9",
+        "probe_plan_id": "probe_14cb8109089b4c5e",
+        "request_id": "req_51c720e08bcbd26a",
+        "request_role": "baseline",
+        "status_code": 200
+      },
+      "feature_vector_id": "fv_5b7f83325251423e",
+      "input_point_id": "inp_265ceca9ea8fd83d",
+      "probe_plan": {
+        "baseline_request": {
+          "id": "req_51c720e08bcbd26a",
+          "method": "GET"
+        },
+        "changed_fields": [
+          "query.simple_static"
+        ],
+        "id": "probe_14cb8109089b4c5e",
+        "input_point_id": "inp_265ceca9ea8fd83d",
+        "marker_strategy": "neutral-reflection-marker-v1",
+        "probe_family": "REFLECTION_MARKER",
+        "probe_request": {
+          "id": "req_352aeba44ba5a0d6",
+          "method": "GET"
+        },
+        "request_context_id": "ipctx_8e058a7384a21e47",
+        "request_template_id": "rt_c427587d37552529"
+      },
+      "probe_response": {
+        "body_bytes_hash": "7903b49d9f3589df066c550e54054933ef898de17f16497cae5402cbac071d73",
+        "body_length_bytes": 46,
+        "elapsed_ms": 0.0,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_0789de4cce7f4454",
+        "probe_plan_id": "probe_14cb8109089b4c5e",
+        "request_id": "req_352aeba44ba5a0d6",
+        "request_role": "probe",
+        "status_code": 200
+      },
+      "response_pair_ids": [
+        "pair_e2cf6cd5a589fb6e"
+      ]
+    },
+    {
+      "baseline_response": {
+        "body_bytes_hash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+        "body_length_bytes": 2,
+        "elapsed_ms": 0.0,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_3310f20fde1c2054",
+        "probe_plan_id": "probe_15d626f7b1a9d27b",
+        "request_id": "req_455c8143824130d4",
+        "request_role": "baseline",
+        "status_code": 200
+      },
+      "feature_vector_id": "fv_f0b89ffe65868161",
+      "input_point_id": "inp_ba0637be7ac2da3d",
+      "probe_plan": {
+        "baseline_request": {
+          "id": "req_455c8143824130d4",
+          "method": "GET"
+        },
+        "changed_fields": [
+          "query.category"
+        ],
+        "id": "probe_15d626f7b1a9d27b",
+        "input_point_id": "inp_ba0637be7ac2da3d",
+        "marker_strategy": "neutral-reflection-marker-v1",
+        "probe_family": "REFLECTION_MARKER",
+        "probe_request": {
+          "id": "req_153a78f361676d23",
+          "method": "GET"
+        },
+        "request_context_id": "ipctx_eda9cada2b109481",
+        "request_template_id": "rt_81975541299ebc46"
+      },
+      "probe_response": {
+        "body_bytes_hash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+        "body_length_bytes": 2,
+        "elapsed_ms": 0.0,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_570e7668dcf37ec5",
+        "probe_plan_id": "probe_15d626f7b1a9d27b",
+        "request_id": "req_153a78f361676d23",
+        "request_role": "probe",
+        "status_code": 200
+      },
+      "response_pair_ids": [
+        "pair_8f2efb2868f98455"
+      ]
+    },
+    {
+      "baseline_response": {
+        "body_bytes_hash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+        "body_length_bytes": 2,
+        "elapsed_ms": 0.0,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_d559338f4fb2e0ec",
+        "probe_plan_id": "probe_18ff5c8467df92de",
+        "request_id": "req_138bf06059f58555",
+        "request_role": "baseline",
+        "status_code": 200
+      },
+      "feature_vector_id": "fv_582d7a21316488da",
+      "input_point_id": "inp_b872919a1fb12c8c",
+      "probe_plan": {
+        "baseline_request": {
+          "id": "req_138bf06059f58555",
+          "method": "GET"
+        },
+        "changed_fields": [
+          "query.keyword"
+        ],
+        "id": "probe_18ff5c8467df92de",
+        "input_point_id": "inp_b872919a1fb12c8c",
+        "marker_strategy": "neutral-reflection-marker-v1",
+        "probe_family": "REFLECTION_MARKER",
+        "probe_request": {
+          "id": "req_2e6f4b87fdf6cd06",
+          "method": "GET"
+        },
+        "request_context_id": "ipctx_8fe9f59663386d27",
+        "request_template_id": "rt_8b2b10300d621e5c"
+      },
+      "probe_response": {
+        "body_bytes_hash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+        "body_length_bytes": 2,
+        "elapsed_ms": 0.0,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_f8fd7c54897d2000",
+        "probe_plan_id": "probe_18ff5c8467df92de",
+        "request_id": "req_2e6f4b87fdf6cd06",
+        "request_role": "probe",
+        "status_code": 200
+      },
+      "response_pair_ids": [
+        "pair_9d6a992384a79fbd"
+      ]
+    },
+    {
+      "baseline_response": {
+        "body_bytes_hash": "ffa63583dfa6706b87d284b86b0d693a161e4840aad2c5cf6b5d27c3b9621f7d",
+        "body_length_bytes": 7,
+        "elapsed_ms": 0.0,
+        "encoding": null,
+        "execution_error": null,
+        "id": "resp_5ee20d9b7567afb9",
+        "probe_plan_id": "probe_1ab6ac14a6bfb0d6",
+        "request_id": "req_61faac2c42562b98",
+        "request_role": "baseline",
+        "status_code": 404
+      },
+      "feature_vector_id": "fv_f06ed6107b43f343",
+      "input_point_id": "inp_ec2be0a5e1c1ba08",
+      "probe_plan": {
+        "baseline_request": {
+          "id": "req_61faac2c42562b98",
+          "method": "GET"
+        },
+        "changed_fields": [
+          "query.page_b_form"
+        ],
+        "id": "probe_1ab6ac14a6bfb0d6",
+        "input_point_id": "inp_ec2be0a5e1c1ba08",
+        "marker_strategy": "neutral-reflection-marker-v1",
+        "probe_family": "REFLECTION_MARKER",
+        "probe_request": {
+          "id": "req_e0e0b4a592006b9c",
+          "method": "GET"
+        },
+        "request_context_id": "ipctx_615f8328d3d0cc9d",
+        "request_template_id": "rt_2565234a68a89bb2"
+      },
+      "probe_response": {
+        "body_bytes_hash": "ffa63583dfa6706b87d284b86b0d693a161e4840aad2c5cf6b5d27c3b9621f7d",
+        "body_length_bytes": 7,
+        "elapsed_ms": 0.0,
+        "encoding": null,
+        "execution_error": null,
+        "id": "resp_91d7c98335c1c3a1",
+        "probe_plan_id": "probe_1ab6ac14a6bfb0d6",
+        "request_id": "req_e0e0b4a592006b9c",
+        "request_role": "probe",
+        "status_code": 404
+      },
+      "response_pair_ids": [
+        "pair_4ceb8602d81e5ab1"
+      ]
+    },
+    {
+      "baseline_response": {
+        "body_bytes_hash": "d509760234b9a454ca245738594923bb08ebfc1744c3653332113a5667af5116",
+        "body_length_bytes": 676,
+        "elapsed_ms": 0.0,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_bc2d7c191c358928",
+        "probe_plan_id": "probe_5aa7a78b2a84c3e6",
+        "request_id": "req_055871888a705739",
+        "request_role": "baseline",
+        "status_code": 200
+      },
+      "feature_vector_id": "fv_cea675e262838228",
+      "input_point_id": "inp_85cffff02593bb7f",
+      "probe_plan": {
+        "baseline_request": {
+          "id": "req_055871888a705739",
+          "method": "GET"
+        },
+        "changed_fields": [
+          "query.simple_dynamic"
+        ],
+        "id": "probe_5aa7a78b2a84c3e6",
+        "input_point_id": "inp_85cffff02593bb7f",
+        "marker_strategy": "neutral-reflection-marker-v1",
+        "probe_family": "REFLECTION_MARKER",
+        "probe_request": {
+          "id": "req_2952b6a1afdd23c7",
+          "method": "GET"
+        },
+        "request_context_id": "ipctx_fe94fe81d3b6b325",
+        "request_template_id": "rt_10f6d869b47df300"
+      },
+      "probe_response": {
+        "body_bytes_hash": "d509760234b9a454ca245738594923bb08ebfc1744c3653332113a5667af5116",
+        "body_length_bytes": 676,
+        "elapsed_ms": 31.000000002677552,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_24b04faf38c8d6f4",
+        "probe_plan_id": "probe_5aa7a78b2a84c3e6",
+        "request_id": "req_2952b6a1afdd23c7",
+        "request_role": "probe",
+        "status_code": 200
+      },
+      "response_pair_ids": [
+        "pair_73620a392cdc8814"
+      ]
+    },
+    {
+      "baseline_response": {
+        "body_bytes_hash": "adf19afd54de9322f649e4f352b3005efde48b9b3d8d3e02a9cb12292ee6fe14",
+        "body_length_bytes": 160,
+        "elapsed_ms": 15.999999995983671,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_3c8c53e56106f01d",
+        "probe_plan_id": "probe_918c6df541d3ce83",
+        "request_id": "req_8d248bf8dd8791db",
+        "request_role": "baseline",
+        "status_code": 200
+      },
+      "feature_vector_id": "fv_1a08fbafd83949f8",
+      "input_point_id": "inp_2a30aa55eb0471f7",
+      "probe_plan": {
+        "baseline_request": {
+          "id": "req_8d248bf8dd8791db",
+          "method": "GET"
+        },
+        "changed_fields": [
+          "query.simple_page_b"
+        ],
+        "id": "probe_918c6df541d3ce83",
+        "input_point_id": "inp_2a30aa55eb0471f7",
+        "marker_strategy": "neutral-reflection-marker-v1",
+        "probe_family": "REFLECTION_MARKER",
+        "probe_request": {
+          "id": "req_3aaebe32dc0b1e79",
+          "method": "GET"
+        },
+        "request_context_id": "ipctx_f3a8b1aac904f9c1",
+        "request_template_id": "rt_b5d53fd0219570d4"
+      },
+      "probe_response": {
+        "body_bytes_hash": "adf19afd54de9322f649e4f352b3005efde48b9b3d8d3e02a9cb12292ee6fe14",
+        "body_length_bytes": 160,
+        "elapsed_ms": 0.0,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_e5558675735b5bbf",
+        "probe_plan_id": "probe_918c6df541d3ce83",
+        "request_id": "req_3aaebe32dc0b1e79",
+        "request_role": "probe",
+        "status_code": 200
+      },
+      "response_pair_ids": [
+        "pair_e54f19d3b619adb4"
+      ]
+    },
+    {
+      "baseline_response": {
+        "body_bytes_hash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+        "body_length_bytes": 2,
+        "elapsed_ms": 0.0,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_e3ef82393ef2d4a7",
+        "probe_plan_id": "probe_b138ad949374953a",
+        "request_id": "req_455c8143824130d4",
+        "request_role": "baseline",
+        "status_code": 200
+      },
+      "feature_vector_id": "fv_bfb2af0696c36c4d",
+      "input_point_id": "inp_4c08518b3a39d086",
+      "probe_plan": {
+        "baseline_request": {
+          "id": "req_455c8143824130d4",
+          "method": "GET"
+        },
+        "changed_fields": [
+          "query.tag[1]"
+        ],
+        "id": "probe_b138ad949374953a",
+        "input_point_id": "inp_4c08518b3a39d086",
+        "marker_strategy": "neutral-reflection-marker-v1",
+        "probe_family": "REFLECTION_MARKER",
+        "probe_request": {
+          "id": "req_ff4629506d80e056",
+          "method": "GET"
+        },
+        "request_context_id": "ipctx_e413d30f328c0ae4",
+        "request_template_id": "rt_81975541299ebc46"
+      },
+      "probe_response": {
+        "body_bytes_hash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+        "body_length_bytes": 2,
+        "elapsed_ms": 0.0,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_5512dc7714a94296",
+        "probe_plan_id": "probe_b138ad949374953a",
+        "request_id": "req_ff4629506d80e056",
+        "request_role": "probe",
+        "status_code": 200
+      },
+      "response_pair_ids": [
+        "pair_7f4822422f6b9d3d"
+      ]
+    },
+    {
+      "baseline_response": {
+        "body_bytes_hash": "ffa63583dfa6706b87d284b86b0d693a161e4840aad2c5cf6b5d27c3b9621f7d",
+        "body_length_bytes": 7,
+        "elapsed_ms": 31.9999999992433,
+        "encoding": null,
+        "execution_error": null,
+        "id": "resp_17fdb1a4e4a96782",
+        "probe_plan_id": "probe_d585ceb44c20dcfa",
+        "request_id": "req_883cdc9552fefd05",
+        "request_role": "baseline",
+        "status_code": 404
+      },
+      "feature_vector_id": "fv_b5f3ccc70f303625",
+      "input_point_id": "inp_b0da8594052b5401",
+      "probe_plan": {
+        "baseline_request": {
+          "id": "req_883cdc9552fefd05",
+          "method": "GET"
+        },
+        "changed_fields": [
+          "query.page_a_form"
+        ],
+        "id": "probe_d585ceb44c20dcfa",
+        "input_point_id": "inp_b0da8594052b5401",
+        "marker_strategy": "neutral-reflection-marker-v1",
+        "probe_family": "REFLECTION_MARKER",
+        "probe_request": {
+          "id": "req_cb1c346c55095258",
+          "method": "GET"
+        },
+        "request_context_id": "ipctx_67a6bc5dbc14af41",
+        "request_template_id": "rt_e6b45b6635120daf"
+      },
+      "probe_response": {
+        "body_bytes_hash": "ffa63583dfa6706b87d284b86b0d693a161e4840aad2c5cf6b5d27c3b9621f7d",
+        "body_length_bytes": 7,
+        "elapsed_ms": 14.999999999417923,
+        "encoding": null,
+        "execution_error": null,
+        "id": "resp_e30ed81d2a0d6e3d",
+        "probe_plan_id": "probe_d585ceb44c20dcfa",
+        "request_id": "req_cb1c346c55095258",
+        "request_role": "probe",
+        "status_code": 404
+      },
+      "response_pair_ids": [
+        "pair_890e71a168de097a"
+      ]
+    },
+    {
+      "baseline_response": {
+        "body_bytes_hash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+        "body_length_bytes": 2,
+        "elapsed_ms": 0.0,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_cd54e9e5ee1d43f5",
+        "probe_plan_id": "probe_f1a6de1781a1bbd2",
+        "request_id": "req_455c8143824130d4",
+        "request_role": "baseline",
+        "status_code": 200
+      },
+      "feature_vector_id": "fv_130a3ff51aaab84e",
+      "input_point_id": "inp_ae979b97e04652af",
+      "probe_plan": {
+        "baseline_request": {
+          "id": "req_455c8143824130d4",
+          "method": "GET"
+        },
+        "changed_fields": [
+          "query.tag[0]"
+        ],
+        "id": "probe_f1a6de1781a1bbd2",
+        "input_point_id": "inp_ae979b97e04652af",
+        "marker_strategy": "neutral-reflection-marker-v1",
+        "probe_family": "REFLECTION_MARKER",
+        "probe_request": {
+          "id": "req_e36b4b5be7cf2f70",
+          "method": "GET"
+        },
+        "request_context_id": "ipctx_76481c21b3128582",
+        "request_template_id": "rt_81975541299ebc46"
+      },
+      "probe_response": {
+        "body_bytes_hash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+        "body_length_bytes": 2,
+        "elapsed_ms": 16.00000000325963,
+        "encoding": "utf-8",
+        "execution_error": null,
+        "id": "resp_8a224ad384a0533b",
+        "probe_plan_id": "probe_f1a6de1781a1bbd2",
+        "request_id": "req_e36b4b5be7cf2f70",
+        "request_role": "probe",
+        "status_code": 200
+      },
+      "response_pair_ids": [
+        "pair_7325a028f9e7f88d"
+      ]
+    }
   ],
   "ranking_policy": {
     "selection_key": "rank_score / exact_scorer_maximum",
     "tie_breaker": "candidate_id ascending"
   },
+  "ready_context_ids": [
+    "ipctx_615f8328d3d0cc9d",
+    "ipctx_67a6bc5dbc14af41",
+    "ipctx_76481c21b3128582",
+    "ipctx_8e058a7384a21e47",
+    "ipctx_8fe9f59663386d27",
+    "ipctx_b345ede5ae4c87c6",
+    "ipctx_e413d30f328c0ae4",
+    "ipctx_eda9cada2b109481",
+    "ipctx_f3a8b1aac904f9c1",
+    "ipctx_fe94fe81d3b6b325"
+  ],
+  "report_kind": "analysis",
   "schema_version": "0.1",
+  "scoring_results": [
+    {
+      "candidate_id": "cand_2978f1f91a59545a",
+      "evidence": [
+        {
+          "candidate_id": "cand_2978f1f91a59545a",
+          "contribution": 0.0,
+          "feature_name": "marker_reflected",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_5b7f83325251423e",
+          "observed": true,
+          "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_2978f1f91a59545a",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_5b7f83325251423e",
+          "observed": true,
+          "reason": "Observed response-length difference raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 10.0
+        }
+      ],
+      "feature_vector_id": "fv_5b7f83325251423e",
+      "input_point_id": "inp_265ceca9ea8fd83d",
+      "rank_score": 0.0,
+      "scorer_version": "reflected-xss-weighted-v1",
+      "vulnerability_type": "REFLECTED_XSS"
+    },
+    {
+      "candidate_id": "cand_92ffa5861d805ddf",
+      "evidence": [
+        {
+          "candidate_id": "cand_92ffa5861d805ddf",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_5b7f83325251423e",
+          "observed": true,
+          "reason": "Observed response-length difference raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        },
+        {
+          "candidate_id": "cand_92ffa5861d805ddf",
+          "contribution": 0.0,
+          "feature_name": "sql_error_pattern",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_5b7f83325251423e",
+          "observed": true,
+          "reason": "Observed new SQL error pattern raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_92ffa5861d805ddf",
+          "contribution": 0.0,
+          "feature_name": "status_code_changed",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_5b7f83325251423e",
+          "observed": true,
+          "reason": "Observed status-code change raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        }
+      ],
+      "feature_vector_id": "fv_5b7f83325251423e",
+      "input_point_id": "inp_265ceca9ea8fd83d",
+      "rank_score": 0.0,
+      "scorer_version": "sqli-weighted-v1",
+      "vulnerability_type": "SQLI"
+    },
+    {
+      "candidate_id": "cand_3570d3f2f6b0dd3f",
+      "evidence": [
+        {
+          "candidate_id": "cand_3570d3f2f6b0dd3f",
+          "contribution": 0.0,
+          "feature_name": "marker_reflected",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_1a08fbafd83949f8",
+          "observed": true,
+          "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_3570d3f2f6b0dd3f",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_1a08fbafd83949f8",
+          "observed": true,
+          "reason": "Observed response-length difference raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 10.0
+        }
+      ],
+      "feature_vector_id": "fv_1a08fbafd83949f8",
+      "input_point_id": "inp_2a30aa55eb0471f7",
+      "rank_score": 0.0,
+      "scorer_version": "reflected-xss-weighted-v1",
+      "vulnerability_type": "REFLECTED_XSS"
+    },
+    {
+      "candidate_id": "cand_f32939b3ed05b7ef",
+      "evidence": [
+        {
+          "candidate_id": "cand_f32939b3ed05b7ef",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_1a08fbafd83949f8",
+          "observed": true,
+          "reason": "Observed response-length difference raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        },
+        {
+          "candidate_id": "cand_f32939b3ed05b7ef",
+          "contribution": 0.0,
+          "feature_name": "sql_error_pattern",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_1a08fbafd83949f8",
+          "observed": true,
+          "reason": "Observed new SQL error pattern raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_f32939b3ed05b7ef",
+          "contribution": 0.0,
+          "feature_name": "status_code_changed",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_1a08fbafd83949f8",
+          "observed": true,
+          "reason": "Observed status-code change raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        }
+      ],
+      "feature_vector_id": "fv_1a08fbafd83949f8",
+      "input_point_id": "inp_2a30aa55eb0471f7",
+      "rank_score": 0.0,
+      "scorer_version": "sqli-weighted-v1",
+      "vulnerability_type": "SQLI"
+    },
+    {
+      "candidate_id": "cand_f2cc61bfea3cd412",
+      "evidence": [
+        {
+          "candidate_id": "cand_f2cc61bfea3cd412",
+          "contribution": 0.0,
+          "feature_name": "marker_reflected",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_bfb2af0696c36c4d",
+          "observed": true,
+          "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_f2cc61bfea3cd412",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_bfb2af0696c36c4d",
+          "observed": true,
+          "reason": "Observed response-length difference raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 10.0
+        }
+      ],
+      "feature_vector_id": "fv_bfb2af0696c36c4d",
+      "input_point_id": "inp_4c08518b3a39d086",
+      "rank_score": 0.0,
+      "scorer_version": "reflected-xss-weighted-v1",
+      "vulnerability_type": "REFLECTED_XSS"
+    },
+    {
+      "candidate_id": "cand_19369789874221c5",
+      "evidence": [
+        {
+          "candidate_id": "cand_19369789874221c5",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_bfb2af0696c36c4d",
+          "observed": true,
+          "reason": "Observed response-length difference raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        },
+        {
+          "candidate_id": "cand_19369789874221c5",
+          "contribution": 0.0,
+          "feature_name": "sql_error_pattern",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_bfb2af0696c36c4d",
+          "observed": true,
+          "reason": "Observed new SQL error pattern raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_19369789874221c5",
+          "contribution": 0.0,
+          "feature_name": "status_code_changed",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_bfb2af0696c36c4d",
+          "observed": true,
+          "reason": "Observed status-code change raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        }
+      ],
+      "feature_vector_id": "fv_bfb2af0696c36c4d",
+      "input_point_id": "inp_4c08518b3a39d086",
+      "rank_score": 0.0,
+      "scorer_version": "sqli-weighted-v1",
+      "vulnerability_type": "SQLI"
+    },
+    {
+      "candidate_id": "cand_5b14a14bb5e4acf7",
+      "evidence": [
+        {
+          "candidate_id": "cand_5b14a14bb5e4acf7",
+          "contribution": 0.0,
+          "feature_name": "marker_reflected",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_cea675e262838228",
+          "observed": true,
+          "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_5b14a14bb5e4acf7",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_cea675e262838228",
+          "observed": true,
+          "reason": "Observed response-length difference raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 10.0
+        }
+      ],
+      "feature_vector_id": "fv_cea675e262838228",
+      "input_point_id": "inp_85cffff02593bb7f",
+      "rank_score": 0.0,
+      "scorer_version": "reflected-xss-weighted-v1",
+      "vulnerability_type": "REFLECTED_XSS"
+    },
+    {
+      "candidate_id": "cand_c9e827155fdba094",
+      "evidence": [
+        {
+          "candidate_id": "cand_c9e827155fdba094",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_cea675e262838228",
+          "observed": true,
+          "reason": "Observed response-length difference raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        },
+        {
+          "candidate_id": "cand_c9e827155fdba094",
+          "contribution": 0.0,
+          "feature_name": "sql_error_pattern",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_cea675e262838228",
+          "observed": true,
+          "reason": "Observed new SQL error pattern raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_c9e827155fdba094",
+          "contribution": 0.0,
+          "feature_name": "status_code_changed",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_cea675e262838228",
+          "observed": true,
+          "reason": "Observed status-code change raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        }
+      ],
+      "feature_vector_id": "fv_cea675e262838228",
+      "input_point_id": "inp_85cffff02593bb7f",
+      "rank_score": 0.0,
+      "scorer_version": "sqli-weighted-v1",
+      "vulnerability_type": "SQLI"
+    },
+    {
+      "candidate_id": "cand_88e85ef989fb7518",
+      "evidence": [
+        {
+          "candidate_id": "cand_88e85ef989fb7518",
+          "contribution": 0.0,
+          "feature_name": "marker_reflected",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_130a3ff51aaab84e",
+          "observed": true,
+          "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_88e85ef989fb7518",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_130a3ff51aaab84e",
+          "observed": true,
+          "reason": "Observed response-length difference raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 10.0
+        }
+      ],
+      "feature_vector_id": "fv_130a3ff51aaab84e",
+      "input_point_id": "inp_ae979b97e04652af",
+      "rank_score": 0.0,
+      "scorer_version": "reflected-xss-weighted-v1",
+      "vulnerability_type": "REFLECTED_XSS"
+    },
+    {
+      "candidate_id": "cand_8e1788b450f9428d",
+      "evidence": [
+        {
+          "candidate_id": "cand_8e1788b450f9428d",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_130a3ff51aaab84e",
+          "observed": true,
+          "reason": "Observed response-length difference raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        },
+        {
+          "candidate_id": "cand_8e1788b450f9428d",
+          "contribution": 0.0,
+          "feature_name": "sql_error_pattern",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_130a3ff51aaab84e",
+          "observed": true,
+          "reason": "Observed new SQL error pattern raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_8e1788b450f9428d",
+          "contribution": 0.0,
+          "feature_name": "status_code_changed",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_130a3ff51aaab84e",
+          "observed": true,
+          "reason": "Observed status-code change raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        }
+      ],
+      "feature_vector_id": "fv_130a3ff51aaab84e",
+      "input_point_id": "inp_ae979b97e04652af",
+      "rank_score": 0.0,
+      "scorer_version": "sqli-weighted-v1",
+      "vulnerability_type": "SQLI"
+    },
+    {
+      "candidate_id": "cand_83993eec4c1048a9",
+      "evidence": [
+        {
+          "candidate_id": "cand_83993eec4c1048a9",
+          "contribution": 0.0,
+          "feature_name": "marker_reflected",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_b5f3ccc70f303625",
+          "observed": true,
+          "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_83993eec4c1048a9",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_b5f3ccc70f303625",
+          "observed": true,
+          "reason": "Observed response-length difference raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 10.0
+        }
+      ],
+      "feature_vector_id": "fv_b5f3ccc70f303625",
+      "input_point_id": "inp_b0da8594052b5401",
+      "rank_score": 0.0,
+      "scorer_version": "reflected-xss-weighted-v1",
+      "vulnerability_type": "REFLECTED_XSS"
+    },
+    {
+      "candidate_id": "cand_cf84403e60397bb4",
+      "evidence": [
+        {
+          "candidate_id": "cand_cf84403e60397bb4",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_b5f3ccc70f303625",
+          "observed": true,
+          "reason": "Observed response-length difference raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        },
+        {
+          "candidate_id": "cand_cf84403e60397bb4",
+          "contribution": 0.0,
+          "feature_name": "sql_error_pattern",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_b5f3ccc70f303625",
+          "observed": true,
+          "reason": "Observed new SQL error pattern raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_cf84403e60397bb4",
+          "contribution": 0.0,
+          "feature_name": "status_code_changed",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_b5f3ccc70f303625",
+          "observed": true,
+          "reason": "Observed status-code change raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        }
+      ],
+      "feature_vector_id": "fv_b5f3ccc70f303625",
+      "input_point_id": "inp_b0da8594052b5401",
+      "rank_score": 0.0,
+      "scorer_version": "sqli-weighted-v1",
+      "vulnerability_type": "SQLI"
+    },
+    {
+      "candidate_id": "cand_eacd48ff91db0239",
+      "evidence": [
+        {
+          "candidate_id": "cand_eacd48ff91db0239",
+          "contribution": 0.0,
+          "feature_name": "marker_reflected",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_582d7a21316488da",
+          "observed": true,
+          "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_eacd48ff91db0239",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_582d7a21316488da",
+          "observed": true,
+          "reason": "Observed response-length difference raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 10.0
+        }
+      ],
+      "feature_vector_id": "fv_582d7a21316488da",
+      "input_point_id": "inp_b872919a1fb12c8c",
+      "rank_score": 0.0,
+      "scorer_version": "reflected-xss-weighted-v1",
+      "vulnerability_type": "REFLECTED_XSS"
+    },
+    {
+      "candidate_id": "cand_15d146272033e394",
+      "evidence": [
+        {
+          "candidate_id": "cand_15d146272033e394",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_582d7a21316488da",
+          "observed": true,
+          "reason": "Observed response-length difference raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        },
+        {
+          "candidate_id": "cand_15d146272033e394",
+          "contribution": 0.0,
+          "feature_name": "sql_error_pattern",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_582d7a21316488da",
+          "observed": true,
+          "reason": "Observed new SQL error pattern raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_15d146272033e394",
+          "contribution": 0.0,
+          "feature_name": "status_code_changed",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_582d7a21316488da",
+          "observed": true,
+          "reason": "Observed status-code change raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        }
+      ],
+      "feature_vector_id": "fv_582d7a21316488da",
+      "input_point_id": "inp_b872919a1fb12c8c",
+      "rank_score": 0.0,
+      "scorer_version": "sqli-weighted-v1",
+      "vulnerability_type": "SQLI"
+    },
+    {
+      "candidate_id": "cand_546b128ca53894d5",
+      "evidence": [
+        {
+          "candidate_id": "cand_546b128ca53894d5",
+          "contribution": 0.0,
+          "feature_name": "marker_reflected",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f0b89ffe65868161",
+          "observed": true,
+          "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_546b128ca53894d5",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f0b89ffe65868161",
+          "observed": true,
+          "reason": "Observed response-length difference raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 10.0
+        }
+      ],
+      "feature_vector_id": "fv_f0b89ffe65868161",
+      "input_point_id": "inp_ba0637be7ac2da3d",
+      "rank_score": 0.0,
+      "scorer_version": "reflected-xss-weighted-v1",
+      "vulnerability_type": "REFLECTED_XSS"
+    },
+    {
+      "candidate_id": "cand_0f60c84fce3b2317",
+      "evidence": [
+        {
+          "candidate_id": "cand_0f60c84fce3b2317",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f0b89ffe65868161",
+          "observed": true,
+          "reason": "Observed response-length difference raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        },
+        {
+          "candidate_id": "cand_0f60c84fce3b2317",
+          "contribution": 0.0,
+          "feature_name": "sql_error_pattern",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f0b89ffe65868161",
+          "observed": true,
+          "reason": "Observed new SQL error pattern raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_0f60c84fce3b2317",
+          "contribution": 0.0,
+          "feature_name": "status_code_changed",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f0b89ffe65868161",
+          "observed": true,
+          "reason": "Observed status-code change raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        }
+      ],
+      "feature_vector_id": "fv_f0b89ffe65868161",
+      "input_point_id": "inp_ba0637be7ac2da3d",
+      "rank_score": 0.0,
+      "scorer_version": "sqli-weighted-v1",
+      "vulnerability_type": "SQLI"
+    },
+    {
+      "candidate_id": "cand_7b6bef599a33c8ff",
+      "evidence": [
+        {
+          "candidate_id": "cand_7b6bef599a33c8ff",
+          "contribution": 0.0,
+          "feature_name": "marker_reflected",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f06ed6107b43f343",
+          "observed": true,
+          "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_7b6bef599a33c8ff",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f06ed6107b43f343",
+          "observed": true,
+          "reason": "Observed response-length difference raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 10.0
+        }
+      ],
+      "feature_vector_id": "fv_f06ed6107b43f343",
+      "input_point_id": "inp_ec2be0a5e1c1ba08",
+      "rank_score": 0.0,
+      "scorer_version": "reflected-xss-weighted-v1",
+      "vulnerability_type": "REFLECTED_XSS"
+    },
+    {
+      "candidate_id": "cand_5f5cb33cfaa420f8",
+      "evidence": [
+        {
+          "candidate_id": "cand_5f5cb33cfaa420f8",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f06ed6107b43f343",
+          "observed": true,
+          "reason": "Observed response-length difference raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        },
+        {
+          "candidate_id": "cand_5f5cb33cfaa420f8",
+          "contribution": 0.0,
+          "feature_name": "sql_error_pattern",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f06ed6107b43f343",
+          "observed": true,
+          "reason": "Observed new SQL error pattern raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_5f5cb33cfaa420f8",
+          "contribution": 0.0,
+          "feature_name": "status_code_changed",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_f06ed6107b43f343",
+          "observed": true,
+          "reason": "Observed status-code change raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        }
+      ],
+      "feature_vector_id": "fv_f06ed6107b43f343",
+      "input_point_id": "inp_ec2be0a5e1c1ba08",
+      "rank_score": 0.0,
+      "scorer_version": "sqli-weighted-v1",
+      "vulnerability_type": "SQLI"
+    },
+    {
+      "candidate_id": "cand_b8d8eda82bfcd337",
+      "evidence": [
+        {
+          "candidate_id": "cand_b8d8eda82bfcd337",
+          "contribution": 0.0,
+          "feature_name": "marker_reflected",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_e6741bd5713ddf2f",
+          "observed": true,
+          "reason": "Observed new marker reflection raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_b8d8eda82bfcd337",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_e6741bd5713ddf2f",
+          "observed": true,
+          "reason": "Observed response-length difference raises Reflected XSS verification priority.",
+          "vulnerability_type": "REFLECTED_XSS",
+          "weight": 10.0
+        }
+      ],
+      "feature_vector_id": "fv_e6741bd5713ddf2f",
+      "input_point_id": "inp_edc4341e27dedbcc",
+      "rank_score": 0.0,
+      "scorer_version": "reflected-xss-weighted-v1",
+      "vulnerability_type": "REFLECTED_XSS"
+    },
+    {
+      "candidate_id": "cand_44461391a465bd0e",
+      "evidence": [
+        {
+          "candidate_id": "cand_44461391a465bd0e",
+          "contribution": 0.0,
+          "feature_name": "response_length_diff_ratio",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_e6741bd5713ddf2f",
+          "observed": true,
+          "reason": "Observed response-length difference raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        },
+        {
+          "candidate_id": "cand_44461391a465bd0e",
+          "contribution": 0.0,
+          "feature_name": "sql_error_pattern",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_e6741bd5713ddf2f",
+          "observed": true,
+          "reason": "Observed new SQL error pattern raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 35.0
+        },
+        {
+          "candidate_id": "cand_44461391a465bd0e",
+          "contribution": 0.0,
+          "feature_name": "status_code_changed",
+          "feature_value": 0.0,
+          "feature_vector_id": "fv_e6741bd5713ddf2f",
+          "observed": true,
+          "reason": "Observed status-code change raises SQLi verification priority.",
+          "vulnerability_type": "SQLI",
+          "weight": 20.0
+        }
+      ],
+      "feature_vector_id": "fv_e6741bd5713ddf2f",
+      "input_point_id": "inp_edc4341e27dedbcc",
+      "rank_score": 0.0,
+      "scorer_version": "sqli-weighted-v1",
+      "vulnerability_type": "SQLI"
+    }
+  ],
   "summary": {
-    "rankable_results": 8,
-    "selected_results": 8,
+    "rankable_results": 20,
+    "selected_results": 10,
     "top_k_requested": 10,
-    "total_scoring_results": 8,
+    "total_scoring_results": 20,
     "unrankable_results": 0
   },
-  "warnings": []
+  "warnings": [
+    "discovery DYNAMIC_DUPLICATE_URL: Duplicate canonical rendered URL was not queued again.",
+    "discovery DYNAMIC_OFF_AUTHORITY_LINK: Cross-authority rendered link was blocked before queueing.",
+    "discovery NATIVE_COMBINED: READY contexts=10; NOT_READY contexts=1",
+    "discovery NETWORK_GET_VALUES_ELIDED: Allowed browser GET values were elided before canonical construction.",
+    "discovery SENSITIVE_FORM_ELIDED: sensitive form was elided before canonical construction"
+  ]
 }

@@ -1204,6 +1204,22 @@ class LocalPayloadMutator:
                 if not content:
                     raise ValueError("Model returned an empty response")
 
+                content = content.strip()
+                if content.startswith("```json"):
+                    content = content[7:]
+                if content.startswith("```"):
+                    content = content[3:]
+                if content.endswith("```"):
+                    content = content[:-3]
+                content = content.strip()
+
+                try:
+                    parsed = GeminiMutationResponse.model_validate_json(content)
+                except Exception as json_exc:
+                    # 파싱 에러의 정확한 원인을 터미널에 출력해서 볼 수 있게 만듦
+                    print(f"\n🚨 [JSON 파싱 에러] 모델이 반환한 원본 텍스트:\n{content}\n")
+                    raise json_exc
+
                 parsed = GeminiMutationResponse.model_validate_json(content)
 
                 if not parsed.payloads:
