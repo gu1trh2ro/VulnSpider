@@ -18,12 +18,16 @@ from vulnspider.cli_decision import (
     CorpusError,
     CorpusFittingError,
     DecisionCLIError,
+    EvaluationRequest,
     GroundTruthError,
     add_algorithm_options,
     add_decision_subcommands,
     analyze_and_report,
+    rank_analysis,
     run_corpus_command,
+    verification_selection,
 )
+from vulnspider.evaluation.live import DEFAULT_CUTOFFS, LiveEvaluationError
 from vulnspider.discovery import (
     CombinedDiscoveryResult,
     CrawlPolicy,
@@ -50,7 +54,11 @@ from vulnspider.pipeline import (
     analyze_url,
 )
 from vulnspider.reporting import write_crawl_report
+from vulnspider.reporting.crawl_report import build_crawl_report
 from vulnspider.reporting.json_report import write_json_document
+from vulnspider.reporting.verification_detail_report import (
+    build_verification_detail_html,
+)
 from vulnspider.verification import (
     LLM_MODEL_PATH_ENV,
     DeterministicMutationProposer,
@@ -68,6 +76,8 @@ _SIMPLE_DEFAULT_CRAWL_OUTPUT = Path("vulnspider-crawl.json")
 _SIMPLE_DEFAULT_ANALYSIS_OUTPUT = Path("vulnspider-analysis.json")
 _SIMPLE_DEFAULT_HTML_OUTPUT = Path("vulnspider-report.html")
 _DEFAULT_VERIFICATION_OUTPUT = Path("vulnspider-verification.json")
+_DEFAULT_EVALUATION_OUTPUT = Path("vulnspider-evaluation.json")
+_DEFAULT_VERIFY_DETAIL_OUTPUT = Path("vulnspider-verification-detail.html")
 _SIMPLE_DEFAULT_TOP_K = 10
 _MAX_TOP_K = 20
 _SIMPLE_DEFAULT_DYNAMIC_MAX_DEPTH = 2
@@ -222,6 +232,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fitted confidence model JSON from 'corpus verify-fit'.",
     )
     parser.add_argument(
+        "--verify-detail-output",
+        type=Path,
+        default=None,
+        dest="simple_verify_detail_output",
+        help=(
+            "Per-input-point verification detail HTML in simple mode "
+            "(default: alongside the dashboard as *-detail.html)."
+        ),
+    )
+    parser.add_argument(
+        "--no-verify-detail",
+        action="store_true",
+        dest="simple_no_verify_detail",
+        help="Skip the per-input-point verification detail HTML report.",
+    )
+    parser.add_argument(
         "--verify-proposer",
         choices=("deterministic", "llm"),
         default="deterministic",
@@ -253,6 +279,47 @@ def build_parser() -> argparse.ArgumentParser:
         dest="simple_access_control",
         action="store_true",
         help="Also probe for Broken Access Control in simple mode (opt-in).",
+    )
+    parser.add_argument(
+        "--ground-truth",
+        type=Path,
+        default=None,
+        dest="simple_ground_truth",
+        help=(
+            "Ground truth JSON for the scanned target. Turns on the ranking "
+            "evaluation stage (Recall@K / Precision@K / MAP@K / NDCG@K)."
+        ),
+    )
+    parser.add_argument(
+        "--eval-output",
+        type=Path,
+        default=None,
+        dest="simple_eval_output",
+        help=(
+            "Ranking evaluation JSON in simple mode (implies --ground-truth; "
+            f"default: {_DEFAULT_EVALUATION_OUTPUT})."
+        ),
+    )
+    parser.add_argument(
+        "--eval-cutoffs",
+        type=_positive_integer,
+        nargs="+",
+        default=None,
+        dest="simple_eval_cutoffs",
+        metavar="K",
+        help=(
+            "K values the ranking evaluation reports "
+            f"(default: {' '.join(str(k) for k in DEFAULT_CUTOFFS)})."
+        ),
+    )
+    parser.add_argument(
+        "--application-id",
+        default=None,
+        dest="simple_application_id",
+        help=(
+            "Which application in the ground truth file was scanned. Only "
+            "needed when the file covers more than one."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command")
     analyze = subparsers.add_parser(
@@ -424,6 +491,21 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     analyze.add_argument(
+        "--verify-detail-output",
+        type=Path,
+        default=None,
+        help=(
+            "Destination for the per-input-point verification detail HTML "
+            "report (implies --verify). Defaults to the dashboard path with a "
+            f"-detail suffix, else {_DEFAULT_VERIFY_DETAIL_OUTPUT}."
+        ),
+    )
+    analyze.add_argument(
+        "--no-verify-detail",
+        action="store_true",
+        help="Skip the per-input-point verification detail HTML report.",
+    )
+    analyze.add_argument(
         "--verify-proposer",
         choices=("deterministic", "llm"),
         default="deterministic",
@@ -460,6 +542,46 @@ def build_parser() -> argparse.ArgumentParser:
             "is opt-in."
         ),
     )
+    analyze.add_argument(
+        "--ground-truth",
+        type=Path,
+        default=None,
+        help=(
+            "Ground truth JSON for the scanned target (the evaluation "
+            "protocol's key). Turns on the ranking evaluation stage, which "
+            "scores this run's ranking as Recall@K / Precision@K / MAP@K / "
+            "NDCG@K against a random predictor and against the same run with "
+            "focused verification removed."
+        ),
+    )
+    analyze.add_argument(
+        "--eval-output",
+        type=Path,
+        default=None,
+        help=(
+            "Destination for the ranking evaluation JSON (implies "
+            f"--ground-truth; default: {_DEFAULT_EVALUATION_OUTPUT})."
+        ),
+    )
+    analyze.add_argument(
+        "--eval-cutoffs",
+        type=_positive_integer,
+        nargs="+",
+        default=None,
+        metavar="K",
+        help=(
+            "K values the ranking evaluation reports "
+            f"(default: {' '.join(str(k) for k in DEFAULT_CUTOFFS)})."
+        ),
+    )
+    analyze.add_argument(
+        "--application-id",
+        default=None,
+        help=(
+            "Which application in the ground truth file was scanned. Only "
+            "needed when the file covers more than one."
+        ),
+    )
     add_decision_subcommands(subparsers)
     return parser
 
@@ -478,6 +600,7 @@ def main(
     crawl_published = False
     selected_count = 0
     verification_output: Path | None = None
+    verification_detail_output: Path | None = None
     if args.command is None and not simple_mode:
         if _simple_options_without_url(args):
             parser.error("simple scan options require -u/--url")
@@ -533,6 +656,15 @@ def main(
                     args.crawl_output if simple_mode else None,
                 ),
             )
+        evaluation_request = _evaluation_request_from_args(
+            args,
+            other_destinations=(
+                args.output,
+                args.html_output,
+                args.crawl_output if simple_mode else None,
+                args.verify_output or _DEFAULT_VERIFICATION_OUTPUT,
+            ),
+        )
         stage = "크롤 + 분석"
         _progress(
             f"[*] {stage} 시작 -> "
@@ -605,8 +737,19 @@ def main(
         )
         verification_run = None
         access_verify_config = None
+        ranking = None
         if args.verify or args.verify_output is not None:
             stage = "검증 (focused verification)"
+            # Rank before verifying: focused verification must visit the
+            # candidates the report ranks, not the v0.1 heuristic Top-K, which
+            # is a different set as soon as the calibrated probability reorders
+            # anything.
+            ranking = rank_analysis(
+                analysis,
+                top_k=args.top_k,
+                model_path=args.model,
+                conformal_path=args.conformal,
+            )
             confidence_model = _load_verification_model(args.verification_model)
             proposer = _build_verification_proposer(args)
             proposer_kind = getattr(args, "verify_proposer", "deterministic")
@@ -626,6 +769,7 @@ def main(
                     max_candidates=args.top_k,
                     progress=_verify_candidate_progress,
                 ),
+                selection=verification_selection(ranking),
             )
             _counts = verification_run.counts()
             _progress(
@@ -653,19 +797,34 @@ def main(
             html_output=args.html_output,
             verification=verification_run,
             access_verify_config=access_verify_config,
+            evaluation=evaluation_request,
+            ranking=ranking,
         )
         selected_count = len(outcome.selected)
         if verification_run is not None:
+            verify_destination = args.verify_output or _DEFAULT_VERIFICATION_OUTPUT
             verification_output = _publish_verification(
                 verification_run,
                 analysis,
-                destination=args.verify_output or _DEFAULT_VERIFICATION_OUTPUT,
+                destination=verify_destination,
                 other_destinations=(
                     args.output,
                     args.html_output,
                     args.crawl_output if simple_mode else None,
                 ),
             )
+            if not getattr(args, "no_verify_detail", False):
+                verification_detail_output = _publish_verification_detail(
+                    verification_run,
+                    analysis,
+                    destination=_verify_detail_destination(args),
+                    other_destinations=(
+                        args.output,
+                        args.html_output,
+                        verify_destination,
+                        args.crawl_output if simple_mode else None,
+                    ),
+                )
         _progress("[OK] 리포트 작성 완료")
     except _SimpleDegradedCrawl as exc:
         _print_partial_simple_result(args)
@@ -702,6 +861,10 @@ def main(
             file=sys.stderr,
         )
         return 4
+    except (LiveEvaluationError, GroundTruthError) as exc:
+        _progress("[ERROR] '평가 지표' 단계에서 실패했습니다")
+        print(f"vulnspider: error [평가 지표]: {exc}", file=sys.stderr)
+        return 2
     except (OSError, ValueError) as exc:
         if simple_mode and crawl_published:
             _print_partial_simple_result(args)
@@ -718,8 +881,40 @@ def main(
         simple_mode=simple_mode,
         selected_count=selected_count,
         verification_output=verification_output,
+        verification_detail_output=verification_detail_output,
     )
     return 0
+
+
+def _evaluation_request_from_args(
+    args: argparse.Namespace,
+    *,
+    other_destinations: Sequence[Path | None],
+) -> EvaluationRequest | None:
+    """Build the optional ranking-evaluation stage's request, if asked for."""
+
+    if args.ground_truth is None:
+        if args.eval_output is not None or args.eval_cutoffs is not None:
+            raise CLIError(
+                "--eval-output and --eval-cutoffs require --ground-truth"
+            )
+        return None
+    if not args.ground_truth.is_file():
+        raise CLIError(f"--ground-truth file not found: {args.ground_truth}")
+    output = args.eval_output or _DEFAULT_EVALUATION_OUTPUT
+    normalized = _normalized_destination(output)
+    for other in other_destinations:
+        if other is not None and _normalized_destination(other) == normalized:
+            raise CLIError(
+                "--eval-output must differ from the analysis, HTML, crawl, "
+                "and verification report destinations"
+            )
+    return EvaluationRequest(
+        ground_truth_path=args.ground_truth,
+        output=output,
+        cutoffs=tuple(args.eval_cutoffs or DEFAULT_CUTOFFS),
+        application_id=args.application_id,
+    )
 
 
 def _simple_options_without_url(args: argparse.Namespace) -> bool:
@@ -732,10 +927,16 @@ def _simple_options_without_url(args: argparse.Namespace) -> bool:
         or args.simple_verify
         or args.simple_verify_output is not None
         or args.simple_verification_model is not None
+        or args.simple_verify_detail_output is not None
+        or args.simple_no_verify_detail
         or args.simple_html_output is not None
         or args.simple_no_html
         or args.simple_top_k is not None
         or args.simple_access_control
+        or args.simple_ground_truth is not None
+        or args.simple_eval_output is not None
+        or args.simple_eval_cutoffs is not None
+        or args.simple_application_id is not None
     )
 
 
@@ -770,10 +971,16 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         ),
         verify_output=args.simple_verify_output,
         verification_model=args.simple_verification_model,
+        verify_detail_output=args.simple_verify_detail_output,
+        no_verify_detail=args.simple_no_verify_detail,
         verify_proposer=args.simple_verify_proposer,
         llm_model=args.simple_llm_model,
         open_report=args.simple_open_report,
         access_control=args.simple_access_control,
+        ground_truth=args.simple_ground_truth,
+        eval_output=args.simple_eval_output,
+        eval_cutoffs=args.simple_eval_cutoffs,
+        application_id=args.simple_application_id,
         max_pages=None,
         max_depth=None,
         max_requests=None,
@@ -811,6 +1018,59 @@ def _publish_verification(
         + "\n",
         destination,
     )
+    return destination
+
+
+def _verify_detail_destination(args: argparse.Namespace) -> Path:
+    """Where the per-input-point detail report is written.
+
+    An explicit ``--verify-detail-output`` wins. Otherwise it sits next to the
+    dashboard (``dashboard.html`` -> ``dashboard-detail.html``) so the two
+    reports travel together, falling back to a fixed default when no dashboard
+    is produced.
+    """
+
+    explicit = getattr(args, "verify_detail_output", None)
+    if explicit is not None:
+        return explicit
+    html_output = getattr(args, "html_output", None)
+    if html_output is not None:
+        return html_output.with_name(f"{html_output.stem}-detail{html_output.suffix}")
+    return _DEFAULT_VERIFY_DETAIL_OUTPUT
+
+
+def _publish_verification_detail(
+    run: Any,
+    analysis: AnalysisResult,
+    *,
+    destination: Path,
+    other_destinations: Sequence[Path | None],
+) -> Path:
+    """Render and write the per-input-point verification detail HTML report.
+
+    Reuses the exact objects the run already produced: the verification report
+    dict and, when native discovery ran, a crawl report dict so every baseline
+    and mutated value renders as a full request URL. Nothing is recomputed.
+    """
+
+    normalized = _normalized_destination(destination)
+    for other in other_destinations:
+        if other is not None and _normalized_destination(other) == normalized:
+            raise CLIError(
+                "--verify-detail-output must differ from the analysis, "
+                "dashboard, verification, and crawl report destinations"
+            )
+    crawl_source = analysis.combined_result or analysis.crawl_result
+    crawl_report = (
+        build_crawl_report(crawl_source) if crawl_source is not None else None
+    )
+    document = build_verification_detail_html(
+        run.to_dict(target_url=_analysis_target(analysis)),
+        crawl_report,
+        source="focused verification (in-memory)",
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(document, encoding="utf-8")
     return destination
 
 
@@ -894,12 +1154,15 @@ def _print_completion(
     simple_mode: bool,
     selected_count: int,
     verification_output: Path | None,
+    verification_detail_output: Path | None = None,
 ) -> None:
-    """Final stdout summary with output paths and a clickable dashboard link.
+    """Final stdout summary with output paths and clickable report links.
 
     Printed for both the simple and the ``analyze`` mode (the latter had no
     completion output before), so a run always ends by telling the user where
-    the report is -- and opens it when ``--open`` was given.
+    the reports are. The dashboard and the per-input-point detail report are
+    printed as ``file://`` links -- click them to open the report in a browser
+    -- and are auto-opened when ``--open`` was given.
     """
 
     if simple_mode:
@@ -915,13 +1178,24 @@ def _print_completion(
             "vulnspider: verification output: "
             f"{verification_output.resolve(strict=False)}"
         )
+    should_open = getattr(args, "open_report", False)
     if args.html_output is not None:
         print(f"vulnspider: dashboard report ->  {_report_uri(args.html_output)}")
-        if getattr(args, "open_report", False):
-            if _open_report(args.html_output):
-                print("vulnspider: (opened the dashboard in your browser)")
-            else:
-                print("vulnspider: (could not auto-open; use the link above)")
+    if verification_detail_output is not None:
+        print(
+            "vulnspider: detail report ->     "
+            f"{_report_uri(verification_detail_output)}"
+        )
+    if should_open:
+        opened = [
+            path
+            for path in (args.html_output, verification_detail_output)
+            if path is not None and _open_report(path)
+        ]
+        if opened:
+            print("vulnspider: (opened the report(s) in your browser)")
+        elif args.html_output is not None or verification_detail_output is not None:
+            print("vulnspider: (could not auto-open; use the link(s) above)")
 
 
 def _load_verification_model(path: Path | None) -> VerificationConfidenceModel:

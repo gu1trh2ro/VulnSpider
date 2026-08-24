@@ -118,17 +118,33 @@ python -m vulnspider analyze --url http://testaspnet.vulnweb.com/ `
 로컬 LLM 검증까지 확인하려면 **동봉된 데모 서버**(loopback)나 로컬 미러를 대상으로 하세요:
 
 ```powershell
-# 터미널 1: loopback 취약 데모 서버
+# 터미널 1: loopback 데모 상점 (DemoShop, 입력점 100개)
 python demo_target_server.py            # http://127.0.0.1:8899
+                                        # 입력점 지도: /_lab
 
 # 터미널 2: 로컬 LLM proposer로 검증까지 포함한 전체 파이프라인
 $env:PYTHONPATH = "src"
 python -m vulnspider analyze --url http://127.0.0.1:8899/ `
+    --max-pages 60 --max-requests 250 `
     --top-k 20 `
     --output analysis.json --html-output dashboard.html `
     --verify --verify-proposer llm `
     --llm-model models\vulnspider-3b_v3.gguf `
     --verify-output verify.json
+```
+
+DemoShop은 라우트가 32개라 기본 크롤 예산(10 페이지)으로는 입력점을 다 찾지
+못합니다. `--max-pages 60 --max-requests 250`을 함께 주세요.
+
+랭킹 지표까지 보려면 정답 파일을 붙입니다 (`docs/EVALUATION_PROTOCOL.md` §6-B):
+
+```powershell
+python -m vulnspider analyze --url http://127.0.0.1:8899/ `
+    --max-pages 60 --max-requests 250 --top-k 20 --output analysis.json `
+    --verify --verify-output verify.json `
+    --verification-model data\corpus\verification-model.json `
+    --ground-truth data\demo\demoshop-ground-truth.json `
+    --eval-output evaluation.json
 ```
 
 `--verify-proposer` 값: `deterministic`(기본, 재현 가능한 규칙 기반) 또는
@@ -144,13 +160,24 @@ python -m vulnspider analyze --url http://127.0.0.1:8899/ `
 | `vulnspider-report.html` (`--html-output`) | **최종 대시보드** — 후보 랭킹·확신도 |
 | `vulnspider-analysis.json` (`--output`) | 결정 리포트(JSON) |
 | `vulnspider-crawl.json` (`--crawl-output`) | 크롤 결과(입력점·엔드포인트) |
+| `*-detail.html` (`--verify` 시 자동) | **입력점별 검증 상세** — baseline → 변형 페이로드 → 결과 → 확신도 |
 | `vulnspider-verification.json` (`--verify-output`) | 검증 상세(변형 페이로드·결과·확신도) — `--verify` 시 |
 
-### 부가: 입력점별 검증 상세 리포트
+### 입력점별 검증 상세 리포트 (자동)
 
-`--verify` 결과(JSON)로부터 **입력점별 baseline → 변형 페이로드 → 결과 → 확신도 갱신**을
-한눈에 보는 HTML을 생성할 수 있습니다. `--crawl`로 크롤 JSON을 함께 주면 baseline·변형을
-**전체 요청 URL 형태**(`GET http://host/path?param=값`, 주입 지점 하이라이트)로 표시합니다:
+`--verify`와 `--html-output`을 함께 주면 대시보드 옆에 **입력점별 상세 리포트**가
+자동으로 생성됩니다(`dashboard.html` → `dashboard-detail.html`). 입력점마다
+**baseline 요청 → 변형 페이로드 요청(전체 URL) → 검증기 통과/차단 → feature delta →
+prior→final 확신도**를 보여줍니다. 스캔이 끝나면 CLI가 대시보드와 상세 리포트의 클릭
+가능한 `file://` 링크를 함께 출력하므로, 링크를 누르면 브라우저에서 바로 열립니다.
+
+- 경로 변경: `--verify-detail-output <path>`
+- 생성 생략: `--no-verify-detail`
+- 스캔 종료와 동시에 브라우저로 열기: `--open` (대시보드·상세 리포트 모두 열림)
+
+이미 `verify.json`(+ `--crawl-output` 크롤 JSON)이 디스크에 있다면 아래 도구로도 같은
+리포트를 만들 수 있습니다. 입력점 id가 결정적 지문이라 **같은 대상**에 대한 어떤 크롤
+결과든 조인됩니다(`--crawl` 생략 시 파라미터 원본값만 표시):
 
 ```powershell
 $env:PYTHONPATH = "src"
@@ -159,9 +186,6 @@ python tools\verification_detail_report.py `
     --crawl vulnspider-crawl.json `
     --out verification-detail.html
 ```
-
-`--crawl`은 선택이며, 입력점 id가 결정적 지문이라 **같은 대상**에 대한 어떤 크롤 결과든 조인됩니다.
-생략하면 파라미터 원본값만 표시합니다.
 
 ---
 

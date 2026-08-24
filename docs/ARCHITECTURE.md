@@ -191,8 +191,16 @@ rules.
   inheriting `selection`'s arbitrary `candidate_id` tie-break.
 - `evaluation/baselines.py` — Baselines A/B/C/D and the proposed ranking, plus
   bug-level route aggregation. The proposed arm is scored strictly out-of-fold.
+- `evaluation/live.py` — the same metrics over **one live scan** instead of a
+  stored corpus (ADR-036): a random predictor, the pipeline with focused
+  verification removed (calibrated prior order), and the shipped product
+  (`final_confidence` order), all over the same candidates and labels. A corpus
+  holds no verification evidence, so this is the only path that can measure the
+  verification stage's contribution. Reached with `analyze --ground-truth`
+  against a labeled target — `tools/demo_shop.py` (DemoShop, 100 input points).
 
-`tools/evaluate_ranking.py` prints the comparison table.
+`tools/evaluate_ranking.py` prints the comparison table for the corpus; the live
+table is printed by the scan itself and written as `live-evaluation-v1` JSON.
 
 Baseline B scores every candidate identically, so it is one tie group; the
 metric machinery then yields the exact random expectation in closed form, and

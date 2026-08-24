@@ -1267,6 +1267,71 @@ REPRODUCED), 하나도 재현 안 되면 약화(WEAKEN)한다 — injection과 �
 
 ---
 
+## ADR-036 — 라벨 붙은 DemoShop 타깃과 live ranking evaluation
+
+**Status:** Accepted
+
+**Date:** 2026-08-24
+
+**Decision:** 세 가지를 함께 정한다.
+
+1. **평가용 타깃.** `demo_target_server.py`의 37개 입력점을 `tools/demo_shop.py`의
+   **DemoShop**(라우트 32개, GET form 기반 입력점 100개, 취약 40 / 안전 60)으로
+   교체한다. 정답은 사이트 자신이 소유하고 `data/demo/demoshop-ground-truth.json`에
+   커밋한다. 안전 입력점은 일부러 어렵게 만든다(`safe_validated` 400,
+   `safe_dynamic` 길이 변화, `safe_stripped` 위험문자 치환, `safe_type_error`
+   파라미터 바인딩인데 캐스팅 오류로 진짜 DB 오류를 노출). 취약 입력점 중
+   `sqli_blind`·`xss_conditional`은 현재 feature로는 놓치도록 둔다. 어떤 랭킹이든
+   1.000이 나오는 타깃은 아무것도 측정하지 못하기 때문이다.
+2. **live evaluation 단계.** `evaluation/live.py`가 한 번의 실제 스캔이 만든 후보
+   pool을 ground truth와 조인해 세 arm을 **같은 후보·같은 라벨**로 채점한다:
+   random predictor(전체가 한 동점 그룹 = §6-A rule 4의 정확한 기대값),
+   focused verification을 뺀 파이프라인(보정 확률 순), 최종 VulnSpider
+   (`final_confidence` 순). `--ground-truth`로 켜고 `live-evaluation-v1` JSON과
+   콘솔 표로 남긴다. 한 스캔 = 애플리케이션 1개 = query 1개(§6-A rule 3)이므로
+   `MAP@K`는 그 query의 average precision이다.
+3. **검증 대상 정정.** `--verify`는 지금까지 `analysis.selection`(v0.1 휴리스틱
+   Top-K)을 검증했지만 리포트는 보정 확률 Top-K를 싣는다. XSS encoding 감점
+   (ADR-031)처럼 보정 전용 항이 순서를 바꾸면 두 집합이 완전히 어긋나, 리포트의
+   어떤 후보에도 `final_confidence`가 붙지 않는다. `cli_decision.rank_analysis`로
+   랭킹을 먼저 계산하고 `VerificationSelection`으로 그 집합·그 prior를 검증에
+   넘긴다. `verify_analysis(selection=...)`를 생략하면 종전 동작이라
+   `tools/build_verification_corpus.py`는 그대로다.
+
+**Context:** "Random Predictor / focused verification 없는 파이프라인 / 최종
+소프트웨어를 Precision·Recall·MAP으로 비교하고 싶다"는 요구. ADR-033이 verification
+arm을 코퍼스 위에서 정의했지만, 제품이 실제로 출력하는 confidence로 측정하는 경로는
+없었다. 그 경로를 만들자마자 3번 문제가 드러났다: 100개 입력점 타깃에서 두 Top-K의
+교집합이 0이었다.
+
+**Alternatives:**
+
+- *리포트에서 오프라인으로 채점.* `decision-report-v1`에 후보 identity(path·
+  parameter)가 없어 ground truth와 조인할 수 없다. 리포트 스키마를 넓히는 대신
+  실행 중 권위 있는 `Endpoint`/`InputPoint`에서 키를 만든다(`corpus/collection`과
+  동일 규칙).
+- *검증이 계속 휴리스틱 Top-K를 보게 두기.* 검증 코퍼스 수집에는 맞지만 스캔
+  리포트에는 틀리다. 그래서 기본값은 유지하고 호출자가 집합을 지정하게 했다.
+- *arm을 코퍼스처럼 out-of-fold로.* live 스캔은 학습이 아니라 측정이므로 해당
+  없음. 대신 미라벨 후보 수를 항상 함께 보고한다.
+
+**Consequences:**
+
+- 검증된 후보가 리포트 Top-K와 항상 일치한다. DemoShop 실측(top-k 20, 적합
+  verification 모델): Precision@20 random 0.160 / no-verify 0.800 / full 0.850,
+  MAP@20 0.049 / 0.714 / 0.763.
+- 내장 기본 verification 모델은 `SUPPORT_REPRODUCED`의 LLR이 0이라(ADR-033)
+  arm 간 차이가 0이 된다. 평가 실행은 `corpus verify-fit`으로 적합한 모델을
+  `--verification-model`로 넘겨야 한다.
+- verification은 Top-K만 방문하므로 `K == top_k`에서 두 arm은 **같은 집합**이고
+  `Recall@K`/`Precision@K`가 대체로 같다. 차이는 순서에 민감한 `MAP@K`와
+  `K < top_k`에서 드러난다. 단, 강등된 후보가 컷 밖으로 밀리면 미검증 후보가
+  올라와 집합 자체가 바뀔 수 있다.
+- DemoShop은 라우트가 32개라 기본 크롤 예산(10 페이지)으로는 부족하다. 평가는
+  `analyze --url ... --max-pages 60 --max-requests 250`로 실행한다.
+
+---
+
 ## New Decision Template
 
 ```text

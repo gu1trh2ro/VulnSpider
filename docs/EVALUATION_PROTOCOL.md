@@ -226,6 +226,84 @@ candidate마다 검증 비용이 다르므로(SQLI 6, XSS 3) 두 집합은 같�
 
 ---
 
+## 6-B. 실행 중 측정 (live ranking evaluation, ADR-036)
+
+§6의 지표를 **저장된 코퍼스**가 아니라 **한 번의 실제 스캔**에 대해 계산하는 경로다.
+코퍼스에는 검증 증거가 없어서 "focused verification이 순위를 개선하는가"에 답할 수
+없기 때문에 따로 둔다. 구현은 `src/vulnspider/evaluation/live.py`,
+실행은 `analyze --ground-truth`다.
+
+### 비교군
+
+같은 후보 pool·같은 라벨을 쓰고 **정렬 기준만** 다르다.
+
+| arm | 정렬 기준 | 무엇을 답하는가 |
+| --- | --- | --- |
+| `Random predictor` | 전부 동점 | "그냥 아무거나 K개 뽑으면?" (§5 Baseline B) |
+| `VulnSpider without focused verification` | 보정 확률(prior) | 검증 단계를 뺀 파이프라인 |
+| `VulnSpider (full pipeline)` | `final_confidence` | 출하되는 제품 |
+
+Random arm은 전체가 하나의 동점 그룹이므로 §6-A rule 4의 기계장치가 시뮬레이션
+없이 기대값을 준다. `Precision@K`는 K와 무관하게 prevalence다.
+
+### 읽는 법 (중요)
+
+- verification은 Top-K만 방문한다. 따라서 `K == top_k`에서 두 VulnSpider arm은
+  **같은 집합**을 갖고 `Recall@K`/`Precision@K`가 대체로 같다. 차이는 순서에
+  민감한 `MAP@K`와 `K < top_k`에서 나타난다. 강등된 후보가 컷 밖으로 밀리면
+  미검증 후보가 올라와 집합이 바뀌므로 `Recall@K`도 조금 움직일 수 있다.
+- 한 번의 스캔 = 애플리케이션 1개 = **query 1개**(§6-A rule 3)다. 따라서 `MAP@K`는
+  그 query의 average precision이고, 여러 앱 평균이 필요하면 스캔을 여러 번 돌려
+  각 리포트를 합쳐야 한다.
+- 내장 기본 verification 모델은 `SUPPORT_REPRODUCED`의 LLR이 0이므로(ADR-033)
+  두 arm이 정확히 같아진다. `corpus verify-fit`으로 적합한 모델을
+  `--verification-model`로 넘겨야 검증 단계의 기여가 보인다.
+- 미라벨 후보는 비관련으로 세고(§6-A rule 2) 개수를 리포트에 함께 남긴다.
+
+### 대상: DemoShop
+
+`tools/demo_shop.py`가 서비스하는 라벨 붙은 온라인 쇼핑몰이다. 라우트 32개,
+GET form 기반 QUERY 입력점 **100개**(취약 40 = Reflected XSS 19 / SQLi 13 /
+BAC 8, 안전 60). 정답은 `data/demo/demoshop-ground-truth.json`에 커밋되어 있고,
+`tests/unit/test_demo_shop.py`가 사이트와의 drift를 막는다.
+
+안전 입력점은 일부러 어렵다. `safe_validated`(400 응답 →
+`status_code_changed`), `safe_dynamic`(길이만 변함), `safe_stripped`(위험문자를
+치환해 `safe_html_encoding_detected`를 **미관측**으로 만든다),
+`safe_type_error`(바인딩 파라미터인데 캐스팅 오류로 진짜 DB 오류를 노출 →
+`sql_error_pattern` 발화, 재검증에서도 재현되어 verification도 못 걸러낸다).
+취약 입력점 중 `sqli_blind`·`xss_conditional`은 현재 feature set이 구조적으로
+놓치도록 남겨 뒀다. `/_lab`이 입력점별 판정·이유·재현 링크를 보여준다.
+
+### 실행
+
+```bash
+python demo_target_server.py            # http://127.0.0.1:8899 (별도 창)
+
+PYTHONPATH=src python -m vulnspider analyze \
+  --url http://127.0.0.1:8899/ --max-pages 60 --max-requests 250 \
+  --top-k 20 --output analysis.json \
+  --verify --verify-output verify.json \
+  --verification-model data/corpus/verification-model.json \
+  --ground-truth data/demo/demoshop-ground-truth.json \
+  --eval-output evaluation.json
+```
+
+### 측정값 (2026-08-24, top-k 20, 후보 200개 중 취약 32개, 미라벨 0)
+
+| 지표@20 | Random | verification 없음 | 최종 |
+| --- | --- | --- | --- |
+| `Recall@20` | 0.100 | 0.500 | 0.531 |
+| `Precision@20` | 0.160 | 0.800 | 0.850 |
+| `MAP@20` | 0.049 | 0.714 | 0.763 |
+| `NDCG@20` | 0.160 | 0.842 | 0.877 |
+
+`K <= 5`에서는 세 지표 모두 1.000이다. 오류 기반 SQLi 8개가 상위를 독점하고 그
+8개가 전부 진짜이기 때문이며, 타깃이 쉬워서가 아니라 그 구간이 실제로 정확하다는
+뜻이다. `K = 10` 이후 `safe_type_error` 3개가 섞여 들어오면서 값이 내려간다.
+
+---
+
 ## 7. Ablation
 
 ### 7.1 완료 — 생성 모델 대 판별 모델 (Naive Bayes LLR vs 로지스틱 회귀)

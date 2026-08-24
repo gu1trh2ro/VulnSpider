@@ -47,6 +47,7 @@ from vulnspider.verification import (
     compute_feature_delta,
     plan_verification_probe,
     update_confidence,
+    VerificationSelection,
     verify_analysis,
     verify_target,
 )
@@ -663,6 +664,32 @@ class VerifyAnalysisTests(unittest.TestCase):
         self.assertEqual(payload["report_version"], "verification-report-v1")
         self.assertEqual(payload["target"], "http://127.0.0.1/")
         self.assertTrue(payload["candidates"])
+
+    def test_explicit_selection_overrides_the_heuristic_top_k(self) -> None:
+        # The report ranks by calibrated probability, so a scan must be able to
+        # point verification at that set with those priors; taking
+        # analysis.selection instead verifies whatever the v0.1 heuristic
+        # ordering happened to put on top.
+        analysis = self._analysis("quote_error", "SQLI")
+        ranked = analysis.selection.selected
+        last = ranked[-1]
+        chosen = VerificationSelection(
+            candidate_id=last.scoring_result.candidate.id or "",
+            input_point_id=last.scoring_result.candidate.input_point_id,
+            feature_vector_id=last.scoring_result.feature_vector_id,
+            vulnerability_type=last.scoring_result.candidate.vulnerability_type,
+            prior_probability=0.42,
+        )
+
+        run = verify_analysis(
+            analysis,
+            config=VerificationConfig(transport=ScriptedTransport("quote_error")),
+            selection=(chosen,),
+        )
+
+        self.assertEqual(len(run.candidates), 1)
+        self.assertEqual(run.candidates[0].candidate_id, chosen.candidate_id)
+        self.assertAlmostEqual(run.candidates[0].prior_probability, 0.42)
 
     def test_verify_analysis_is_deterministic(self) -> None:
         first = verify_analysis(
