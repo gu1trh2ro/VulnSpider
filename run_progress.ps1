@@ -17,8 +17,6 @@ python tools\verification_detail_report.py `
     --crawl vulnspider-crawl.json `
     --out verification-detail.html
 
-Start-Process verification-detail.html
-
 $EndTime = Get-Date
 $ElapsedTime = $EndTime - $StartTime
 
