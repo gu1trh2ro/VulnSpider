@@ -20,4 +20,4 @@ python tools\verification_detail_report.py `
 $EndTime = Get-Date
 $ElapsedTime = $EndTime - $StartTime
 
-Write-Host "total time: $($ElapsedTime.Hours)h $($ElapsedTime.Minutes)m $($ElapsedTime.Seconds)s" -ForegroundColor Yellow
+Write-Host "total elapsed time: $($ElapsedTime.Hours)h $($ElapsedTime.Minutes)m $($ElapsedTime.Seconds)s" -ForegroundColor Yellow
