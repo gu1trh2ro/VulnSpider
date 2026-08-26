@@ -287,8 +287,6 @@ def _render_stats(
         (_fmt_number(outcome.top_k), "Top-K"),
         (f"{outcome.expected_findings:.2f}", "기대 발견 수"),
     ]
-    if outcome.conformal is not None:
-        cells.append((_fmt_number(outcome.conformal_set_size), "보장 집합"))
     if verification:
         supported = sum(
             1
@@ -381,7 +379,6 @@ def _render_charts(
         ("발견된 엔드포인트", endpoint_count, "muted"),
         ("입력점", input_point_count, "muted"),
         ("채점된 후보", outcome.initial_candidates, "accent"),
-        ("보장 집합", outcome.conformal_set_size or outcome.initial_candidates, "medium"),
         ("최종 선택", len(selected), "high"),
     )
     widest = max((value for _label, value, _tone in funnel_stages), default=1) or 1
