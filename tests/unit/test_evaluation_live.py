@@ -181,6 +181,45 @@ class BuildScoredCandidatesTests(unittest.TestCase):
 
         self.assertTrue(scored[0].label)
 
+    def test_endpoint_level_access_candidate_is_skipped_not_errored(self) -> None:
+        # A CREDENTIAL_STRIP access candidate carries no InputPoint (it is
+        # endpoint-level), so it has no parameter-keyed ground truth. It must be
+        # dropped from the evaluation rather than crashing it.
+        endpoint = _endpoint("/admin/users")
+        point = _input_point(endpoint, "id")
+        idor = DecisionCandidate(
+            candidate_id="cand_idor",
+            family="BROKEN_ACCESS_CONTROL",
+            probability=0.9,
+            subject_ref="plan_idor",
+        )
+        strip = DecisionCandidate(
+            candidate_id="cand_strip",
+            family="BROKEN_ACCESS_CONTROL",
+            probability=0.8,
+            subject_ref="plan_strip",
+        )
+        store = ground_truth_from_entries(
+            (
+                (_key("/admin/users", "id", "BROKEN_ACCESS_CONTROL"), True),
+                (_key("/admin/users", "id", "SQLI"), False),
+            )
+        )
+
+        scored = build_scored_candidates(
+            (idor, strip),
+            application_id=APPLICATION,
+            ground_truth=store,
+            endpoints=(endpoint,),
+            input_points=(point,),
+            access_input_points={
+                "cand_idor": point.id or "",
+                "cand_strip": "",  # credential strip: no input point
+            },
+        )
+
+        self.assertEqual([item.candidate_id for item in scored], ["cand_idor"])
+
     def test_unknown_input_point_is_an_error_not_a_silent_drop(self) -> None:
         endpoint = _endpoint("/search")
         point = _input_point(endpoint, "q")

@@ -2107,6 +2107,87 @@
       "parameter_name": "status",
       "vulnerability_type": "REFLECTED_XSS",
       "vulnerable": false
+    },
+    {
+      "application_id": "demoshop",
+      "method": "GET",
+      "canonical_path": "/portal/order",
+      "parameter_location": "QUERY",
+      "parameter_name": "ref",
+      "vulnerability_type": "SQLI",
+      "vulnerable": false
+    },
+    {
+      "application_id": "demoshop",
+      "method": "GET",
+      "canonical_path": "/portal/order",
+      "parameter_location": "QUERY",
+      "parameter_name": "ref",
+      "vulnerability_type": "REFLECTED_XSS",
+      "vulnerable": false
+    },
+    {
+      "application_id": "demoshop",
+      "method": "GET",
+      "canonical_path": "/portal/order",
+      "parameter_location": "QUERY",
+      "parameter_name": "ref",
+      "vulnerability_type": "BROKEN_ACCESS_CONTROL",
+      "vulnerable": true
+    },
+    {
+      "application_id": "demoshop",
+      "method": "GET",
+      "canonical_path": "/portal/message",
+      "parameter_location": "QUERY",
+      "parameter_name": "thread",
+      "vulnerability_type": "SQLI",
+      "vulnerable": false
+    },
+    {
+      "application_id": "demoshop",
+      "method": "GET",
+      "canonical_path": "/portal/message",
+      "parameter_location": "QUERY",
+      "parameter_name": "thread",
+      "vulnerability_type": "REFLECTED_XSS",
+      "vulnerable": false
+    },
+    {
+      "application_id": "demoshop",
+      "method": "GET",
+      "canonical_path": "/portal/message",
+      "parameter_location": "QUERY",
+      "parameter_name": "thread",
+      "vulnerability_type": "BROKEN_ACCESS_CONTROL",
+      "vulnerable": true
+    },
+    {
+      "application_id": "demoshop",
+      "method": "GET",
+      "canonical_path": "/portal/card",
+      "parameter_location": "QUERY",
+      "parameter_name": "card_id",
+      "vulnerability_type": "SQLI",
+      "vulnerable": false
+    },
+    {
+      "application_id": "demoshop",
+      "method": "GET",
+      "canonical_path": "/portal/card",
+      "parameter_location": "QUERY",
+      "parameter_name": "card_id",
+      "vulnerability_type": "REFLECTED_XSS",
+      "vulnerable": false
+    },
+    {
+      "application_id": "demoshop",
+      "method": "GET",
+      "canonical_path": "/portal/card",
+      "parameter_location": "QUERY",
+      "parameter_name": "card_id",
+      "vulnerability_type": "BROKEN_ACCESS_CONTROL",
+      "vulnerable": false
     }
   ]
 }

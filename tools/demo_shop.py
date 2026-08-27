@@ -74,10 +74,12 @@ Run standalone:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import zlib
 from dataclasses import dataclass
 from html import escape
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -779,6 +781,179 @@ def counts_by_family() -> dict[str, int]:
     return totals
 
 
+# ---------------------------------------------------------------------------
+# Authenticated area: a small logged-in account section whose Broken Access
+# Control the pipeline can genuinely evaluate.
+# ---------------------------------------------------------------------------
+#
+# The public storefront above is intentionally unauthenticated (100 input
+# points, injection evaluation). BAC is different: it needs a *session*. The two
+# access features only mean anything when the reference request is an
+# authenticated 2xx, and a proper access-control check can only return 403 to a
+# request it can attribute to a user. So the account area lives behind a login,
+# is reachable only with a session cookie, and is scanned separately
+# (``analyze --url .../portal/ --cookie demoshop_session=... --access-control``).
+#
+# It is deliberately *not* linked from the public index: crawling it without the
+# cookie would just collect 403s, and mixing it into the public injection scan
+# would let CREDENTIAL_STRIP flag every public page. Keeping it isolated lets the
+# BAC scan target it directly.
+
+LOGIN_PATH = "/login"
+ACCOUNT_INDEX_PATH = "/portal/"
+SESSION_COOKIE = "demoshop_session"
+
+# role -> user id. The scan logs in out-of-band as one of these and passes the
+# resulting cookie with --cookie; DemoShop never creates accounts.
+_USERS: dict[str, int] = {"admin": 1, "user": 1042}
+# Not a real secret -- a fixed key so the token is deterministic and DemoShop can
+# reject a forged or absent cookie (an unauthenticated request must get 403).
+_SESSION_KEY = "demoshop-fixed-demo-key"
+
+
+def _sign(role: str, uid: int) -> str:
+    digest = hashlib.sha256(f"{role}.{uid}.{_SESSION_KEY}".encode()).hexdigest()
+    return digest[:12]
+
+
+def session_token(role: str) -> str:
+    """The ``demoshop_session`` cookie value a login as ``role`` would set."""
+
+    uid = _USERS[role]
+    return f"{role}.{uid}.{_sign(role, uid)}"
+
+
+def parse_session(cookie_header: str | None) -> tuple[str, int] | None:
+    """Return ``(role, uid)`` for a valid session cookie, else ``None``."""
+
+    if not cookie_header:
+        return None
+    jar: SimpleCookie = SimpleCookie()
+    try:
+        jar.load(cookie_header)
+    except Exception:  # noqa: BLE001 - a malformed cookie is simply no session
+        return None
+    morsel = jar.get(SESSION_COOKIE)
+    if morsel is None:
+        return None
+    parts = morsel.value.split(".")
+    if len(parts) != 3:
+        return None
+    role, raw_uid, signature = parts
+    if role not in _USERS or not raw_uid.isdigit():
+        return None
+    uid = int(raw_uid)
+    if _sign(role, uid) != signature:
+        return None
+    return role, uid
+
+
+@dataclass(frozen=True, slots=True)
+class AccountRoute:
+    """One protected account resource keyed by a numeric identifier."""
+
+    path: str
+    title: str
+    param: str
+    seed: str
+    kind: str  # "idor" (vulnerable) or "owned" (safe, ownership-checked)
+    reason: str
+    signal: str
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("idor", "owned"):
+            raise ValueError(f"unknown account route kind: {self.kind!r}")
+        if not self.seed.isdigit():
+            raise ValueError(f"{self.path}: account route seed must be numeric")
+
+    @property
+    def vulnerable(self) -> bool:
+        return self.kind == "idor"
+
+
+ACCOUNT_ROUTES: tuple[AccountRoute, ...] = (
+    AccountRoute(
+        path="/portal/order",
+        title="주문 상세",
+        param="ref",
+        seed="4100",
+        kind="idor",
+        reason=(
+            "로그인은 확인하지만 주문이 로그인 사용자의 것인지(소유권)는 "
+            "확인하지 않는다. ref를 남의 번호로 바꾸면 그 주문이 그대로 조회된다."
+        ),
+        signal=(
+            "식별자 치환(ref+1) 재요청이 200으로 다른 주문을 반환 → "
+            "access_unauthorized_success=1.0"
+        ),
+    ),
+    AccountRoute(
+        path="/portal/message",
+        title="쪽지함",
+        param="thread",
+        seed="880",
+        kind="idor",
+        reason=(
+            "쪽지 스레드도 소유권 확인이 없다. thread 번호만 바꾸면 남의 쪽지를 "
+            "읽을 수 있다."
+        ),
+        signal=(
+            "식별자 치환(thread+1) 재요청이 200으로 다른 스레드를 반환 → "
+            "access_unauthorized_success=1.0"
+        ),
+    ),
+    AccountRoute(
+        path="/portal/card",
+        title="결제 수단",
+        param="card_id",
+        seed="5001",
+        kind="owned",
+        reason=(
+            "결제 수단은 소유권을 확인한다. 로그인 사용자의 것이 아닌 card_id는 "
+            "403으로 거절한다. 접근제어가 제대로 걸려 있다."
+        ),
+        signal=(
+            "식별자 치환(card_id+1)·쿠키 제거 재요청이 403 → "
+            "access_unauthorized_success=0.0 (안전)"
+        ),
+    ),
+)
+
+ACCOUNT_ROUTES_BY_PATH: dict[str, AccountRoute] = {
+    route.path: route for route in ACCOUNT_ROUTES
+}
+
+ACCOUNT_VULNERABLE_INPUT_POINTS = sum(1 for r in ACCOUNT_ROUTES if r.vulnerable)
+
+
+def account_ground_truth_entries() -> list[tuple[GroundTruthKey, bool]]:
+    """Ground truth for the authenticated account routes.
+
+    Each route's numeric parameter is a candidate for all three families:
+    injection (both False -- the value is a bound record lookup, never
+    reflected or concatenated) and BROKEN_ACCESS_CONTROL (True for the IDOR
+    routes, False for the ownership-checked one).
+    """
+
+    entries: list[tuple[GroundTruthKey, bool]] = []
+    for route in ACCOUNT_ROUTES:
+        for family in (SQLI, REFLECTED_XSS, BROKEN_ACCESS_CONTROL):
+            entries.append(
+                (
+                    GroundTruthKey(
+                        application_id=APPLICATION_ID,
+                        method="GET",
+                        canonical_path=route.path,
+                        parameter_location="QUERY",
+                        parameter_name=route.param,
+                        vulnerability_type=family,
+                    ),
+                    family == BROKEN_ACCESS_CONTROL and route.vulnerable,
+                )
+            )
+    return entries
+
+
 def ground_truth_entries() -> tuple[tuple[GroundTruthKey, bool], ...]:
     """Label every candidate the pipeline can generate for this site.
 
@@ -787,7 +962,9 @@ def ground_truth_entries() -> tuple[tuple[GroundTruthKey, bool], ...]:
     every FeatureVector. ``BROKEN_ACCESS_CONTROL`` is labeled only where the
     seed is a bare number, since that is the precondition for the access layer
     to plan an ``IDENTIFIER_SUBSTITUTION`` probe -- labeling the rest would
-    invent ground truth for candidates that are never generated.
+    invent ground truth for candidates that are never generated. The
+    authenticated account routes (scanned separately with a session cookie) add
+    their own BAC labels.
     """
 
     entries: list[tuple[GroundTruthKey, bool]] = []
@@ -810,6 +987,7 @@ def ground_truth_entries() -> tuple[tuple[GroundTruthKey, bool], ...]:
                         item.info.vulnerability == family,
                     )
                 )
+    entries.extend(account_ground_truth_entries())
     return tuple(entries)
 
 
@@ -1338,13 +1516,151 @@ def render_lab() -> bytes:
         "<th>파라미터</th><th>판정</th><th>동작</th><th>난이도</th>"
         "<th>이유</th><th>VulnSpider가 보는 신호</th><th>재현</th>"
         f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+        + _account_lab_section()
     )
     return _layout("입력점 지도", body)
+
+
+def _account_lab_section() -> str:
+    """The authenticated-area (Broken Access Control) answer key."""
+
+    rows = []
+    for route in ACCOUNT_ROUTES:
+        badge = "vuln" if route.vulnerable else "safe"
+        verdict = "취약 · IDOR" if route.vulnerable else "안전 · 접근제어"
+        rows.append(
+            "<tr>"
+            f"<td><code>{escape(route.path)}?{escape(route.param)}</code></td>"
+            f'<td><span class="badge {badge}">{escape(verdict)}</span></td>'
+            f"<td>{escape(route.reason)}</td>"
+            f"<td>{escape(route.signal)}</td>"
+            "</tr>"
+        )
+    token = session_token("admin")
+    return (
+        f'<h2 style="margin-top:32px">인증 영역 (Broken Access Control)</h2>'
+        '<p class="blurb">로그인 세션이 있어야 접근되는 영역입니다. 쿠키 없이는 '
+        "403이라 크롤되지 않으므로, 세션 쿠키를 주고 <b>따로</b> 스캔합니다. "
+        "IDOR은 소유권 확인이 없어 식별자만 바꾸면 남의 자원이 열리고, 정상 "
+        "라우트는 소유권을 확인해 403으로 막습니다.</p>"
+        f'<p>로그인: <a href="{LOGIN_PATH}?as=admin">{LOGIN_PATH}?as=admin</a> '
+        f'/ <a href="{LOGIN_PATH}?as=user">{LOGIN_PATH}?as=user</a> · '
+        f'대시보드: <a href="{ACCOUNT_INDEX_PATH}">{ACCOUNT_INDEX_PATH}</a> '
+        "(쿠키 필요) · BAC 평가 실행:</p>"
+        "<pre class=\"cmd\">PYTHONPATH=src python -m vulnspider analyze \\\n"
+        f"  --url http://{HOST}:{PORT}{ACCOUNT_INDEX_PATH} "
+        "--access-control \\\n"
+        f"  --cookie {SESSION_COOKIE}={token} \\\n"
+        "  --max-pages 20 --max-requests 100 --top-k 10 \\\n"
+        "  --output portal-analysis.json \\\n"
+        "  --ground-truth data/demo/demoshop-ground-truth.json \\\n"
+        "  --application-id demoshop --eval-output portal-eval.json</pre>"
+        '<table class="lab"><thead><tr>'
+        "<th>보호 자원</th><th>판정</th><th>이유</th>"
+        "<th>VulnSpider가 보는 신호</th>"
+        f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Server
 # ---------------------------------------------------------------------------
+
+
+def _account_form(route: AccountRoute, value: str) -> str:
+    return (
+        f'<form class="filters" method="get" action="{route.path}">'
+        f"<label>{escape(route.param)}"
+        f'<input type="text" name="{route.param}" value="{escape(value)}"></label>'
+        '<div class="actions"><button type="submit">조회</button></div></form>'
+    )
+
+
+def _fake_holder(identifier: str) -> str:
+    names = ("김하늘", "이준서", "박서연", "최도윤", "정하은", "강시우")
+    return names[zlib.crc32(identifier.encode("utf-8")) % len(names)]
+
+
+def render_login(role: str) -> bytes:
+    body = (
+        "<h1>로그인됨</h1>"
+        f'<p class="blurb"><b>{escape(role)}</b> 세션이 발급되었습니다. '
+        "이 쿠키를 스캐너에 전달하면 인증 상태로 크롤합니다.</p>"
+        '<pre class="cmd">--cookie '
+        f'{SESSION_COOKIE}={escape(session_token(role))}</pre>'
+        f'<p><a href="{ACCOUNT_INDEX_PATH}">내 계정으로 이동 →</a></p>'
+    )
+    return _layout("로그인", body)
+
+
+def render_account_index(session: tuple[str, int]) -> bytes:
+    role, uid = session
+    links = "".join(
+        f'<li><a href="{route.path}">{escape(route.title)}</a></li>'
+        for route in ACCOUNT_ROUTES
+    )
+    body = (
+        f"<h1>내 계정 · {escape(role)} (uid {uid})</h1>"
+        '<p class="blurb">로그인한 사용자만 볼 수 있는 영역입니다.</p>'
+        f"<ul>{links}</ul>"
+    )
+    return _layout("내 계정", body)
+
+
+def _forbidden(message: str) -> tuple[int, bytes]:
+    body = (
+        '<h1>403</h1>'
+        f'<p class="warn">{escape(message)}</p>'
+        f'<p><a href="{LOGIN_PATH}?as=admin">로그인</a></p>'
+    )
+    return 403, _layout("접근 거부", body)
+
+
+def render_account_route(
+    route: AccountRoute,
+    query: dict[str, str],
+    session: tuple[str, int] | None,
+) -> tuple[int, bytes]:
+    """Render one protected account resource with its access-control behaviour."""
+
+    if session is None:
+        return _forbidden("로그인이 필요합니다. 세션 쿠키가 없습니다.")
+    _role, uid = session
+    value = query.get(route.param, route.seed)
+
+    if route.kind == "owned":
+        # Proper access control: the resource must belong to the session user.
+        # Each user's own card is the seed value; any other identifier is
+        # someone else's and is denied -- so a substituted id gets a 403
+        # regardless of which role is logged in. This is the true negative the
+        # BAC pipeline should score low.
+        if value != route.seed:
+            return _forbidden(
+                f"{escape(route.param)}={escape(value)} 는 현재 사용자의 것이 "
+                "아닙니다."
+            )
+        card = _account_form(route, value) + _card(
+            route.title,
+            '<table class="record">'
+            f"<tr><th>{escape(route.param)}</th><td>{escape(value)}</td></tr>"
+            "<tr><th>카드</th><td>신한 ****-8842</td></tr>"
+            f"<tr><th>소유자 uid</th><td>{uid}</td></tr></table>",
+        )
+        return 200, _layout(route.title, f"<h1>{escape(route.title)}</h1>{card}")
+
+    # IDOR: authenticated, but no ownership check -- any id is served.
+    holder = _fake_holder(value)
+    record = _account_form(route, value) + _card(
+        route.title,
+        '<table class="record">'
+        f"<tr><th>{escape(route.param)}</th><td>{escape(value)}</td></tr>"
+        f"<tr><th>소유자</th><td>{escape(holder)}</td></tr>"
+        "<tr><th>내용</th><td>주문/쪽지 상세가 인가 확인 없이 표시됩니다.</td></tr>"
+        "</table>"
+        '<p class="hint">소유권을 확인하지 않으므로 남의 자원도 조회됩니다.</p>',
+        tone="danger",
+    )
+    return 200, _layout(route.title, f"<h1>{escape(route.title)}</h1>{record}")
 
 
 class DemoShopHandler(BaseHTTPRequestHandler):
@@ -1375,6 +1691,30 @@ class DemoShopHandler(BaseHTTPRequestHandler):
         if parts.path == LAB_PATH:
             self._respond(200, render_lab())
             return
+        if parts.path == LOGIN_PATH:
+            role = query.get("as", "admin")
+            if role not in _USERS:
+                self._respond(400, _layout("로그인", "<h1>알 수 없는 역할</h1>"))
+                return
+            self._respond(
+                200,
+                render_login(role),
+                set_cookie=f"{SESSION_COOKIE}={session_token(role)}; Path=/",
+            )
+            return
+        session = parse_session(self.headers.get("Cookie"))
+        if parts.path in (ACCOUNT_INDEX_PATH, "/portal"):
+            if session is None:
+                status, body = _forbidden("로그인이 필요합니다.")
+                self._respond(status, body)
+                return
+            self._respond(200, render_account_index(session))
+            return
+        account_route = ACCOUNT_ROUTES_BY_PATH.get(parts.path)
+        if account_route is not None:
+            status, body = render_account_route(account_route, query, session)
+            self._respond(status, body)
+            return
         page = PAGES_BY_PATH.get(parts.path)
         if page is None:
             self._respond(404, _layout("찾을 수 없음", "<h1>404</h1>"))
@@ -1388,10 +1728,13 @@ class DemoShopHandler(BaseHTTPRequestHandler):
         body: bytes,
         *,
         content_type: str = "text/html; charset=utf-8",
+        set_cookie: str | None = None,
     ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if set_cookie is not None:
+            self.send_header("Set-Cookie", set_cookie)
         self.end_headers()
         self.wfile.write(body)
 
@@ -1413,5 +1756,11 @@ def banner(port: int = PORT) -> str:
         f"안전 {INPUT_POINTS - VULNERABLE_INPUT_POINTS}), 라우트 {len(PAGES)}개\n"
         f"  입력점 지도(정답지)  {base}{LAB_PATH}\n"
         f"  정답 JSON            {base}{LAB_GROUND_TRUTH_PATH}\n"
-        "  (지도는 상점에서 링크되지 않습니다: 크롤 대상은 상점 화면뿐입니다)"
+        "  (지도는 상점에서 링크되지 않습니다: 크롤 대상은 상점 화면뿐입니다)\n"
+        f"  인증 영역(BAC)       {base}{LOGIN_PATH}?as=admin → {base}{ACCOUNT_INDEX_PATH}\n"
+        f"    로그인 후 세션 쿠키로 스캔: --cookie {SESSION_COOKIE}="
+        f"{session_token('admin')}\n"
+        f"    BAC 취약 {ACCOUNT_VULNERABLE_INPUT_POINTS} (IDOR) / 정상 "
+        f"{len(ACCOUNT_ROUTES) - ACCOUNT_VULNERABLE_INPUT_POINTS}, "
+        f"라우트 {len(ACCOUNT_ROUTES)}개 (쿠키 없이는 403)"
     )

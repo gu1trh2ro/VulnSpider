@@ -20,8 +20,19 @@ scored with Precision@K / Recall@K / MAP@K:
 The ground truth file is committed at ``data/demo/demoshop-ground-truth.json``;
 ``--ground-truth PATH`` here regenerates it after the site changes.
 
-``http://127.0.0.1:8899/_lab`` explains every input point: what it does, why it
-is (or is not) a vulnerability, and a link that reproduces it in the browser.
+DemoShop also has an authenticated area (``/portal/``) for demonstrating Broken
+Access Control. Log in for a session cookie and scan it separately -- protected
+resources answer 403 without the cookie, so the BAC scan must be authenticated::
+
+    PYTHONPATH=src python -m vulnspider analyze --url http://127.0.0.1:8899/portal/ \\
+        --access-control --cookie demoshop_session=<token from /login?as=admin> \\
+        --max-pages 20 --max-requests 100 --top-k 10 \\
+        --ground-truth data/demo/demoshop-ground-truth.json \\
+        --application-id demoshop --eval-output portal-eval.json
+
+``http://127.0.0.1:8899/_lab`` explains every input point (and the ``/portal/``
+BAC routes): what it does, why it is (or is not) a vulnerability, and a link
+that reproduces it in the browser.
 """
 from __future__ import annotations
 

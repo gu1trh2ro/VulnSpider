@@ -615,6 +615,7 @@ class CanonicalDiscoveryBuilder:
         depth: int,
         request_authorizer: Callable[[str], bool] | None,
         discovered_by: str | None = None,
+        session_cookies: Mapping[str, str] | None = None,
     ) -> None:
         self.source_url = source_url
         self.metadata = metadata
@@ -622,6 +623,7 @@ class CanonicalDiscoveryBuilder:
         self.parent_url = parent_url
         self.depth = depth
         self.request_authorizer = request_authorizer
+        self.session_cookies = dict(session_cookies or {})
         self.native_metadata_key = (
             "native_dynamic"
             if metadata.collector_kind == CollectorKind.NATIVE_DYNAMIC
@@ -1125,6 +1127,7 @@ class CanonicalDiscoveryBuilder:
             url=url,
             query=query_pairs,
             form=form_pairs,
+            cookies=self.session_cookies,
             completeness=(
                 RequestContextCompleteness.COMPLETE
                 if context_complete
@@ -1364,8 +1367,14 @@ def extract_static_html(
     sensitive_form_policy: SensitiveFormElisionPolicy | None = None,
     request_authorizer: Callable[[str], bool] | None = None,
     safety_invariants: Sequence[DiscoverySafetyInvariant] = (),
+    session_cookies: Mapping[str, str] | tuple[tuple[str, str], ...] = (),
 ) -> StaticExtractionResult:
-    """Extract one HTML string without fetching, submitting, or executing it."""
+    """Extract one HTML string without fetching, submitting, or executing it.
+
+    ``session_cookies`` are attached to every produced ``RequestTemplate`` so a
+    downstream access-control check can strip them. They are the operator's
+    authenticated session; extraction still never fetches or submits anything.
+    """
 
     if type(html) is not str:
         raise TypeError("html must be a string")
@@ -1452,6 +1461,7 @@ def extract_static_html(
         parent_url=canonical_parent,
         depth=depth,
         request_authorizer=request_authorizer,
+        session_cookies=dict(session_cookies),
     )
     builder.add_url_surface(
         canonical_source,
@@ -1649,6 +1659,7 @@ def extract_static_html_with_sensitive_form_elision(
     scope_metadata: ScopeMetadata,
     parent_url: str | None,
     depth: int,
+    session_cookies: tuple[tuple[str, str], ...] = (),
 ) -> StaticExtractionResult:
     """Extract Static HTML with the merge-required elision policy bound."""
 
@@ -1660,6 +1671,7 @@ def extract_static_html_with_sensitive_form_elision(
         parent_url=parent_url,
         depth=depth,
         sensitive_form_policy=SensitiveFormElisionPolicy(),
+        session_cookies=session_cookies,
     )
 
 

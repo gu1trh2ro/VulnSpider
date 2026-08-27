@@ -201,6 +201,14 @@ def build_scored_candidates(
         input_point_id = access_points.get(
             candidate.candidate_id, candidate.subject_ref
         )
+        # A CREDENTIAL_STRIP access candidate is endpoint-level: it carries no
+        # InputPoint, so it has no parameter-keyed ground truth entry to score
+        # against. It is excluded from the ranking evaluation (which is scored
+        # per candidate x vulnerability_type at parameter granularity) rather
+        # than errored on -- it is still ranked and shown in the dashboard, just
+        # not measured here. Only a genuinely dangling reference is an error.
+        if not input_point_id:
+            continue
         input_point = points_by_id.get(input_point_id)
         if input_point is None:
             raise LiveEvaluationError(

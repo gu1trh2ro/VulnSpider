@@ -69,7 +69,8 @@ class DemoShopGroundTruthTests(unittest.TestCase):
     def test_only_numeric_seeds_carry_an_access_control_label(self) -> None:
         # The access layer plans an IDENTIFIER_SUBSTITUTION probe only for a
         # numeric identifier, so labeling the rest would invent ground truth
-        # for candidates that are never generated.
+        # for candidates that are never generated. The authenticated account
+        # routes (all numeric) add their own BAC labels.
         labeled = {
             (key.canonical_path, key.parameter_name)
             for key in demo_shop.ground_truth().labels
@@ -80,11 +81,22 @@ class DemoShopGroundTruthTests(unittest.TestCase):
             for page in demo_shop.PAGES
             for item in page.inputs
             if item.numeric_seed
-        }
+        } | {(route.path, route.param) for route in demo_shop.ACCOUNT_ROUTES}
         self.assertEqual(labeled, expected)
 
     def test_a_label_is_true_exactly_for_its_own_family(self) -> None:
+        account_params = {
+            (route.path, route.param): route for route in demo_shop.ACCOUNT_ROUTES
+        }
         for key, label in demo_shop.ground_truth().labels.items():
+            route = account_params.get((key.canonical_path, key.parameter_name))
+            if route is not None:
+                expected = (
+                    key.vulnerability_type == "BROKEN_ACCESS_CONTROL"
+                    and route.vulnerable
+                )
+                self.assertEqual(label, expected, key.canonical_path)
+                continue
             page = demo_shop.PAGES_BY_PATH[key.canonical_path]
             item = next(
                 entry for entry in page.inputs if entry.name == key.parameter_name
@@ -154,6 +166,72 @@ class DemoShopRenderingTests(unittest.TestCase):
             self.assertIn(page.path, lab)
             for item in page.inputs:
                 self.assertIn(f"<code>{item.name}</code>", lab)
+
+
+class DemoShopAccountAreaTests(unittest.TestCase):
+    """The authenticated area the BAC pipeline is demonstrated on."""
+
+    def _session(self, role: str = "admin") -> tuple[str, int]:
+        parsed = demo_shop.parse_session(
+            f"{demo_shop.SESSION_COOKIE}={demo_shop.session_token(role)}"
+        )
+        assert parsed is not None
+        return parsed
+
+    def test_a_valid_token_round_trips_and_a_forged_one_is_rejected(self) -> None:
+        self.assertEqual(self._session("admin"), ("admin", 1))
+        self.assertEqual(self._session("user"), ("user", 1042))
+        self.assertIsNone(demo_shop.parse_session(None))
+        self.assertIsNone(
+            demo_shop.parse_session(f"{demo_shop.SESSION_COOKIE}=admin.1.badsig")
+        )
+        self.assertIsNone(demo_shop.parse_session("other=value"))
+
+    def test_protected_routes_require_a_session(self) -> None:
+        for route in demo_shop.ACCOUNT_ROUTES:
+            status, _body = demo_shop.render_account_route(route, {}, None)
+            self.assertEqual(status, 403, route.path)
+
+    def test_idor_route_serves_a_substituted_identifier(self) -> None:
+        session = self._session("admin")
+        idor = next(r for r in demo_shop.ACCOUNT_ROUTES if r.kind == "idor")
+        seed_status, _ = demo_shop.render_account_route(
+            idor, {idor.param: idor.seed}, session
+        )
+        substituted = str(int(idor.seed) + 1)
+        sub_status, _ = demo_shop.render_account_route(
+            idor, {idor.param: substituted}, session
+        )
+        # No ownership check: both the owned and the substituted identifier are
+        # served, which is exactly the IDOR the access probe should flag.
+        self.assertEqual(seed_status, 200)
+        self.assertEqual(sub_status, 200)
+
+    def test_owned_route_denies_a_substituted_identifier(self) -> None:
+        session = self._session("admin")
+        owned = next(r for r in demo_shop.ACCOUNT_ROUTES if r.kind == "owned")
+        seed_status, _ = demo_shop.render_account_route(
+            owned, {owned.param: owned.seed}, session
+        )
+        substituted = str(int(owned.seed) + 1)
+        sub_status, _ = demo_shop.render_account_route(
+            owned, {owned.param: substituted}, session
+        )
+        # Proper access control: the resource is served to its owner and denied
+        # for a substituted identifier -- the true negative.
+        self.assertEqual(seed_status, 200)
+        self.assertEqual(sub_status, 403)
+
+    def test_the_account_area_is_not_linked_from_the_public_index(self) -> None:
+        index = demo_shop.render_index().decode("utf-8")
+        self.assertNotIn(demo_shop.ACCOUNT_INDEX_PATH, index)
+        for route in demo_shop.ACCOUNT_ROUTES:
+            self.assertNotIn(route.path, index)
+
+    def test_the_account_dashboard_links_every_protected_route(self) -> None:
+        dashboard = demo_shop.render_account_index(self._session()).decode("utf-8")
+        for route in demo_shop.ACCOUNT_ROUTES:
+            self.assertIn(f'href="{route.path}"', dashboard)
 
 
 if __name__ == "__main__":

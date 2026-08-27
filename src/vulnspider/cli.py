@@ -281,6 +281,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Also probe for Broken Access Control in simple mode (opt-in).",
     )
     parser.add_argument(
+        "--cookie",
+        dest="simple_cookie",
+        action="append",
+        default=None,
+        metavar="NAME=VALUE",
+        help=(
+            "Send an operator-supplied session cookie on every request "
+            "(repeatable). Turns a Broken Access Control scan authenticated. "
+            "Requires --static-only in simple mode."
+        ),
+    )
+    parser.add_argument(
         "--ground-truth",
         type=Path,
         default=None,
@@ -540,6 +552,20 @@ def build_parser() -> argparse.ArgumentParser:
             "Also probe for Broken Access Control (credential-strip / "
             "identifier-substitution GET re-sends). Adds extra requests, so it "
             "is opt-in."
+        ),
+    )
+    analyze.add_argument(
+        "--cookie",
+        action="append",
+        default=None,
+        metavar="NAME=VALUE",
+        help=(
+            "Send an operator-supplied session cookie on every request "
+            "(repeatable). This is how a Broken Access Control scan is given a "
+            "logged-in session: protected resources answer 200 and are "
+            "discovered, and every request template carries the credential so "
+            "--access-control can strip it. Static discovery only (not "
+            "--dynamic). Read-only GET; VulnSpider never logs in itself."
         ),
     )
     analyze.add_argument(
@@ -937,6 +963,7 @@ def _simple_options_without_url(args: argparse.Namespace) -> bool:
         or args.simple_eval_output is not None
         or args.simple_eval_cutoffs is not None
         or args.simple_application_id is not None
+        or args.simple_cookie is not None
     )
 
 
@@ -977,6 +1004,7 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         llm_model=args.simple_llm_model,
         open_report=args.simple_open_report,
         access_control=args.simple_access_control,
+        cookie=args.simple_cookie,
         ground_truth=args.simple_ground_truth,
         eval_output=args.simple_eval_output,
         eval_cutoffs=args.simple_eval_cutoffs,
@@ -1528,7 +1556,41 @@ def _crawl_policy_from_args(args: argparse.Namespace) -> CrawlPolicy:
         delay_seconds=defaults.delay_seconds,
         max_elapsed_seconds=defaults.max_elapsed_seconds,
         max_response_bytes=defaults.max_response_bytes,
+        session_cookies=_session_cookies_from_args(args),
     )
+
+
+def _session_cookies_from_args(
+    args: argparse.Namespace,
+) -> tuple[tuple[str, str], ...]:
+    """Parse ``--cookie NAME=VALUE`` options into an ordered cookie tuple.
+
+    An authenticated Broken Access Control scan needs a logged-in session, and
+    ``--cookie`` is how the operator supplies it. Cookies are only meaningful on
+    the static path, so combining them with Dynamic discovery is rejected rather
+    than silently ignored.
+    """
+
+    raw = getattr(args, "cookie", None) or []
+    if not raw:
+        return ()
+    if getattr(args, "dynamic", False):
+        raise CLIError(
+            "--cookie is only supported for static discovery; omit --dynamic "
+            "(or use --static-only in simple -u mode)"
+        )
+    cookies: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for item in raw:
+        name, separator, value = item.partition("=")
+        name = name.strip()
+        if not separator or not name:
+            raise CLIError(f"--cookie must be NAME=VALUE, got {item!r}")
+        if name in seen:
+            raise CLIError(f"--cookie {name!r} was given more than once")
+        seen.add(name)
+        cookies.append((name, value))
+    return tuple(cookies)
 
 
 def _load_legacy_records(path: Path) -> tuple[Mapping[str, Any], ...]:

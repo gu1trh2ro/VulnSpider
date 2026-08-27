@@ -1332,6 +1332,62 @@ arm을 코퍼스 위에서 정의했지만, 제품이 실제로 출력하는 con
 
 ---
 
+## ADR-037 — DemoShop 인증 영역과 네이티브 세션 쿠키 (BAC 실증)
+
+**Status:** Accepted
+
+**Date:** 2026-08-27
+
+**Decision:** BAC를 데모에서 **진짜 취약점(true positive)과 정상 접근제어(true
+negative)**로 실증하기 위해 세 가지를 함께 도입한다.
+
+1. **네이티브 세션 쿠키 (정적 경로).** `CrawlPolicy.session_cookies`와 CLI
+   `--cookie NAME=VALUE`(반복)로 운영자가 로그인 세션을 제공하면, 정적 크롤러가
+   그 쿠키를 모든 요청에 실어 보내고(`Cookie` 헤더) 생성하는 모든
+   `RequestTemplate`에 쿠키를 담는다(`extract_static_html(session_cookies=...)`).
+   `RequestTemplate.id`가 쿠키를 포함(models.py)하므로 사후 부착은 불가능해,
+   쿠키는 **템플릿 생성 시점**에 주입한다. 이로써 (a) 보호 자원이 200으로
+   발견되고(크롤러는 4xx를 스킵한다), (b) `plan_credential_strip`이 계획될 전제
+   (템플릿에 자격증명 존재)가 성립한다. 계정 생성/로그인 자동화/상태 변경은
+   없다(AGENTS.md 준수) — 읽기 전용 GET, 세션은 운영자 제공.
+2. **DemoShop 인증 영역(`/portal/`).** `/login?as=admin|user`가 서명된
+   `demoshop_session` 쿠키를 발급. `/portal/order?ref`·`/portal/message?thread`는
+   소유권 확인이 없는 **IDOR(취약)**, `/portal/card?card_id`는 소유권을 확인해
+   치환 시 403인 **정상 접근제어(안전)**. 공개 상점과 분리되어(공개 index에서
+   링크 안 함) 세션 쿠키로 별도 스캔한다. 공개 100 입력점/기존 정답은 불변.
+3. **평가 보강.** endpoint-level인 CREDENTIAL_STRIP 후보(입력점 없음)는
+   파라미터 단위 정답에 조인할 수 없어 live 평가에서 **에러 대신 건너뛴다**
+   (`evaluation/live.py`). 크롤 리포트는 세션 토큰 값을 **마스킹**해 출력한다
+   (이름 유지, 값 `<redacted>`; AGENTS.md 세션 시크릿 금지).
+
+**Context:** DVWA BAC가 로그인 없이는 발현되지 않고(모든 user_id에 200
+"Access denied") 우리 휴리스틱이 그 200을 IDOR 성공으로 오독한 것이 드러났다.
+DemoShop에서도 지금까지 BAC 후보는 "인증이 아예 없어 아무나 200"이라 오탐과
+성질이 같았다. 진짜 접근제어가 있는 자원에서만 true positive/negative가 구분되고,
+그러려면 인증된 참조 요청이 필요하다.
+
+**Alternatives:**
+
+- *사후 템플릿에 쿠키 부착.* `RequestTemplate.id`가 쿠키 포함 → 참조 무결성
+  파괴. 기각.
+- *legacy `--input` 인증 크롤 픽스처.* 크롤러 변경은 없지만 discovery가 라이브가
+  아니고 v0.2 주경로가 아님(AGENTS.md). 팀 결정으로 네이티브 방식 채택.
+- *CREDENTIAL_STRIP에 endpoint-level 정답 부여.* GroundTruthKey가 비어있지 않은
+  parameter_name을 요구 → 모델 확장 필요. 데모는 IDOR(입력점 있음) 중심으로
+  두고 credential-strip 후보는 평가에서 스킵.
+
+**Consequences:**
+
+- `analyze --url .../portal/ --access-control --cookie ... --ground-truth ...`
+  실측(top-10): IDOR 2개가 최종 confidence 0.953으로 1~2위, 정상 접근제어는
+  0.524로 그 아래. Recall@2=1.000, MAP@K=1.000 (random 0.22~0.29).
+- `--cookie`는 정적 경로 전용. `--dynamic`과 함께 쓰면 에러(브라우저 세션 임포트
+  미지원). 공개 상점 스캔은 `--cookie` 없이 종전과 동일.
+- 크롤러가 4xx를 스킵하므로 보호 자원은 유효한 세션으로만 발견된다. 잘못된
+  토큰/쿠키 없음 → 403 → 미발견.
+
+---
+
 ## New Decision Template
 
 ```text

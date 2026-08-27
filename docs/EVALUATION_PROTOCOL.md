@@ -302,6 +302,38 @@ PYTHONPATH=src python -m vulnspider analyze \
 8개가 전부 진짜이기 때문이며, 타깃이 쉬워서가 아니라 그 구간이 실제로 정확하다는
 뜻이다. `K = 10` 이후 `safe_type_error` 3개가 섞여 들어오면서 값이 내려간다.
 
+### Broken Access Control — 인증 영역 (ADR-037)
+
+BAC는 **세션**이 있어야 의미 있게 평가된다(두 access feature는 참조 요청이
+인증된 2xx여야 한다). DemoShop의 인증 영역 `/portal/`은 IDOR 취약 2개
+(`order?ref`, `message?thread` — 소유권 확인 없음)와 정상 접근제어 1개
+(`card?card_id` — 치환 시 403)로 구성되고, 공개 상점과 분리되어 세션 쿠키로 별도
+스캔한다. 크롤러는 4xx를 스킵하므로 보호 자원은 유효 세션으로만 발견된다.
+
+```bash
+# 로그인 → 세션 쿠키 확보(운영자 제공). VulnSpider는 로그인하지 않는다.
+#   http://127.0.0.1:8899/login?as=admin  → demoshop_session=<token>
+PYTHONPATH=src python -m vulnspider analyze \
+  --url http://127.0.0.1:8899/portal/ --access-control \
+  --cookie demoshop_session=<token> \
+  --max-pages 20 --max-requests 100 --top-k 10 \
+  --output portal-analysis.json \
+  --ground-truth data/demo/demoshop-ground-truth.json \
+  --application-id demoshop --eval-output portal-eval.json
+```
+
+측정값 (top-10, 후보 9개 중 취약 2개, 미라벨 0):
+
+| 후보 (최종 confidence 순) | 최종 | 라벨 |
+| --- | --- | --- |
+| `/portal/message?thread` (IDOR) | 0.953 | 취약 |
+| `/portal/order?ref` (IDOR) | 0.953 | 취약 |
+| `/portal/card?card_id` (접근제어) | 0.524 | 안전 |
+
+`Recall@2` 1.000 / `MAP@K` 1.000 (random 0.22~0.29). IDOR 2개가 상위, 정상
+접근제어는 그 아래로 올바르게 분리된다. endpoint-level인 CREDENTIAL_STRIP 후보는
+파라미터 단위 정답에 조인할 수 없어 평가에서 제외된다(랭킹·대시보드에는 표시).
+
 ---
 
 ## 7. Ablation
