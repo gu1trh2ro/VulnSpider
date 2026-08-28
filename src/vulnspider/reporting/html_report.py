@@ -460,10 +460,13 @@ def _render_warnings(warnings: Sequence[str]) -> str:
     if hidden > 0:
         items += f'<li class="muted">… and {hidden} more distinct warning(s)</li>'
     return (
+        '<details>'
+        '<summary class="lab" style="cursor: pointer; outline: none;">Warnings (클릭해서 접기/펴기)</summary>'
         '<div class="notice">'
         f'<div class="lab">Warnings ({len(ordered)} distinct, '
         f"{sum(counts.values())} total)</div>"
         f"<ul>{items}</ul></div>"
+        '</details>'
     )
 
 
