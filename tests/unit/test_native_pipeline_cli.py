@@ -25,6 +25,23 @@ from vulnspider.reporting import build_analysis_report
 ROOT_URL = "http://127.0.0.1/"
 
 
+def _report_surfaced_candidate_ids(verification_order):
+    """Candidate ids the HTML report surfaces: the top type per input point.
+
+    Every input point is scored as several candidates (a SQLi and an XSS
+    interpretation of one value); the dashboard collapses them to the highest
+    type per input point. Group by ``input_point_ref`` the same way.
+    """
+
+    best = {}
+    for entry in verification_order:
+        ref = entry.get("input_point_ref") or entry["candidate_id"]
+        score = entry.get("final_confidence", entry["probability"])
+        if ref not in best or score > best[ref][0]:
+            best[ref] = (score, entry["candidate_id"])
+    return {candidate_id for _score, candidate_id in best.values()}
+
+
 @dataclass
 class SinglePageCrawlerTransport:
     html: str
@@ -338,8 +355,11 @@ class NativeCliTests(unittest.TestCase):
         self.assertTrue(report["verification_order"])
         self.assertIn("VulnSpider", html)
         self.assertIn("검증 순서", html)
-        for candidate in report["verification_order"]:
-            self.assertIn(candidate["candidate_id"], html)
+        # The HTML surfaces one finding per input point (its top type).
+        for candidate_id in _report_surfaced_candidate_ids(
+            report["verification_order"]
+        ):
+            self.assertIn(candidate_id, html)
         self.assertTrue(
             any("executes GET request contexts only" in item for item in report["warnings"])
         )

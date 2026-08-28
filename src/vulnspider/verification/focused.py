@@ -22,7 +22,7 @@ rejected payload execute, and it never sends a request off the loopback.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from ipaddress import ip_address
 from typing import Any
@@ -113,6 +113,28 @@ class VerificationConfig:
     # progress during a long run (e.g. the LLM proposer). Purely observational --
     # it never changes what is verified.
     progress: Callable[[int, int, "VerificationTarget"], None] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationSelection:
+    """One candidate the caller wants verified, and the prior to update.
+
+    ``build_targets`` defaults to the v0.1 heuristic Top-K held on
+    ``AnalysisResult.selection``. That is the right set when the goal is to
+    collect verification training data over the historical ordering, but it is
+    the *wrong* set for a scan report: the decision layer ranks by calibrated
+    probability, and once a fitted model or a calibration-only term (the XSS
+    encoding penalty, ADR-031) pulls the two orderings apart, the verified
+    candidates can miss the reported Top-K entirely. Passing an explicit
+    selection keeps verification pointed at exactly the candidates the report
+    ranks, with exactly the priors the report shows.
+    """
+
+    candidate_id: str
+    input_point_id: str
+    feature_vector_id: str
+    vulnerability_type: VulnerabilityType
+    prior_probability: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,11 +236,22 @@ def verify_analysis(
     analysis: Any,
     *,
     config: VerificationConfig | None = None,
+    selection: Sequence[VerificationSelection] | None = None,
 ) -> VerificationRun:
-    """Run focused verification over the Top-K of one analysis result."""
+    """Run focused verification over the Top-K of one analysis result.
+
+    ``selection`` names the candidates to verify, in report order. Without it
+    the v0.1 heuristic Top-K on ``analysis.selection`` is used, which is what
+    the verification corpus builder wants; a scan wants the decision layer's
+    Top-K instead (see :class:`VerificationSelection`).
+    """
 
     config = config or VerificationConfig()
-    targets, warnings = build_targets(analysis, max_candidates=config.max_candidates)
+    targets, warnings = build_targets(
+        analysis,
+        max_candidates=config.max_candidates,
+        selection=selection,
+    )
     total = len(targets)
     verified: list[CandidateVerification] = []
     for index, target in enumerate(targets, start=1):
@@ -431,53 +464,82 @@ def build_targets(
     analysis: Any,
     *,
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
+    selection: Sequence[VerificationSelection] | None = None,
 ) -> tuple[tuple[VerificationTarget, ...], list[str]]:
-    """Resolve the selected Top-K candidates into verification targets."""
+    """Resolve the candidates to verify into verification targets.
 
-    selection = getattr(analysis, "selection", None)
-    if selection is None:
-        raise FocusedVerificationError("analysis has no selection outcome")
+    With ``selection`` the caller owns both the set and the priors. Without it
+    the v0.1 heuristic Top-K on ``analysis.selection`` is resolved instead, and
+    the prior comes from the zero-corpus heuristic scorer.
+    """
 
     input_points = {point.id or "": point for point in analysis.input_points}
     vectors = {vector.id or "": vector for vector in analysis.feature_vectors}
     baseline_requests = _baseline_requests(analysis)
     scorer_cache: dict[str, CalibratedScorer] = {}
 
+    entries: list[tuple[str, str, str, VulnerabilityType, float | None]] = []
+    if selection is None:
+        outcome = getattr(analysis, "selection", None)
+        if outcome is None:
+            raise FocusedVerificationError("analysis has no selection outcome")
+        for ranked in outcome.selected:
+            candidate = ranked.scoring_result.candidate
+            entries.append(
+                (
+                    candidate.id or "",
+                    candidate.input_point_id,
+                    ranked.scoring_result.feature_vector_id,
+                    candidate.vulnerability_type,
+                    None,
+                )
+            )
+    else:
+        entries.extend(
+            (
+                chosen.candidate_id,
+                chosen.input_point_id,
+                chosen.feature_vector_id,
+                chosen.vulnerability_type,
+                chosen.prior_probability,
+            )
+            for chosen in selection
+        )
+
     targets: list[VerificationTarget] = []
     warnings: list[str] = []
-    for rank, ranked in enumerate(selection.selected, start=1):
+    for rank, entry in enumerate(entries, start=1):
         if 0 < max_candidates < rank:
             break
-        candidate = ranked.scoring_result.candidate
-        vector = vectors.get(ranked.scoring_result.feature_vector_id)
-        input_point = input_points.get(candidate.input_point_id)
-        baseline_request = baseline_requests.get(candidate.input_point_id)
+        candidate_id, input_point_id, feature_vector_id, family, prior = entry
+        vector = vectors.get(feature_vector_id)
+        input_point = input_points.get(input_point_id)
+        baseline_request = baseline_requests.get(input_point_id)
         if input_point is None or vector is None or baseline_request is None:
             warnings.append(
-                f"candidate {candidate.id} rank {rank} skipped: "
+                f"candidate {candidate_id} rank {rank} skipped: "
                 "missing input point, feature vector, or baseline request"
             )
             continue
         if input_point.location.value not in {"QUERY", "FORM"}:
             warnings.append(
-                f"candidate {candidate.id} rank {rank} skipped: "
+                f"candidate {candidate_id} rank {rank} skipped: "
                 f"location {input_point.location.value} is not verification-bindable"
             )
             continue
-        prior = _prior_probability(
-            candidate.vulnerability_type, vector, scorer_cache
-        )
+        if prior is None:
+            prior = _prior_probability(family, vector, scorer_cache)
         if prior is None:
             warnings.append(
-                f"candidate {candidate.id} rank {rank} skipped: "
-                f"no calibrated prior for family {candidate.vulnerability_type.value}"
+                f"candidate {candidate_id} rank {rank} skipped: "
+                f"no calibrated prior for family {family.value}"
             )
             continue
         targets.append(
             VerificationTarget(
-                candidate_id=candidate.id or "",
+                candidate_id=candidate_id,
                 selection_rank=rank,
-                vulnerability_type=candidate.vulnerability_type,
+                vulnerability_type=family,
                 input_point=input_point,
                 baseline_request=baseline_request,
                 baseline_feature_vector=vector,

@@ -44,6 +44,9 @@ EXTRACTOR_VERSION = "native-static-html/1.1"
 SCOPE_POLICY_VERSION = "same-origin-v1"
 
 _NON_DATA_INPUT_TYPES = frozenset({"button", "image", "reset", "submit"})
+# control_types marker for the fixed submit-gate parameter: it rides on the
+# request but is never turned into an injectable InputPoint.
+_SUBMIT_GATE_TYPE = "submit-gate"
 _CHECKABLE_INPUT_TYPES = frozenset({"checkbox", "radio"})
 
 
@@ -185,6 +188,16 @@ class _RawForm:
     controls: list[_RawControl] = field(default_factory=list)
     malformed_reasons: set[str] = field(default_factory=set)
     closed: bool = False
+    submit_gate: tuple[str, str] | None = None
+    """First named submit control ``(name, value)`` a browser would activate.
+
+    A browser submitting a form sends the activated submit control's
+    ``name=value`` alongside the data fields, and many handlers gate on it
+    (``if (isset($_GET['Submit']))`` -- DVWA's SQLi page is exactly this). It is
+    carried as a fixed request parameter but never becomes an injectable
+    InputPoint. Only the first named submit is kept, because a browser sends
+    exactly one. Unnamed submits send nothing and are ignored.
+    """
 
 
 @dataclass(slots=True)
@@ -288,6 +301,15 @@ class _StaticHtmlParser(HTMLParser):
             self._start_option(attributes)
             return
         if tag == "button" and self.form is not None:
+            # A <button> defaults to type=submit; one with type=button/reset
+            # does not submit. A named submitting button gates the handler just
+            # like <input type=submit>, so carry it as a fixed parameter.
+            button_type = (attributes.get("type") or "submit").strip().lower()
+            button_name = _non_empty_attribute(attributes, "name")
+            if button_type == "submit" and button_name is not None:
+                self._record_submit_gate(
+                    button_name, attributes.get("value") or ""
+                )
             self._warn_control(
                 "FORM_CONTROL_NON_DATA",
                 "button control is not an injectable successful control",
@@ -405,6 +427,10 @@ class _StaticHtmlParser(HTMLParser):
             )
             return
         if type_hint in _NON_DATA_INPUT_TYPES:
+            if type_hint == "submit":
+                # A named submit button gates the handler; carry it as a fixed
+                # request parameter (never an injectable input point).
+                self._record_submit_gate(name, attributes.get("value") or "")
             self._warn_control(
                 "FORM_CONTROL_NON_DATA",
                 "non-data form control was skipped",
@@ -588,6 +614,13 @@ class _StaticHtmlParser(HTMLParser):
         self._control_index += 1
         return current
 
+    def _record_submit_gate(self, name: str, value: str) -> None:
+        """Remember the first named submit control of the current form."""
+
+        if self.form is None or self.form.submit_gate is not None:
+            return
+        self.form.submit_gate = (name, value)
+
     def _warn_control(
         self,
         code: str,
@@ -615,6 +648,7 @@ class CanonicalDiscoveryBuilder:
         depth: int,
         request_authorizer: Callable[[str], bool] | None,
         discovered_by: str | None = None,
+        session_cookies: Mapping[str, str] | None = None,
     ) -> None:
         self.source_url = source_url
         self.metadata = metadata
@@ -622,6 +656,7 @@ class CanonicalDiscoveryBuilder:
         self.parent_url = parent_url
         self.depth = depth
         self.request_authorizer = request_authorizer
+        self.session_cookies = dict(session_cookies or {})
         self.native_metadata_key = (
             "native_dynamic"
             if metadata.collector_kind == CollectorKind.NATIVE_DYNAMIC
@@ -935,9 +970,19 @@ class CanonicalDiscoveryBuilder:
                 skipped=False,
             )
 
+        # The activated submit button's name=value rides on the request as a
+        # fixed parameter (a browser sends it), gating handlers like DVWA's, but
+        # is never made an injectable input point.
+        gate_pairs = (form.submit_gate,) if form.submit_gate is not None else ()
+        gate_control_types = (
+            ((_SUBMIT_GATE_TYPE, False, -1),)
+            if form.submit_gate is not None
+            else ()
+        )
+
         observation_key = f"form:{boundary_key}"
         if method == HttpMethod.GET:
-            encoded_query = urlencode(pairs)
+            encoded_query = urlencode(pairs + gate_pairs)
             parts = urlsplit(action_url)
             request_url = urlunsplit(
                 (parts.scheme, parts.netloc, parts.path, encoded_query, "")
@@ -962,7 +1007,8 @@ class CanonicalDiscoveryBuilder:
                         control.control_index,
                     )
                     for control, _ in expanded_controls
-                ),
+                )
+                + gate_control_types,
                 context_key=boundary_key,
                 provenance=tuple(provenance),
                 metadata=metadata,
@@ -980,12 +1026,28 @@ class CanonicalDiscoveryBuilder:
         action_query = _query_occurrences(urlsplit(action_url).query)
         if action_query:
             provenance.append(("query", "raw-url"))
+        gate_controls = (
+            (
+                (
+                    _RawControl(
+                        name=form.submit_gate[0],
+                        type_hint=_SUBMIT_GATE_TYPE,
+                        values=(form.submit_gate[1],),
+                        hidden=False,
+                        control_index=-1,
+                    ),
+                    form.submit_gate[1],
+                ),
+            )
+            if form.submit_gate is not None
+            else ()
+        )
         self._add_template_with_points(
             endpoint=endpoint,
             url=action_url,
             method=method,
             query_occurrences=action_query,
-            form_controls=expanded_controls,
+            form_controls=expanded_controls + gate_controls,
             context_key=boundary_key,
             provenance=tuple(provenance),
             metadata=metadata,
@@ -1125,6 +1187,7 @@ class CanonicalDiscoveryBuilder:
             url=url,
             query=query_pairs,
             form=form_pairs,
+            cookies=self.session_cookies,
             completeness=(
                 RequestContextCompleteness.COMPLETE
                 if context_complete
@@ -1159,16 +1222,20 @@ class CanonicalDiscoveryBuilder:
                     {"pair_index": pair_index},
                 )
                 continue
+            if pair_index < len(control_types):
+                type_hint, hidden, control_index = control_types[pair_index]
+            else:
+                type_hint, hidden, control_index = ("query", False, -1)
+            if type_hint == _SUBMIT_GATE_TYPE:
+                # Fixed submit parameter: carried on the request template's
+                # query above, but not an injectable input point.
+                continue
             occurrence_index = (
                 query_seen.get(canonical_name, 0)
                 if query_counts[canonical_name] > 1
                 else None
             )
             query_seen[canonical_name] = query_seen.get(canonical_name, 0) + 1
-            if pair_index < len(control_types):
-                type_hint, hidden, control_index = control_types[pair_index]
-            else:
-                type_hint, hidden, control_index = ("query", False, -1)
             point = InputPoint(
                 endpoint_id=endpoint.id or "",
                 endpoint_fingerprint=endpoint.fingerprint,
@@ -1213,6 +1280,10 @@ class CanonicalDiscoveryBuilder:
         )
         form_seen: dict[str, int] = {}
         for pair_index, (control, value) in enumerate(form_controls):
+            if control.type_hint == _SUBMIT_GATE_TYPE:
+                # Fixed submit parameter: carried on the request template's form
+                # body above, but not an injectable input point.
+                continue
             canonical_name = _canonical_input_name(control.name)
             occurrence_index = (
                 form_seen.get(canonical_name, 0)
@@ -1364,8 +1435,14 @@ def extract_static_html(
     sensitive_form_policy: SensitiveFormElisionPolicy | None = None,
     request_authorizer: Callable[[str], bool] | None = None,
     safety_invariants: Sequence[DiscoverySafetyInvariant] = (),
+    session_cookies: Mapping[str, str] | tuple[tuple[str, str], ...] = (),
 ) -> StaticExtractionResult:
-    """Extract one HTML string without fetching, submitting, or executing it."""
+    """Extract one HTML string without fetching, submitting, or executing it.
+
+    ``session_cookies`` are attached to every produced ``RequestTemplate`` so a
+    downstream access-control check can strip them. They are the operator's
+    authenticated session; extraction still never fetches or submits anything.
+    """
 
     if type(html) is not str:
         raise TypeError("html must be a string")
@@ -1452,6 +1529,7 @@ def extract_static_html(
         parent_url=canonical_parent,
         depth=depth,
         request_authorizer=request_authorizer,
+        session_cookies=dict(session_cookies),
     )
     builder.add_url_surface(
         canonical_source,
@@ -1649,6 +1727,7 @@ def extract_static_html_with_sensitive_form_elision(
     scope_metadata: ScopeMetadata,
     parent_url: str | None,
     depth: int,
+    session_cookies: tuple[tuple[str, str], ...] = (),
 ) -> StaticExtractionResult:
     """Extract Static HTML with the merge-required elision policy bound."""
 
@@ -1660,6 +1739,7 @@ def extract_static_html_with_sensitive_form_elision(
         parent_url=parent_url,
         depth=depth,
         sensitive_form_policy=SensitiveFormElisionPolicy(),
+        session_cookies=session_cookies,
     )
 
 

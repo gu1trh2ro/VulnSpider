@@ -1267,6 +1267,175 @@ REPRODUCED), 하나도 재현 안 되면 약화(WEAKEN)한다 — injection과 �
 
 ---
 
+## ADR-036 — 라벨 붙은 DemoShop 타깃과 live ranking evaluation
+
+**Status:** Accepted
+
+**Date:** 2026-08-24
+
+**Decision:** 세 가지를 함께 정한다.
+
+1. **평가용 타깃.** `demo_target_server.py`의 37개 입력점을 `tools/demo_shop.py`의
+   **DemoShop**(라우트 32개, GET form 기반 입력점 100개, 취약 40 / 안전 60)으로
+   교체한다. 정답은 사이트 자신이 소유하고 `data/demo/demoshop-ground-truth.json`에
+   커밋한다. 안전 입력점은 일부러 어렵게 만든다(`safe_validated` 400,
+   `safe_dynamic` 길이 변화, `safe_stripped` 위험문자 치환, `safe_type_error`
+   파라미터 바인딩인데 캐스팅 오류로 진짜 DB 오류를 노출). 취약 입력점 중
+   `sqli_blind`·`xss_conditional`은 현재 feature로는 놓치도록 둔다. 어떤 랭킹이든
+   1.000이 나오는 타깃은 아무것도 측정하지 못하기 때문이다.
+2. **live evaluation 단계.** `evaluation/live.py`가 한 번의 실제 스캔이 만든 후보
+   pool을 ground truth와 조인해 세 arm을 **같은 후보·같은 라벨**로 채점한다:
+   random predictor(전체가 한 동점 그룹 = §6-A rule 4의 정확한 기대값),
+   focused verification을 뺀 파이프라인(보정 확률 순), 최종 VulnSpider
+   (`final_confidence` 순). `--ground-truth`로 켜고 `live-evaluation-v1` JSON과
+   콘솔 표로 남긴다. 한 스캔 = 애플리케이션 1개 = query 1개(§6-A rule 3)이므로
+   `MAP@K`는 그 query의 average precision이다.
+3. **검증 대상 정정.** `--verify`는 지금까지 `analysis.selection`(v0.1 휴리스틱
+   Top-K)을 검증했지만 리포트는 보정 확률 Top-K를 싣는다. XSS encoding 감점
+   (ADR-031)처럼 보정 전용 항이 순서를 바꾸면 두 집합이 완전히 어긋나, 리포트의
+   어떤 후보에도 `final_confidence`가 붙지 않는다. `cli_decision.rank_analysis`로
+   랭킹을 먼저 계산하고 `VerificationSelection`으로 그 집합·그 prior를 검증에
+   넘긴다. `verify_analysis(selection=...)`를 생략하면 종전 동작이라
+   `tools/build_verification_corpus.py`는 그대로다.
+
+**Context:** "Random Predictor / focused verification 없는 파이프라인 / 최종
+소프트웨어를 Precision·Recall·MAP으로 비교하고 싶다"는 요구. ADR-033이 verification
+arm을 코퍼스 위에서 정의했지만, 제품이 실제로 출력하는 confidence로 측정하는 경로는
+없었다. 그 경로를 만들자마자 3번 문제가 드러났다: 100개 입력점 타깃에서 두 Top-K의
+교집합이 0이었다.
+
+**Alternatives:**
+
+- *리포트에서 오프라인으로 채점.* `decision-report-v1`에 후보 identity(path·
+  parameter)가 없어 ground truth와 조인할 수 없다. 리포트 스키마를 넓히는 대신
+  실행 중 권위 있는 `Endpoint`/`InputPoint`에서 키를 만든다(`corpus/collection`과
+  동일 규칙).
+- *검증이 계속 휴리스틱 Top-K를 보게 두기.* 검증 코퍼스 수집에는 맞지만 스캔
+  리포트에는 틀리다. 그래서 기본값은 유지하고 호출자가 집합을 지정하게 했다.
+- *arm을 코퍼스처럼 out-of-fold로.* live 스캔은 학습이 아니라 측정이므로 해당
+  없음. 대신 미라벨 후보 수를 항상 함께 보고한다.
+
+**Consequences:**
+
+- 검증된 후보가 리포트 Top-K와 항상 일치한다. DemoShop 실측(top-k 20, 적합
+  verification 모델): Precision@20 random 0.160 / no-verify 0.800 / full 0.850,
+  MAP@20 0.049 / 0.714 / 0.763.
+- 내장 기본 verification 모델은 `SUPPORT_REPRODUCED`의 LLR이 0이라(ADR-033)
+  arm 간 차이가 0이 된다. 평가 실행은 `corpus verify-fit`으로 적합한 모델을
+  `--verification-model`로 넘겨야 한다.
+- verification은 Top-K만 방문하므로 `K == top_k`에서 두 arm은 **같은 집합**이고
+  `Recall@K`/`Precision@K`가 대체로 같다. 차이는 순서에 민감한 `MAP@K`와
+  `K < top_k`에서 드러난다. 단, 강등된 후보가 컷 밖으로 밀리면 미검증 후보가
+  올라와 집합 자체가 바뀔 수 있다.
+- DemoShop은 라우트가 32개라 기본 크롤 예산(10 페이지)으로는 부족하다. 평가는
+  `analyze --url ... --max-pages 60 --max-requests 250`로 실행한다.
+
+---
+
+## ADR-037 — DemoShop 인증 영역과 네이티브 세션 쿠키 (BAC 실증)
+
+**Status:** Accepted
+
+**Date:** 2026-08-27
+
+**Decision:** BAC를 데모에서 **진짜 취약점(true positive)과 정상 접근제어(true
+negative)**로 실증하기 위해 세 가지를 함께 도입한다.
+
+1. **네이티브 세션 쿠키 (정적 경로).** `CrawlPolicy.session_cookies`와 CLI
+   `--cookie NAME=VALUE`(반복)로 운영자가 로그인 세션을 제공하면, 정적 크롤러가
+   그 쿠키를 모든 요청에 실어 보내고(`Cookie` 헤더) 생성하는 모든
+   `RequestTemplate`에 쿠키를 담는다(`extract_static_html(session_cookies=...)`).
+   `RequestTemplate.id`가 쿠키를 포함(models.py)하므로 사후 부착은 불가능해,
+   쿠키는 **템플릿 생성 시점**에 주입한다. 이로써 (a) 보호 자원이 200으로
+   발견되고(크롤러는 4xx를 스킵한다), (b) `plan_credential_strip`이 계획될 전제
+   (템플릿에 자격증명 존재)가 성립한다. 계정 생성/로그인 자동화/상태 변경은
+   없다(AGENTS.md 준수) — 읽기 전용 GET, 세션은 운영자 제공.
+2. **DemoShop 인증 영역(`/portal/`).** `/login?as=admin|user`가 서명된
+   `demoshop_session` 쿠키를 발급. `/portal/order?ref`·`/portal/message?thread`는
+   소유권 확인이 없는 **IDOR(취약)**, `/portal/card?card_id`는 소유권을 확인해
+   치환 시 403인 **정상 접근제어(안전)**. 공개 상점과 분리되어(공개 index에서
+   링크 안 함) 세션 쿠키로 별도 스캔한다. 공개 100 입력점/기존 정답은 불변.
+3. **평가 보강.** endpoint-level인 CREDENTIAL_STRIP 후보(입력점 없음)는
+   파라미터 단위 정답에 조인할 수 없어 live 평가에서 **에러 대신 건너뛴다**
+   (`evaluation/live.py`). 크롤 리포트는 세션 토큰 값을 **마스킹**해 출력한다
+   (이름 유지, 값 `<redacted>`; AGENTS.md 세션 시크릿 금지).
+
+**Context:** DVWA BAC가 로그인 없이는 발현되지 않고(모든 user_id에 200
+"Access denied") 우리 휴리스틱이 그 200을 IDOR 성공으로 오독한 것이 드러났다.
+DemoShop에서도 지금까지 BAC 후보는 "인증이 아예 없어 아무나 200"이라 오탐과
+성질이 같았다. 진짜 접근제어가 있는 자원에서만 true positive/negative가 구분되고,
+그러려면 인증된 참조 요청이 필요하다.
+
+**Alternatives:**
+
+- *사후 템플릿에 쿠키 부착.* `RequestTemplate.id`가 쿠키 포함 → 참조 무결성
+  파괴. 기각.
+- *legacy `--input` 인증 크롤 픽스처.* 크롤러 변경은 없지만 discovery가 라이브가
+  아니고 v0.2 주경로가 아님(AGENTS.md). 팀 결정으로 네이티브 방식 채택.
+- *CREDENTIAL_STRIP에 endpoint-level 정답 부여.* GroundTruthKey가 비어있지 않은
+  parameter_name을 요구 → 모델 확장 필요. 데모는 IDOR(입력점 있음) 중심으로
+  두고 credential-strip 후보는 평가에서 스킵.
+
+**Consequences:**
+
+- `analyze --url .../portal/ --access-control --cookie ... --ground-truth ...`
+  실측(top-10): IDOR 2개가 최종 confidence 0.953으로 1~2위, 정상 접근제어는
+  0.524로 그 아래. Recall@2=1.000, MAP@K=1.000 (random 0.22~0.29).
+- `--cookie`는 정적 경로 전용. `--dynamic`과 함께 쓰면 에러(브라우저 세션 임포트
+  미지원). 공개 상점 스캔은 `--cookie` 없이 종전과 동일.
+- 크롤러가 4xx를 스킵하므로 보호 자원은 유효한 세션으로만 발견된다. 잘못된
+  토큰/쿠키 없음 → 403 → 미발견.
+
+---
+
+## ADR-038 — 두 실제-앱 탐지 갭 수정: submit 게이트 포함, BAC denial 게이트
+
+**Status:** Accepted
+
+**Date:** 2026-08-28
+
+**Decision:** DVWA 케이스 스터디 준비 중 드러난 두 가지 갭(둘 다 실제 앱 부류의
+문제)을 근본 수정한다.
+
+1. **이름 있는 submit 컨트롤을 고정 요청 파라미터로 포함(SQLi 미탐 수정).**
+   `html_extractor`는 submit/버튼을 비데이터 컨트롤로 완전히 스킵했다. 그러나
+   브라우저는 폼 제출 시 활성화된 submit 버튼의 `name=value`를 함께 보내고, 많은
+   핸들러가 그것으로 게이팅한다(`if (isset($_GET['Submit']))` — DVWA SQLi). 이제
+   폼의 **첫 번째 이름 있는 submit/`<button type=submit>`** 을 요청 템플릿의
+   query(GET)/form(POST)에 **고정값**으로 싣되, 주입 가능한 InputPoint로는 만들지
+   않는다. 이름 없는 submit은 브라우저와 동일하게 미포함. `RequestTemplate.id`가
+   쿼리/폼을 포함하므로 생성 시점에 넣는다.
+2. **BAC denial 본문 게이트(오탐 수정).** `access_unauthorized_success`는 비교
+   요청이 HTTP 2xx이면 무조건 1.0이었다. 앱 레벨 "Access denied / 로그인 필요"
+   페이지를 **200**으로 주는 앱(DVWA BAC 익명)에서 이는 200 거부를 IDOR 성공으로
+   오독한다. 이제 응답 본문에서 denial 문구(access denied/unauthorized/forbidden/
+   로그인 필요/접근 거부 등, 대소문자·한영)를 탐지해: **비교 응답이 denial이면
+   success=0.0**, **참조 응답 자체가 denial이면 관측 무효**(미인증이라 샐 게 없음)로
+   처리한다. 접근제어 feature 스키마 `access-feature-v0.2`.
+
+**Context:** 팀 계획의 외부 타깃(DVWA) 준비 중, SQLi는 submit 누락으로 미탐, BAC는
+익명 200 거부를 0.95 오탐으로 잡는 것이 세션 내 실측으로 확인됐다. 둘 다 DVWA 전용
+문제가 아니라 "submit 이름으로 게이팅하는 앱", "인가 거부를 200으로 주는 앱" 부류의
+일반 문제다.
+
+**Alternatives:**
+
+- SQLi: URL 시딩(`?id=1&Submit=Submit`) 우회 — 케이스별 수동이라 일반 수정으로 대체.
+  모든 submit을 다 포함? 브라우저는 하나만 보내므로 첫 번째만.
+- BAC: 상태코드만 유지 + 인증 강제 — 익명 오탐은 남는다. denial 본문 탐지가 근본적.
+  IDOR/자격증명제거의 유사도 의미 분리(ADR-037 C안)는 범위가 커서 후속 과제로 남김.
+
+**Consequences:**
+
+- DVWA SQLi가 URL 시딩 없이 탐지된다(`Submit=Submit` 자동 포함). DemoShop은 폼이
+  이름 없는 `<button type=submit>`이라 영향 없음(공개 100 입력점·정답 불변).
+- DVWA 익명 BAC 0.95 오탐이 사라진다(관측 무효). 실제 IDOR는 로그인 세션(`--cookie`,
+  ADR-037)으로 확인해야 한다. DemoShop `/portal` IDOR(0.953)·정상(0.524) 판정 불변.
+- 한계: denial 문구 사전에 없는 표현은 놓칠 수 있다(패턴 확장 가능). 전체 867 테스트
+  통과.
+
+---
+
 ## New Decision Template
 
 ```text

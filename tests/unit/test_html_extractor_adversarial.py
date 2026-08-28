@@ -302,7 +302,15 @@ class StaticHtmlExtractorAdversarialTests(unittest.TestCase):
                 ("choice", "a"),
                 ("roles", "reader"),
                 ("roles", "writer"),
+                # The named submit control rides on the request body as a fixed
+                # gate parameter (a browser sends it), but is never an input
+                # point -- asserted below.
+                ("submitter", "send"),
             ),
+        )
+        self.assertNotIn(
+            "submitter",
+            {item.name for item in result.discovery.input_points},
         )
         token_points = sorted(
             (item for item in result.discovery.input_points if item.name == "token"),

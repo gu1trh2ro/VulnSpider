@@ -77,7 +77,12 @@ they are listed here:
   `tools/corpus_target_site.py`.
 - Ranking metrics and comparison arms in `evaluation/`, implementing
   `docs/EVALUATION_PROTOCOL.md` §6 and the §6-A judgment rules. Run through
-  `tools/evaluate_ranking.py`.
+  `tools/evaluate_ranking.py` for the stored corpus, and through
+  `analyze --ground-truth` for a live scan (`evaluation/live.py`, §6-B):
+  random predictor vs. the pipeline without focused verification vs. the full
+  pipeline, scored on the confidences the product actually emits. The labeled
+  target is `tools/demo_shop.py` (DemoShop, 100 input points), served by
+  `demo_target_server.py`.
 
 The v0.2 primary path must not use `LegacyCrawlerAdapter`. The adapter remains
 for legacy input compatibility and regression tests.

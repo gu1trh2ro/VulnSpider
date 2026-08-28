@@ -19,6 +19,23 @@ def _report_number(value: float) -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".")
 
 
+def _report_surfaced_candidate_ids(verification_order):
+    """Candidate ids the HTML report surfaces: the top type per input point.
+
+    Every input point is scored as several candidates (a SQLi and an XSS
+    interpretation of one value); the dashboard collapses them to the highest
+    type per input point. Group by ``input_point_ref`` the same way.
+    """
+
+    best = {}
+    for entry in verification_order:
+        ref = entry.get("input_point_ref") or entry["candidate_id"]
+        score = entry.get("final_confidence", entry["probability"])
+        if ref not in best or score > best[ref][0]:
+            best[ref] = (score, entry["candidate_id"])
+    return {candidate_id for _score, candidate_id in best.values()}
+
+
 class _QuietThreadingHttpServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -309,8 +326,12 @@ class NativeStaticDiscoveryEndToEndTests(unittest.TestCase):
         parser.feed(html_text)
         for required_tag in ("html", "head", "title", "body", "article"):
             self.assertIn(required_tag, parser.tags)
-        for candidate in report["verification_order"]:
-            self.assertIn(candidate["candidate_id"], html_text)
+        # The HTML surfaces one finding per input point (its top type); the
+        # collapsed lower-type candidates stay in the JSON but not the HTML.
+        for candidate_id in _report_surfaced_candidate_ids(
+            report["verification_order"]
+        ):
+            self.assertIn(candidate_id, html_text)
 
         # The report joins candidates back to their input points; a query
         # parameter location must render, and it must stay GET-only.

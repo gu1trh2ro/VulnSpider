@@ -10,6 +10,7 @@ from vulnspider.discovery import (
     StaticCrawlerRequest,
     StaticCrawlerResponse,
 )
+from vulnspider.discovery.static_crawler import StaticCrawlerError
 from vulnspider.domain import HttpMethod
 
 
@@ -50,6 +51,79 @@ class FakeTransport:
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
+
+
+class SessionCookieTests(unittest.TestCase):
+    def test_session_cookies_reach_every_request_and_template(self) -> None:
+        transport = FakeTransport(
+            {
+                ROOT_URL: html_response(
+                    '<form method="get" action="/search">'
+                    '<input name="q" value="x">'
+                    '<input type="submit"></form>'
+                ),
+                "http://example.test/search?q=x": html_response("<p>ok</p>"),
+            }
+        )
+
+        result = StaticCrawler(transport=transport, clock=lambda: 0.0).crawl(
+            ROOT_URL,
+            CrawlPolicy(session_cookies=(("sid", "secret-token"),)),
+        )
+
+        # The operator's session rides on every crawl request...
+        self.assertTrue(transport.requests)
+        self.assertTrue(
+            all(
+                request.cookies == (("sid", "secret-token"),)
+                for request in transport.requests
+            )
+        )
+        # ...and on every discovered request template, so a downstream
+        # CREDENTIAL_STRIP check has a credential to remove.
+        templates = result.discovery.request_templates
+        self.assertTrue(templates)
+        self.assertTrue(
+            all(t.cookies.get("sid") == "secret-token" for t in templates)
+        )
+
+    def test_crawl_report_redacts_the_cookie_value_but_keeps_the_name(self) -> None:
+        from vulnspider.reporting.crawl_report import build_crawl_report
+
+        transport = FakeTransport(
+            {
+                ROOT_URL: html_response(
+                    '<form method="get" action="/search">'
+                    '<input name="q" value="x">'
+                    '<input type="submit"></form>'
+                ),
+                "http://example.test/search?q=x": html_response("<p>ok</p>"),
+            }
+        )
+        result = StaticCrawler(transport=transport, clock=lambda: 0.0).crawl(
+            ROOT_URL,
+            CrawlPolicy(session_cookies=(("sid", "secret-token"),)),
+        )
+
+        report = build_crawl_report(result)
+
+        rendered = repr(report)
+        self.assertNotIn("secret-token", rendered)
+        self.assertIn("sid", rendered)
+        self.assertIn("<redacted>", rendered)
+
+    def test_no_cookie_is_sent_when_none_are_configured(self) -> None:
+        transport = FakeTransport({ROOT_URL: html_response("<p>ok</p>")})
+        StaticCrawler(transport=transport, clock=lambda: 0.0).crawl(ROOT_URL)
+        self.assertTrue(all(r.cookies == () for r in transport.requests))
+
+    def test_policy_validates_pairs_and_serializes_only_names(self) -> None:
+        policy = CrawlPolicy(session_cookies=(("sid", "secret-token"),))
+        self.assertEqual(policy.to_dict()["session_cookie_names"], ["sid"])
+        # The secret value must never enter the serialized policy.
+        self.assertNotIn("secret-token", repr(policy.to_dict()))
+        with self.assertRaises(StaticCrawlerError):
+            CrawlPolicy(session_cookies=(("sid",),))  # type: ignore[arg-type]
 
 
 class StaticCrawlerTests(unittest.TestCase):

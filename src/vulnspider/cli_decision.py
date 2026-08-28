@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -55,7 +56,15 @@ from vulnspider.decision.candidate import (
 )
 from vulnspider.decision.conformal import ConformalError, ConformalThreshold
 from vulnspider.decision.policy import DecisionOutcome, run_decision_layer
-from vulnspider.domain import stable_fingerprint
+from vulnspider.domain import VulnerabilityType, stable_fingerprint
+from vulnspider.evaluation.live import (
+    DEFAULT_CUTOFFS,
+    LiveEvaluationError,
+    LiveEvaluationReport,
+    build_scored_candidates,
+    evaluate_live_run,
+    render_live_evaluation_table,
+)
 from vulnspider.pipeline import AnalysisResult
 from vulnspider.reporting.decision_html_report import write_decision_html_report
 from vulnspider.scoring.calibration import (
@@ -63,6 +72,7 @@ from vulnspider.scoring.calibration import (
     CalibratedScorer,
     CalibrationError,
 )
+from vulnspider.verification.focused import VerificationSelection
 from vulnspider.selection import (
     build_mutation_handoff,
     select_combined_top_k,
@@ -185,6 +195,11 @@ def decision_report(
         record: dict[str, Any] = {
             "order": position,
             "candidate_id": candidate.candidate_id,
+            # The input point this candidate is a type of. Two candidates of one
+            # input point (a SQLi and an XSS interpretation of the same value)
+            # share it; the HTML report surfaces only the top type per input
+            # point, and this lets a consumer group the same way.
+            "input_point_ref": candidate.subject_ref,
             "family": candidate.family,
             "probability": candidate.probability,
             "selection_rank": candidate.selection_rank,
@@ -483,6 +498,135 @@ def add_algorithm_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class EvaluationRequest:
+    """Everything the optional ranking-evaluation stage needs from the CLI.
+
+    The stage runs only when the operator supplies ground truth for the target
+    they are scanning. That is the whole precondition: ``Precision@K`` needs
+    labels, and VulnSpider never invents them.
+    """
+
+    ground_truth_path: Path
+    output: Path
+    cutoffs: tuple[int, ...] = DEFAULT_CUTOFFS
+    application_id: str | None = None
+
+
+def run_live_evaluation(
+    outcome: DecisionOutcome,
+    *,
+    analysis: AnalysisResult,
+    target_url: str,
+    top_k: int,
+    verification: Mapping[str, Any],
+    request: EvaluationRequest,
+) -> LiveEvaluationReport:
+    """Score the finished run's ranking against the target's ground truth.
+
+    Both the selected and the deferred candidates are measured: ``Recall@K``
+    is only meaningful against the whole ranked pool, not against the Top-K the
+    run happened to cut at.
+    """
+
+    ground_truth = read_ground_truth(request.ground_truth_path)
+    application_id = request.application_id
+    if application_id is None:
+        applications = ground_truth.applications
+        if len(applications) != 1:
+            raise LiveEvaluationError(
+                f"{request.ground_truth_path} covers "
+                f"{len(applications)} applications; pass --application-id to "
+                "say which one was scanned"
+            )
+        application_id = applications[0]
+
+    scored = build_scored_candidates(
+        tuple(outcome.selected) + tuple(outcome.deferred),
+        application_id=application_id,
+        ground_truth=ground_truth,
+        endpoints=analysis.endpoints,
+        input_points=analysis.input_points,
+        final_confidence={
+            candidate_id: float(result.final_confidence)
+            for candidate_id, result in verification.items()
+        },
+        access_input_points={
+            observation.candidate_id: (
+                observation.access_probe_plan.input_point_id or ""
+            )
+            for observation in analysis.access_probe_observations
+        },
+    )
+    return evaluate_live_run(
+        scored,
+        application_id=application_id,
+        target=target_url,
+        top_k=top_k,
+        cutoffs=request.cutoffs,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class DecisionRanking:
+    """One analysis scored and ranked by the decision layer.
+
+    Split out of :func:`analyze_and_report` so focused verification can run
+    against the candidates the report will actually rank. Verifying first and
+    ranking afterwards used to verify the v0.1 heuristic Top-K instead, which
+    is a different set whenever the calibrated probability reorders anything.
+    """
+
+    outcome: DecisionOutcome
+    models: Mapping[str, CalibratedScorer]
+    probabilities: Mapping[str, CalibratedProbability]
+
+
+def rank_analysis(
+    analysis: AnalysisResult,
+    *,
+    top_k: int,
+    model_path: Path | None,
+    conformal_path: Path | None,
+) -> DecisionRanking:
+    """Score every candidate with the calibrated model and take the Top-K."""
+
+    if top_k < 0:
+        raise DecisionCLIError("--top-k must not be negative")
+    models = load_models(model_path, _FAMILIES)
+    conformal = load_conformal(conformal_path)
+    candidates, probabilities = build_decision_candidates(analysis, models)
+    return DecisionRanking(
+        outcome=run_decision_layer(candidates, top_k=top_k, conformal=conformal),
+        models=models,
+        probabilities=probabilities,
+    )
+
+
+def verification_selection(
+    ranking: DecisionRanking,
+) -> tuple[VerificationSelection, ...]:
+    """The injection candidates focused verification should visit, in order.
+
+    Broken Access Control candidates are left out on purpose: they carry no
+    InputPoint FeatureVector and are re-checked by ``verify_access`` instead
+    (ADR-014), not by payload mutation.
+    """
+
+    injection = {family.value for family in VulnerabilityType}
+    return tuple(
+        VerificationSelection(
+            candidate_id=candidate.candidate_id,
+            input_point_id=candidate.subject_ref,
+            feature_vector_id=candidate.feature_vector_ref,
+            vulnerability_type=VulnerabilityType(candidate.family),
+            prior_probability=float(candidate.probability),
+        )
+        for candidate in ranking.outcome.selected
+        if candidate.family in injection
+    )
+
+
 def analyze_and_report(
     analysis: AnalysisResult,
     *,
@@ -494,20 +638,31 @@ def analyze_and_report(
     html_output: Path | None = None,
     verification: Any = None,
     access_verify_config: Any = None,
+    evaluation: EvaluationRequest | None = None,
+    ranking: DecisionRanking | None = None,
 ) -> DecisionOutcome:
     """Score one analysis with the calibrated model, take the Top-K, and report.
 
     This is the single entry point the ``analyze`` command and simple ``-u``
     mode both run: crawl and feature extraction already happened, and this turns
     the resulting ``AnalysisResult`` into a calibrated-probability Top-K report.
+
+    ``ranking`` is the already-computed Top-K when the caller needed it earlier
+    -- a verified run must rank before it verifies, so that verification visits
+    the reported candidates. Recomputing it here would be deterministic but
+    wasteful, and would make the two orderings independent again.
     """
 
-    if top_k < 0:
-        raise DecisionCLIError("--top-k must not be negative")
-    models = load_models(model_path, _FAMILIES)
-    conformal = load_conformal(conformal_path)
-    candidates, probabilities = build_decision_candidates(analysis, models)
-    outcome = run_decision_layer(candidates, top_k=top_k, conformal=conformal)
+    if ranking is None:
+        ranking = rank_analysis(
+            analysis,
+            top_k=top_k,
+            model_path=model_path,
+            conformal_path=conformal_path,
+        )
+    outcome = ranking.outcome
+    models = ranking.models
+    probabilities = ranking.probabilities
     verification_map = (
         {candidate.candidate_id: candidate for candidate in verification.candidates}
         if verification is not None
@@ -581,6 +736,17 @@ def analyze_and_report(
             endpoint_count=len(analysis.endpoints),
             input_point_count=len(analysis.input_points),
         )
+    if evaluation is not None:
+        report = run_live_evaluation(
+            outcome,
+            analysis=analysis,
+            target_url=target_url,
+            top_k=top_k,
+            verification=verification_map,
+            request=evaluation,
+        )
+        write_json(report.as_mapping(), evaluation.output)
+        print(render_live_evaluation_table(report))
     return outcome
 
 
@@ -918,7 +1084,10 @@ __all__ = [
     "CalibrationError",
     "add_algorithm_options",
     "add_decision_subcommands",
+    "DecisionRanking",
     "analyze_and_report",
+    "rank_analysis",
+    "verification_selection",
     "build_decision_candidates",
     "calibrate_from_corpus",
     "collect_from_analysis",

@@ -126,6 +126,36 @@ def _confidence_ordered(
     )
 
 
+def _collapse_to_highest_type(
+    candidates: Sequence[DecisionCandidate],
+) -> tuple[DecisionCandidate, ...]:
+    """Keep one candidate per input point: the highest-scoring vulnerability type.
+
+    Every input point is scored as several candidates (a SQLi *and* a Reflected
+    XSS interpretation of the same value), and the report should not list both --
+    a reader seeing two rows for one parameter reads it as two input points. So
+    the display keeps only the top type per input point. ``subject_ref`` is the
+    InputPoint the candidate was derived from, so injection candidates of one
+    parameter collapse together; a Broken Access Control candidate carries a
+    different ``subject_ref`` (its access probe) and stays a separate finding,
+    which is correct -- it is a different class of vulnerability, not a second
+    interpretation of the same value.
+
+    The input is assumed ordered by the shown score (see ``_confidence_ordered``),
+    so the first candidate seen for a subject is its highest type.
+    """
+
+    seen: set[str] = set()
+    kept: list[DecisionCandidate] = []
+    for candidate in candidates:
+        key = candidate.subject_ref or candidate.candidate_id
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(candidate)
+    return tuple(kept)
+
+
 def _score_caption(
     candidate: DecisionCandidate,
     verification: Mapping[str, CandidateVerification],
@@ -167,7 +197,13 @@ def render_decision_html_report(
     # The report only re-*orders* that same set by the post-verification
     # confidence when verification ran, so the lead score and the card order
     # agree (the selection itself is untouched).
-    display_selected = _confidence_ordered(outcome.selected, verification)
+    # The report presents one row per input point -- its highest-scoring
+    # vulnerability type -- even though every input point is scored as several
+    # candidates. Scoring and the metrics stay candidate-level; only this
+    # human-facing view collapses (see _collapse_to_highest_type).
+    display_selected = _collapse_to_highest_type(
+        _confidence_ordered(outcome.selected, verification)
+    )
     order_heading = (
         "검증 후 최종 신뢰도 순서 <span class=\"ko-en\">final confidence order</span>"
         if verified
@@ -175,7 +211,9 @@ def render_decision_html_report(
     )
     sections = [
         _render_header(target, outcome, models, verified),
-        _render_stats(outcome, verification),
+        _render_stats(
+            outcome, verification, surfaced_count=len(display_selected)
+        ),
         _render_charts(
             outcome,
             verification=verification,
@@ -280,15 +318,20 @@ def _render_header(
 def _render_stats(
     outcome: DecisionOutcome,
     verification: Mapping[str, CandidateVerification] = _EMPTY_VERIFICATION,
+    *,
+    surfaced_count: int | None = None,
 ) -> str:
+    # "선택됨" counts what the report surfaces: one finding per input point
+    # (its top type), not the underlying per-type candidates.
+    selected_count = (
+        surfaced_count if surfaced_count is not None else len(outcome.selected)
+    )
     cells = [
         (_fmt_number(outcome.initial_candidates), "채점된 후보"),
-        (_fmt_number(len(outcome.selected)), "선택됨"),
+        (_fmt_number(selected_count), "선택됨"),
         (_fmt_number(outcome.top_k), "Top-K"),
         (f"{outcome.expected_findings:.2f}", "기대 발견 수"),
     ]
-    if outcome.conformal is not None:
-        cells.append((_fmt_number(outcome.conformal_set_size), "보장 집합"))
     if verification:
         supported = sum(
             1
@@ -381,7 +424,6 @@ def _render_charts(
         ("발견된 엔드포인트", endpoint_count, "muted"),
         ("입력점", input_point_count, "muted"),
         ("채점된 후보", outcome.initial_candidates, "accent"),
-        ("보장 집합", outcome.conformal_set_size or outcome.initial_candidates, "medium"),
         ("최종 선택", len(selected), "high"),
     )
     widest = max((value for _label, value, _tone in funnel_stages), default=1) or 1
