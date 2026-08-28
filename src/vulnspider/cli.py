@@ -6,10 +6,12 @@ import argparse
 import json
 import os
 import sys
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from tqdm import tqdm  # 진행률 바를 위해 추가
 
 from vulnspider import __version__
 from vulnspider.cli_decision import (
@@ -658,7 +660,11 @@ def main(
         if not simple_mode:
             parser.error(f"unsupported command: {args.command}")
     stage = "초기화"
+    pbar = tqdm(total=4, desc="(초기화)", bar_format="진행 상태: |{bar}| {n_fmt}/{total_fmt} 단계 {postfix}", colour="green", ncols=100, file=sys.stdout)
     try:
+        pbar.set_postfix_str(stage)
+        pbar.update(1)
+        time.sleep(0.5)
         if simple_mode:
             args = _simple_analysis_args(args)
         _reject_shared_report_destinations(args.output, args.html_output)
@@ -692,6 +698,9 @@ def main(
             ),
         )
         stage = "크롤 + 분석"
+        pbar.set_postfix_str(stage)
+        pbar.update(1) # 2단계: 크롤+분석 진입
+        time.sleep(0.5)
         _progress(
             f"[*] {stage} 시작 -> "
             f"{args.url if args.input is None else args.input}"
@@ -770,6 +779,9 @@ def main(
             # candidates the report ranks, not the v0.1 heuristic Top-K, which
             # is a different set as soon as the calibrated probability reorders
             # anything.
+            pbar.set_postfix_str(stage)
+            pbar.update(1) # 3단계: 검증 진입
+            time.sleep(0.5)
             ranking = rank_analysis(
                 analysis,
                 top_k=args.top_k,
@@ -811,7 +823,14 @@ def main(
                 transport=transport,
                 confidence_model=confidence_model,
             )
+        else:
+            pbar.update(1)
+
         stage = "리포트 작성"
+        pbar.set_postfix_str(stage)
+        pbar.update(1) # 4단계: 리포트 작성 진입
+        time.sleep(0.5)
+
         _progress(f"[*] {stage} 시작 …")
         outcome = analyze_and_report(
             analysis,
@@ -852,6 +871,9 @@ def main(
                     ),
                 )
         _progress("[OK] 리포트 작성 완료")
+
+        pbar.close()
+        print(file=sys.stdout)
     except _SimpleDegradedCrawl as exc:
         _print_partial_simple_result(args)
         _print_dynamic_incomplete(exc.crawl)
@@ -1147,7 +1169,9 @@ def _build_verification_proposer(args: argparse.Namespace) -> PayloadProposer:
 def _progress(message: str) -> None:
     """Emit a pipeline-stage progress line to stderr (stdout stays data-only)."""
 
-    print(f"vulnspider: {message}", file=sys.stderr, flush=True)
+    #print(f"vulnspider: {message}", file=sys.stderr, flush=True)
+    tqdm.write(f"vulnspider: {message}", file=sys.stderr)
+    tqdm.write("", file=sys.stderr)
 
 
 def _verify_candidate_progress(index: int, total: int, target: Any) -> None:
