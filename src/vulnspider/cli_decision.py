@@ -195,6 +195,11 @@ def decision_report(
         record: dict[str, Any] = {
             "order": position,
             "candidate_id": candidate.candidate_id,
+            # The input point this candidate is a type of. Two candidates of one
+            # input point (a SQLi and an XSS interpretation of the same value)
+            # share it; the HTML report surfaces only the top type per input
+            # point, and this lets a consumer group the same way.
+            "input_point_ref": candidate.subject_ref,
             "family": candidate.family,
             "probability": candidate.probability,
             "selection_rank": candidate.selection_rank,
