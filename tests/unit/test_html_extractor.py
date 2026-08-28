@@ -330,5 +330,62 @@ class StaticHtmlExtractorTests(unittest.TestCase):
         result.discovery.validate()
 
 
+class SubmitGateTests(unittest.TestCase):
+    """A named submit control gates the handler, so it rides on the request."""
+
+    def _templates(self, html: str):
+        result = extract_static_html(html, SOURCE_URL)
+        result.discovery.validate()
+        return result.discovery
+
+    def test_named_get_submit_rides_on_query_but_is_not_an_input_point(self) -> None:
+        discovery = self._templates(
+            '<form action="/sqli/" method="get">'
+            '<input type="text" name="id" value="1">'
+            '<input type="submit" name="Submit" value="Submit"></form>'
+        )
+        # id is the only injectable input point; Submit is not.
+        self.assertEqual(
+            {point.name for point in discovery.input_points}, {"id"}
+        )
+        template = next(iter(discovery.request_templates))
+        self.assertIn(("id", "1"), template.query)
+        self.assertIn(("Submit", "Submit"), template.query)
+
+    def test_unnamed_submit_sends_nothing(self) -> None:
+        discovery = self._templates(
+            '<form action="/xss/" method="get">'
+            '<input type="text" name="name" value="x">'
+            '<input type="submit" value="Submit"></form>'
+        )
+        self.assertEqual(
+            {point.name for point in discovery.input_points}, {"name"}
+        )
+        template = next(iter(discovery.request_templates))
+        self.assertEqual(list(template.query), [("name", "x")])
+
+    def test_named_button_rides_on_a_post_body_but_is_not_injectable(self) -> None:
+        discovery = self._templates(
+            '<form action="/save" method="post">'
+            '<input type="text" name="q" value="1">'
+            '<button name="do" value="save">Save</button></form>'
+        )
+        self.assertEqual({point.name for point in discovery.input_points}, {"q"})
+        template = next(iter(discovery.request_templates))
+        self.assertIn(("do", "save"), template.form)
+
+    def test_only_the_first_named_submit_is_carried(self) -> None:
+        discovery = self._templates(
+            '<form action="/multi/" method="get">'
+            '<input type="text" name="id" value="1">'
+            '<input type="submit" name="save" value="Save">'
+            '<input type="submit" name="delete" value="Delete"></form>'
+        )
+        template = next(iter(discovery.request_templates))
+        names = [name for name, _ in template.query]
+        self.assertIn("save", names)
+        self.assertNotIn("delete", names)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1388,6 +1388,54 @@ DemoShop에서도 지금까지 BAC 후보는 "인증이 아예 없어 아무나 
 
 ---
 
+## ADR-038 — 두 실제-앱 탐지 갭 수정: submit 게이트 포함, BAC denial 게이트
+
+**Status:** Accepted
+
+**Date:** 2026-08-28
+
+**Decision:** DVWA 케이스 스터디 준비 중 드러난 두 가지 갭(둘 다 실제 앱 부류의
+문제)을 근본 수정한다.
+
+1. **이름 있는 submit 컨트롤을 고정 요청 파라미터로 포함(SQLi 미탐 수정).**
+   `html_extractor`는 submit/버튼을 비데이터 컨트롤로 완전히 스킵했다. 그러나
+   브라우저는 폼 제출 시 활성화된 submit 버튼의 `name=value`를 함께 보내고, 많은
+   핸들러가 그것으로 게이팅한다(`if (isset($_GET['Submit']))` — DVWA SQLi). 이제
+   폼의 **첫 번째 이름 있는 submit/`<button type=submit>`** 을 요청 템플릿의
+   query(GET)/form(POST)에 **고정값**으로 싣되, 주입 가능한 InputPoint로는 만들지
+   않는다. 이름 없는 submit은 브라우저와 동일하게 미포함. `RequestTemplate.id`가
+   쿼리/폼을 포함하므로 생성 시점에 넣는다.
+2. **BAC denial 본문 게이트(오탐 수정).** `access_unauthorized_success`는 비교
+   요청이 HTTP 2xx이면 무조건 1.0이었다. 앱 레벨 "Access denied / 로그인 필요"
+   페이지를 **200**으로 주는 앱(DVWA BAC 익명)에서 이는 200 거부를 IDOR 성공으로
+   오독한다. 이제 응답 본문에서 denial 문구(access denied/unauthorized/forbidden/
+   로그인 필요/접근 거부 등, 대소문자·한영)를 탐지해: **비교 응답이 denial이면
+   success=0.0**, **참조 응답 자체가 denial이면 관측 무효**(미인증이라 샐 게 없음)로
+   처리한다. 접근제어 feature 스키마 `access-feature-v0.2`.
+
+**Context:** 팀 계획의 외부 타깃(DVWA) 준비 중, SQLi는 submit 누락으로 미탐, BAC는
+익명 200 거부를 0.95 오탐으로 잡는 것이 세션 내 실측으로 확인됐다. 둘 다 DVWA 전용
+문제가 아니라 "submit 이름으로 게이팅하는 앱", "인가 거부를 200으로 주는 앱" 부류의
+일반 문제다.
+
+**Alternatives:**
+
+- SQLi: URL 시딩(`?id=1&Submit=Submit`) 우회 — 케이스별 수동이라 일반 수정으로 대체.
+  모든 submit을 다 포함? 브라우저는 하나만 보내므로 첫 번째만.
+- BAC: 상태코드만 유지 + 인증 강제 — 익명 오탐은 남는다. denial 본문 탐지가 근본적.
+  IDOR/자격증명제거의 유사도 의미 분리(ADR-037 C안)는 범위가 커서 후속 과제로 남김.
+
+**Consequences:**
+
+- DVWA SQLi가 URL 시딩 없이 탐지된다(`Submit=Submit` 자동 포함). DemoShop은 폼이
+  이름 없는 `<button type=submit>`이라 영향 없음(공개 100 입력점·정답 불변).
+- DVWA 익명 BAC 0.95 오탐이 사라진다(관측 무효). 실제 IDOR는 로그인 세션(`--cookie`,
+  ADR-037)으로 확인해야 한다. DemoShop `/portal` IDOR(0.953)·정상(0.524) 판정 불변.
+- 한계: denial 문구 사전에 없는 표현은 놓칠 수 있다(패턴 확장 가능). 전체 867 테스트
+  통과.
+
+---
+
 ## New Decision Template
 
 ```text
