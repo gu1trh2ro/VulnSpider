@@ -201,8 +201,9 @@ def render_decision_html_report(
     # vulnerability type -- even though every input point is scored as several
     # candidates. Scoring and the metrics stay candidate-level; only this
     # human-facing view collapses (see _collapse_to_highest_type).
-    display_selected = _collapse_to_highest_type(
-        _confidence_ordered(outcome.selected, verification)
+    display_selected = _confidence_ordered(
+        outcome.selected,
+        verification,
     )
     order_heading = (
         "검증 후 최종 신뢰도 순서 <span class=\"ko-en\">final confidence order</span>"

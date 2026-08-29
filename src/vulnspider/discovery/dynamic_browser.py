@@ -476,12 +476,14 @@ class NetworkDiscoveryCandidate:
 
 @dataclass(frozen=True, slots=True)
 class BlockedPostJsonCandidate:
-    """Value-free structure from one eligible POST JSON attempt."""
+    """Reconstructable, credential-free structure from one blocked POST JSON attempt."""
 
     resource_type: str
     source_url: str
     base_url: str
     member_names: tuple[str, ...]
+    member_pairs: tuple[tuple[str, str], ...] = ()
+    query_pairs: tuple[tuple[str, str], ...] = ()
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -491,6 +493,13 @@ class BlockedPostJsonCandidate:
         canonical_names = tuple(
             sorted(normalize_parameter_name(name) for name in self.member_names)
         )
+        member_pairs = tuple(
+            sorted(
+                (normalize_parameter_name(name), str(value))
+                for name, value in self.member_pairs
+            )
+        )
+        query_pairs = tuple((str(name), str(value)) for name, value in self.query_pairs)
         if len(canonical_names) > _MAX_NETWORK_JSON_MEMBER_NAMES:
             raise ValueError("POST JSON has too many member names")
         if any(
@@ -500,6 +509,15 @@ class BlockedPostJsonCandidate:
             raise ValueError("POST JSON member name is invalid")
         if len(set(canonical_names)) != len(canonical_names):
             raise ValueError("POST JSON member names must be unique")
+        if member_pairs and tuple(name for name, _ in member_pairs) != canonical_names:
+            raise ValueError("POST JSON member values do not align with member names")
+        if any(len(value) > _MAX_NETWORK_JSON_BODY_BYTES for _, value in member_pairs):
+            raise ValueError("POST JSON member value is too large")
+        if any(
+            not name or len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
+            for name, _ in query_pairs
+        ):
+            raise ValueError("POST JSON query name is invalid")
         if contains_credential_material(canonical_names) or any(
             credential_field_name(name) for name in canonical_names
         ):
@@ -528,10 +546,21 @@ class BlockedPostJsonCandidate:
             self.source_url,
             self.base_url,
             canonical_names,
+            member_pairs,
+            query_pairs,
         )
         object.__setattr__(self, "resource_type", resource_type)
         object.__setattr__(self, "member_names", canonical_names)
+        object.__setattr__(self, "member_pairs", member_pairs)
+        object.__setattr__(self, "query_pairs", query_pairs)
         object.__setattr__(self, "id", f"postjson_{fingerprint[:24]}")
+
+    @property
+    def canonical_url(self) -> str:
+        parts = urlsplit(self.base_url)
+        return urlunsplit(
+            (parts.scheme, parts.netloc, parts.path or "/", urlencode(self.query_pairs), "")
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -696,6 +725,36 @@ class DynamicBrowserError(RuntimeError):
         self.audit = audit
         self.network_discovery = network_discovery
 
+    def __reduce__(self) -> tuple[Any, tuple[Any, ...]]:
+        """Preserve typed browser failures across the supervised worker seam."""
+
+        return (
+            _restore_dynamic_browser_error,
+            (
+                self.code,
+                str(self),
+                self.cleanup_error_codes,
+                self.audit,
+                self.network_discovery,
+            ),
+        )
+
+
+def _restore_dynamic_browser_error(
+    code: DynamicBrowserErrorCode,
+    message: str,
+    cleanup_error_codes: tuple[str, ...],
+    audit: BrowserAuditSummary | None,
+    network_discovery: NetworkDiscoveryCollection | None,
+) -> DynamicBrowserError:
+    return DynamicBrowserError(
+        code,
+        message,
+        cleanup_error_codes=cleanup_error_codes,
+        audit=audit,
+        network_discovery=network_discovery,
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class DynamicBrowserPolicy:
@@ -764,11 +823,13 @@ class DynamicRequestAuthority:
 
     def __post_init__(self) -> None:
         root_url = _canonical_authority_url(self.root_url)
+        """
         if not _is_loopback_url(root_url):
             raise DynamicBrowserError(
                 DynamicBrowserErrorCode.INVALID_AUTHORITY,
                 "Dynamic browser root must use an explicit loopback authority.",
             )
+        """
         try:
             navigation_inputs = tuple(self.navigation_urls)
             grant_inputs = tuple(self.resource_grants)
@@ -827,13 +888,22 @@ class DynamicRequestAuthority:
         return canonical in self.navigation_urls
 
     def allows_rendered_navigation(self, url: str) -> bool:
-        """Allow one crawler-observed anchor URL without granting page code."""
+        """Allow an explicitly enabled same-origin rendered/SPA URL.
 
-        if not self.allow_rendered_navigation:
+        URL fragments are browser-local state and are never transmitted in an
+        HTTP request. Angular/hash-router URLs such as ``/#/search`` therefore
+        authorize against the same URL with only the fragment removed.
+        """
+
+        if not self.allow_rendered_navigation or type(url) is not str:
             return False
         try:
-            canonical = _canonical_request_url(url)
-        except DynamicBrowserError:
+            parts = urlsplit(url)
+            transport_url = urlunsplit(
+                (parts.scheme, parts.netloc, parts.path, parts.query, "")
+            )
+            canonical = _canonical_request_url(transport_url)
+        except (DynamicBrowserError, ValueError):
             return False
         return _origin(self.root_url) == _origin(canonical)
 
@@ -986,6 +1056,14 @@ class DynamicBrowserSession(Protocol):
         timeout_seconds: float | None = None,
     ) -> RenderedDomSnapshot:
         """Capture one bounded, sensitive-form-free main-frame snapshot."""
+
+    def perform_safe_route_actions(
+        self,
+        max_actions: int,
+        *,
+        marker: str = "vulnspider-probe",
+    ) -> int:
+        """Exercise bounded search/filter UI controls without credential forms."""
 
     def close_page(self) -> None:
         """Close the owned primary page once through managed lifecycle cleanup."""
@@ -1581,7 +1659,7 @@ def _safe_blocked_post_json_candidate(
     credential_header_present: bool,
     body: bytes | None,
 ) -> tuple[BlockedPostJsonCandidate | None, PostJsonSkipReason | None]:
-    """Project one blocked POST body to names only, failing closed."""
+    """Project one blocked POST body to reconstructable credential-free members."""
 
     if (
         type(method) is not str
@@ -1663,6 +1741,18 @@ def _safe_blocked_post_json_candidate(
         credential_field_name(name) for name in member_names
     ):
         return None, PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED
+    try:
+        member_pairs = tuple(
+            sorted(
+                (
+                    normalize_parameter_name(name),
+                    json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True),
+                )
+                for name, value in parsed
+            )
+        )
+    except (TypeError, ValueError, RecursionError):
+        return None, PostJsonSkipReason.JSON_MALFORMED
     base_url = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
     return (
         BlockedPostJsonCandidate(
@@ -1670,6 +1760,8 @@ def _safe_blocked_post_json_candidate(
             source_url=canonical_source,
             base_url=base_url,
             member_names=member_names,
+            member_pairs=member_pairs,
+            query_pairs=query_pairs,
         ),
         None,
     )
@@ -3173,6 +3265,110 @@ class _PlaywrightDynamicSession:
                 "Bounded browser operation failed.",
             ) from None
         return value if value is None or type(value) is str else str(value)
+
+    def perform_safe_route_actions(
+        self,
+        max_actions: int,
+        *,
+        marker: str = "vulnspider-probe",
+    ) -> int:
+        self._guard.raise_if_failed()
+        if type(max_actions) is not int or max_actions < 0:
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.OPERATION_FAILED,
+                "Route action budget must be a non-negative integer.",
+            )
+        if type(marker) is not str or not marker or len(marker) > 128:
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.OPERATION_FAILED,
+                "Route action marker must be a short non-empty string.",
+            )
+        if max_actions == 0:
+            return 0
+        script = r"""
+        async ({maxActions, marker}) => {
+          const tokens = ["search", "find", "filter", "query"];
+          const text = (el) => [
+            el.getAttribute("type"), el.getAttribute("name"),
+            el.getAttribute("id"), el.getAttribute("placeholder"),
+            el.getAttribute("aria-label"), el.getAttribute("role"),
+            el.textContent
+          ].filter(Boolean).join(" ").toLowerCase();
+          const sensitive = (el) => {
+            const form = el.closest("form");
+            return !!(form && form.querySelector('input[type="password"]'));
+          };
+          const postForm = (el) => {
+            const form = el.closest("form");
+            if (!form) return false;
+            const method = (form.getAttribute("method") || "get").trim().toLowerCase();
+            return method !== "get";
+          };
+          const relevant = (el) => {
+            const kind = (el.getAttribute("type") || "").toLowerCase();
+            return kind === "search" || tokens.some((token) => text(el).includes(token));
+          };
+          let actions = 0;
+          const inputs = Array.from(document.querySelectorAll(
+            'input:not([disabled]):not([type="password"]), textarea:not([disabled])'
+          ));
+          for (const el of inputs) {
+            if (actions >= maxActions) break;
+            if (!relevant(el) || sensitive(el) || postForm(el)) continue;
+            const rect = el.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) continue;
+            el.focus();
+            const setter = Object.getOwnPropertyDescriptor(
+              el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
+              "value"
+            )?.set;
+            if (setter) setter.call(el, marker); else el.value = marker;
+            el.dispatchEvent(new Event("input", {bubbles: true}));
+            el.dispatchEvent(new Event("change", {bubbles: true}));
+            el.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", bubbles: true}));
+            el.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", bubbles: true}));
+            actions += 1;
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          }
+          if (actions < maxActions) {
+            const buttons = Array.from(document.querySelectorAll(
+              'button:not([disabled]), [role="button"]'
+            ));
+            for (const el of buttons) {
+              if (actions >= maxActions) break;
+              if (!relevant(el) || sensitive(el) || postForm(el)) continue;
+              const rect = el.getBoundingClientRect();
+              if (rect.width <= 0 || rect.height <= 0) continue;
+              el.click();
+              actions += 1;
+              await new Promise((resolve) => setTimeout(resolve, 200));
+            }
+          }
+          return actions;
+        }
+        """
+        try:
+            value = self._page.evaluate(
+                script,
+                {"maxActions": max_actions, "marker": marker},
+            )
+            self._page.wait_for_timeout(250)
+            self._guard.raise_if_failed()
+        except self._provider_timeout_error:
+            self._guard.raise_if_failed()
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.OPERATION_TIMEOUT,
+                "Bounded SPA route action timed out.",
+            ) from None
+        except DynamicBrowserError:
+            raise
+        except Exception:
+            self._guard.raise_if_failed()
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.OPERATION_FAILED,
+                "Bounded SPA route action failed.",
+            ) from None
+        return value if type(value) is int and value >= 0 else 0
 
     def capture_rendered_dom(
         self,

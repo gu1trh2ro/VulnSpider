@@ -178,6 +178,18 @@ class RenderedDomError(RuntimeError):
         super().__init__(message)
         self.code = RenderedDomErrorCode(code)
 
+    def __reduce__(self) -> tuple[Any, tuple[Any, ...]]:
+        """Preserve the typed error across the supervised crawl worker seam."""
+
+        return (_restore_rendered_dom_error, (self.code, str(self)))
+
+
+def _restore_rendered_dom_error(
+    code: RenderedDomErrorCode,
+    message: str,
+) -> RenderedDomError:
+    return RenderedDomError(code, message)
+
 
 @dataclass(frozen=True, slots=True)
 class RenderedDomPolicy:
@@ -552,13 +564,30 @@ def extract_rendered_dom(
         raise TypeError("snapshot must be a RenderedDomSnapshot")
     root_url = getattr(authority, "root_url", None)
     allows_navigation = getattr(authority, "allows_navigation", None)
+    allows_rendered_navigation = getattr(
+        authority,
+        "allows_rendered_navigation",
+        None,
+    )
     if type(root_url) is not str or not callable(allows_navigation):
         raise TypeError("authority must provide exact rendered request authority")
-    try:
-        source_authorized = allows_navigation(snapshot.page_url) is True
-    except Exception:  # noqa: BLE001 - authority ambiguity fails closed.
-        source_authorized = False
-    if not source_authorized:
+
+    def source_request_authorized(url: str) -> bool:
+        """Authorize exact URLs first, then explicitly enabled SPA URLs."""
+
+        try:
+            if allows_navigation(url) is True:
+                return True
+        except Exception:  # noqa: BLE001 - authority ambiguity fails closed.
+            return False
+        if not callable(allows_rendered_navigation):
+            return False
+        try:
+            return allows_rendered_navigation(url) is True
+        except Exception:  # noqa: BLE001 - authority ambiguity fails closed.
+            return False
+
+    if not source_request_authorized(snapshot.page_url):
         raise RenderedDomError(
             RenderedDomErrorCode.DOM_SNAPSHOT_FAILED,
             "Rendered DOM source page is not caller-authorized.",
@@ -601,7 +630,7 @@ def extract_rendered_dom(
         discovery_metadata=metadata,
         scope_metadata=scope,
         sensitive_form_policy=SensitiveFormElisionPolicy(),
-        request_authorizer=allows_navigation,
+        request_authorizer=source_request_authorized,
         parent_url=parent_url,
         depth=depth,
         safety_invariants=(

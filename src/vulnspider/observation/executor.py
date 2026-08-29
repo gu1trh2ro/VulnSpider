@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from dataclasses import dataclass, field
 from hashlib import sha256
 from time import monotonic
@@ -79,7 +81,32 @@ class UrlLibTransport:
                 f"{name}={value}" for name, value in request.cookies.items()
             )
         body = None
-        if request.form:
+        if request.form and request.json_body:
+            raise RequestExecutionError(
+                "request cannot contain both form and json_body"
+            )
+
+        if request.json_body:
+            try:
+                json_object = {
+                    name: json.loads(encoded_value)
+                    for name, encoded_value in request.json_body
+                }
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise RequestExecutionError(
+                    "invalid canonical JSON request body"
+                ) from exc
+
+            body = json.dumps(
+                json_object,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+            if not _has_header(headers, "Content-Type"):
+                headers["Content-Type"] = "application/json"
+
+        elif request.form:
             body = urlencode(request.form).encode("utf-8")
             if not _has_header(headers, "Content-Type"):
                 headers["Content-Type"] = "application/x-www-form-urlencoded"

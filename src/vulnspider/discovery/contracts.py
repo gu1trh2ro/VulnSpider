@@ -1186,6 +1186,7 @@ class CanonicalDiscoveryResult:
                 tuple(sorted(template.headers.items())),
                 template.query,
                 template.form,
+                template.json_body,
                 tuple(sorted(template.cookies.items())),
                 template.completeness.value,
                 template.context_key,
@@ -1270,7 +1271,12 @@ class CanonicalDiscoveryResult:
                         "probe-ready result requires a complete request context"
                     )
                 point = input_points[readiness.input_point_id]
-                if point.location not in {InputLocation.QUERY, InputLocation.FORM}:
+                if point.location not in {
+                    InputLocation.QUERY,
+                    InputLocation.FORM,
+                    InputLocation.JSON,
+                    InputLocation.JSON_BODY,
+                }:
                     raise DiscoveryContractError(
                         "unsupported InputPoint cannot be probe-ready"
                     )
@@ -1334,6 +1340,24 @@ class CanonicalDiscoveryResult:
             if decoded != template.query:
                 raise DiscoveryContractError(
                     "probe-ready raw query does not align with request template"
+                )
+            return
+        if point.location in {InputLocation.JSON, InputLocation.JSON_BODY}:
+            if template.method.value != "POST":
+                raise DiscoveryContractError(
+                    "probe-ready JSON body requires POST request template"
+                )
+            if provenance.get("json_body") != "browser-request-body":
+                raise DiscoveryContractError(
+                    "probe-ready JSON body requires trusted browser body provenance"
+                )
+            if template.metadata.get("content_type") != "application/json":
+                raise DiscoveryContractError(
+                    "probe-ready JSON body requires application/json content type"
+                )
+            if not template.json_body:
+                raise DiscoveryContractError(
+                    "probe-ready JSON body requires retained member values"
                 )
             return
         if provenance.get("form_method") not in {"explicit", "html_default_get"}:
@@ -1604,6 +1628,7 @@ class CanonicalDiscoveryResult:
                     "headers": dict(sorted(item.headers.items())),
                     "query": [list(pair) for pair in item.query],
                     "form": [list(pair) for pair in item.form],
+                    "json_body": [list(pair) for pair in item.json_body],
                     "cookies": dict(sorted(item.cookies.items())),
                     "completeness": item.completeness.value,
                     "context_key": item.context_key,
