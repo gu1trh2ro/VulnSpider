@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from time import perf_counter
 from typing import Any, Protocol
 
 from vulnspider.domain import InputLocation, VulnerabilityType
@@ -53,13 +54,33 @@ LLM_MODEL_PATH_ENV = "VULNSPIDER_LLM_MODEL"
 DEFAULT_N_CTX = 4096
 DEFAULT_N_GPU_LAYERS = -1
 DEFAULT_TEMPERATURE = 0.1
-DEFAULT_MAX_TOKENS = 2048
-DEFAULT_MAX_RETRIES = 3
+# A 3-4 item JSON response is small. A 512-token generation budget still
+# leaves room for compact rationale text while cutting the cost of malformed
+# or runaway local-GGUF generations. Retry semantics remain unchanged.
+DEFAULT_MAX_TOKENS = 512
+
+# Retrying the exact same low-temperature generation three times can turn one
+# malformed response into several minutes of latency. Two attempts preserve one
+# recovery chance without allowing a single candidate to dominate the run.
+DEFAULT_MAX_RETRIES = 2
 
 # Upper bound on how many suggestions we turn into proposals for one candidate.
 # The model emits 3 (XSS) or 4 (SQLi) by design; the cap only guards against a
 # model that ignores its instructions and floods the validator.
 MAX_LLM_PROPOSALS = 6
+
+# The fine-tuning contract itself expects four SQLi values and three XSS values.
+# Keep MAX_LLM_PROPOSALS as a hard emergency ceiling for compatibility, but use
+# the type-specific limits below during normal mapping.
+_EXPECTED_PROPOSALS_FOR_TYPE: dict[VulnerabilityType, int] = {
+    VulnerabilityType.SQLI: 4,
+    VulnerabilityType.REFLECTED_XSS: 3,
+}
+
+# Only the LLM-facing copy is compacted. The MutationSubject and the real
+# baseline RequestInstance retain the complete value, so request semantics and
+# audit provenance are unchanged.
+MAX_PROMPT_BASELINE_CHARS = 256
 
 # For reflected-XSS the model's free-form value is wrapped as the *region* of the
 # pipeline's sentinel marker (``identifier + "Z" + region + "Z"``) so the reused
@@ -126,6 +147,27 @@ class LLMProposerError(MutationProposalError):
     """Raised when the local model cannot be loaded or driven honestly."""
 
 
+def _compact_prompt_value(value: str | None) -> str | None:
+    """Bound only the value copied into the local-model prompt.
+
+    Long framework or opaque state values can consume a large fraction of the
+    context while contributing little to mutation choice. Keep both ends so a
+    model can still see the value shape. The original MutationSubject remains
+    untouched and is still used for ``based_on_value`` and real request planning.
+    """
+
+    if value is None or len(value) <= MAX_PROMPT_BASELINE_CHARS:
+        return value
+
+    marker = f"...[truncated;length={len(value)}]..."
+    remaining = MAX_PROMPT_BASELINE_CHARS - len(marker)
+    if remaining <= 0:
+        return value[:MAX_PROMPT_BASELINE_CHARS]
+    head = remaining * 2 // 3
+    tail = remaining - head
+    return f"{value[:head]}{marker}{value[-tail:] if tail else ''}"
+
+
 def build_candidate_prompt(subject: MutationSubject) -> dict[str, Any]:
     """Build the minimal candidate JSON the model was fine-tuned to read.
 
@@ -138,7 +180,8 @@ def build_candidate_prompt(subject: MutationSubject) -> dict[str, Any]:
 
     location = InputLocation(subject.parameter_location)
     method = "GET" if location == InputLocation.QUERY else "POST"
-    original_value = subject.baseline_value
+    # Compact only the prompt projection; do not mutate the source subject.
+    original_value = _compact_prompt_value(subject.baseline_value)
     if location == InputLocation.QUERY:
         url = f"http://127.0.0.1/test?{subject.parameter_name}={original_value or ''}"
     else:
@@ -246,25 +289,36 @@ def map_payloads_to_proposals(
     family = _FAMILY_FOR_TYPE.get(VulnerabilityType(subject.vulnerability_type))
     if family is None:
         return ()
+    vulnerability_type = VulnerabilityType(subject.vulnerability_type)
     is_reflection = family == MutationFamily.HTML_SENTINEL
+    proposal_limit = min(
+        MAX_LLM_PROPOSALS,
+        _EXPECTED_PROPOSALS_FOR_TYPE.get(vulnerability_type, MAX_LLM_PROPOSALS),
+    )
     proposals: list[PayloadProposal] = []
+    seen_values: set[str] = set()
     for payload in payloads:
-        if len(proposals) >= MAX_LLM_PROPOSALS:
+        if len(proposals) >= proposal_limit:
             break
         if not isinstance(payload, dict):
             continue
         value = payload.get("value")
         if not isinstance(value, str) or not value:
             continue
-        index = len(proposals)
         if is_reflection:
             region = _sentinel_region(value)
-            if not region:
+            if not region or region in seen_values:
                 continue
+            seen_values.add(region)
+            index = len(proposals)
             marker = verification_identifier(subject.candidate_id, family, index)
             mutated_value = f"{marker}Z{region}Z"
             reflection_marker = mutated_value
         else:
+            if value in seen_values:
+                continue
+            seen_values.add(value)
+            index = len(proposals)
             mutated_value = value
             reflection_marker = None
         rationale = payload.get("rationale")
@@ -315,12 +369,19 @@ class LocalLLMMutationProposer:
     verbose: bool = False
     llm: LlamaChatClient | None = None
     _warnings: list[str] = field(default_factory=list, init=False, repr=False)
+    _diagnostics: list[str] = field(default_factory=list, init=False, repr=False)
 
     @property
     def warnings(self) -> tuple[str, ...]:
         """Non-fatal issues seen during the most recent proposals, for the log."""
 
         return tuple(self._warnings)
+
+    @property
+    def diagnostics(self) -> tuple[str, ...]:
+        """Observational per-attempt timing; never changes proposal semantics."""
+
+        return tuple(self._diagnostics)
 
     def _ensure_llm(self) -> LlamaChatClient:
         if self.llm is not None:
@@ -354,6 +415,7 @@ class LocalLLMMutationProposer:
         if not isinstance(subject, MutationSubject):
             raise LLMProposerError("subject must be a MutationSubject")
         self._warnings = []
+        self._diagnostics = []
         if VulnerabilityType(subject.vulnerability_type) not in _FAMILY_FOR_TYPE:
             return ()
         llm = self._ensure_llm()
@@ -362,6 +424,9 @@ class LocalLLMMutationProposer:
             {"role": "user", "content": build_user_prompt(subject)},
         ]
         for attempt in range(1, self.max_retries + 1):
+            attempt_started = perf_counter()
+            finish_reason = "unavailable"
+            output_chars = 0
             try:
                 response = llm.create_chat_completion(
                     messages=messages,
@@ -369,7 +434,14 @@ class LocalLLMMutationProposer:
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                 )
-                content = response["choices"][0]["message"]["content"]
+                choice = response["choices"][0]
+                if isinstance(choice, dict):
+                    raw_finish_reason = choice.get("finish_reason")
+                    if raw_finish_reason is not None:
+                        finish_reason = str(raw_finish_reason)
+                content = choice["message"]["content"]
+                if isinstance(content, str):
+                    output_chars = len(content)
                 if not content:
                     raise ValueError("model returned an empty response")
                 parsed = _extract_json_object(content)
@@ -379,8 +451,20 @@ class LocalLLMMutationProposer:
                 proposals = map_payloads_to_proposals(subject, raw_payloads)
                 if not proposals:
                     raise ValueError("model payloads carried no usable values")
+                elapsed = perf_counter() - attempt_started
+                self._diagnostics.append(
+                    f"attempt {attempt}/{self.max_retries} -- {elapsed:.2f}s "
+                    f"-- success -- finish_reason={finish_reason} "
+                    f"-- output_chars={output_chars} -- proposals={len(proposals)}"
+                )
                 return proposals
             except Exception as exc:  # noqa: BLE001 - degrade, don't crash the run
+                elapsed = perf_counter() - attempt_started
+                self._diagnostics.append(
+                    f"attempt {attempt}/{self.max_retries} -- {elapsed:.2f}s "
+                    f"-- failed -- finish_reason={finish_reason} "
+                    f"-- output_chars={output_chars}"
+                )
                 self._warnings.append(
                     f"attempt {attempt}/{self.max_retries} failed: {exc}"
                 )
