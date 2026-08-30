@@ -550,7 +550,7 @@ def _render_candidates(
 ) -> str:
     if not selected:
         return '<div class="empty">선택된 후보가 없습니다.</div>'
-    return "\n".join(
+    cards = "\n".join(
         _render_candidate(
             candidate,
             rank=rank,
@@ -563,6 +563,7 @@ def _render_candidates(
         )
         for rank, candidate in enumerate(selected, start=1)
     )
+    return f'<section class="findings">\n{cards}\n</section>'
 
 
 def _render_candidate(
@@ -1017,4 +1018,32 @@ _EXTRA_STYLE = """
   .fixnote{margin-top:10px;font-size:12px;color:var(--ink);line-height:1.5;
          padding:7px 10px;background:rgba(0,0,0,.035);border-radius:6px}
   .fixdisc{display:block;margin-top:10px;font-size:11px}
+
+  /* Wide desktop layout + visual polish (overrides the shared base;
+     applies to the decision dashboard only). Findings flow into a
+     responsive multi-column grid so the page reads wide, not tall. */
+  body{background:linear-gradient(180deg,#e9edf4 0,var(--paper) 340px) no-repeat,var(--paper)}
+  .wrap{max-width:1240px;padding:44px 32px 96px}
+  header.masthead{border-bottom-width:3px;padding-bottom:22px}
+  .brand h1{font-size:30px}
+  .ver{color:var(--muted)}
+  .stats{box-shadow:0 1px 3px rgba(18,22,29,.06)}
+  .stat .n{font-size:24px}
+  .notice{box-shadow:0 1px 2px rgba(18,22,29,.05)}
+  h2.section{font-size:14px;margin-top:42px;padding-bottom:9px;
+             border-bottom:1px solid var(--line)}
+  .findings{display:grid;grid-template-columns:repeat(auto-fit,minmax(540px,1fr));
+            gap:18px;align-items:start;margin-top:6px}
+  .finding{margin-bottom:0;border-radius:12px;
+           box-shadow:0 1px 3px rgba(18,22,29,.06),0 8px 22px rgba(18,22,29,.045);
+           transition:box-shadow .16s ease,transform .16s ease}
+  .finding:hover{transform:translateY(-1px);
+           box-shadow:0 2px 6px rgba(18,22,29,.09),0 12px 30px rgba(18,22,29,.075)}
+  .chart-grid{gap:16px}
+  @media print{
+    body{background:var(--paper)}
+    .finding,.stats,.notice{box-shadow:none}
+    .finding:hover{transform:none}
+    .findings{grid-template-columns:1fr 1fr}
+  }
 """
