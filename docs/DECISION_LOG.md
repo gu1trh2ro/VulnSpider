@@ -1436,6 +1436,49 @@ DemoShop에서도 지금까지 BAC 후보는 "인증이 아예 없어 아무나 
 
 ---
 
+## ADR-039 — Per-input-point 랜덤 예측기 비교군
+
+**Status:** Accepted
+
+**Date:** 2026-08-30
+
+**Decision:** 라이브 랭킹 평가의 랜덤 비교군을 두 가지로 둔다.
+`ARM_RANDOM`(균등 무작위 순위, 닫힌 형식 기댓값)은 그대로 두고, 더 직관적인
+**per-input-point 랜덤 유형 추측기**를 `evaluation/random_predictor.py`로 추가한다.
+각 입력점마다 `{SQLI, REFLECTED_XSS, BROKEN_ACCESS_CONTROL, SAFE}` 중 하나를
+가중치(`--random-safe-weight W`)로 추첨해 그 family 후보만 양성(1.0)으로, 나머지는
+음성(0.0)으로 둔 뒤, **동일한 `evaluate_ranking`** 으로 채점해 VulnSpider와 같은
+지표(Recall/Precision/MAP/NDCG@K)로 비교한다. `--random-predictor`(analyze·simple
+공통, `--ground-truth` 필요)로 켜면 평가 표/JSON에 네 번째 arm으로 붙는다.
+
+**Context:** 팀이 비교군으로 "Random Predictor"를 쓰기로 했는데, 보고서 독자에게는
+"입력점마다 취약 유형을 무작위로 찍는" 분류기가 균등-순위 baseline보다 이해하기 쉽다.
+대부분의 입력점이 안전하므로 SAFE 가중을 줄 수 있어야 한다.
+
+**Alternatives:**
+
+- 균등-순위 baseline만 유지 — 엄밀하지만 "유형을 찍는다"는 직관을 못 준다. 두 개를
+  함께 두어 독자가 고르게 한다.
+- 단일 draw로 채점 — 잡음이 크다. `trials`회(기본 1000) 시드 고정 몬테카를로 평균을
+  쓰되, 각 draw의 지표는 §6-A 규칙 4의 정확한 동점 기댓값이라 유형 추측만
+  시뮬레이션된다(시드에 대해 결정적).
+- `evaluate_live_run`에 arm을 넣기 — `live`가 `random_predictor`를 참조하면 순환
+  import이 되고 런타임 힌트 해석(check_types)이 깨진다. arm 합류는 소비자
+  (`cli_decision.run_live_evaluation`)에서 `dataclasses.replace`로 처리해 `live`는
+  `ScoredCandidate`의 단방향 제공자로 남긴다.
+
+**Consequences:**
+
+- DemoShop 100 입력점(200 후보, 취약 32)에서 두 랜덤 arm은 거의 동일(P@K≈유병률 0.16)
+  하며 VulnSpider(저-K에서 1.000)와 크게 대비된다 — 클래스 기반 랜덤도 균등 랜덤과
+  같은 수준임을 보여 baseline의 타당성을 재확인한다.
+- 기본 3-arm 표는 불변(옵션 플래그로만 추가). `live-evaluation-v1` 스키마는 arm 리스트에
+  항목이 하나 느는 것뿐이라 버전 불변.
+- 전체 테스트 통과(신규 `test_random_predictor.py` 포함); 모듈은 독립 브루트포스
+  시뮬레이션과 오차 ~0.001로 일치.
+
+---
+
 ## New Decision Template
 
 ```text
