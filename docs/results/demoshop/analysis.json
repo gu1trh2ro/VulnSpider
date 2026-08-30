@@ -1,0 +1,179 @@
+{
+  "report_version": "decision-report-v1",
+  "target": "http://127.0.0.1:8899/",
+  "policy_version": "top-k-argmax-v1",
+  "warnings": [
+    "discovery DUPLICATE_URL: duplicate canonical URL was not queued again",
+    "discovery DUPLICATE_URL: duplicate canonical URL was not queued again",
+    "discovery DUPLICATE_URL: duplicate canonical URL was not queued again",
+    "discovery DUPLICATE_URL: duplicate canonical URL was not queued again",
+    "discovery DUPLICATE_URL: duplicate canonical URL was not queued again",
+    "discovery DUPLICATE_URL: duplicate canonical URL was not queued again",
+    "discovery DUPLICATE_URL: duplicate canonical URL was not queued again",
+    "discovery DUPLICATE_URL: duplicate canonical URL was not queued again",
+    "discovery FORM_CONTROL_NON_DATA: button control is not an injectable successful control",
+    "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context",
+    "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context",
+    "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context",
+    "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context",
+    "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context",
+    "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context",
+    "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context",
+    "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context",
+    "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context",
+    "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context",
+    "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context",
+    "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context"
+  ],
+  "models": {
+    "BROKEN_ACCESS_CONTROL": {
+      "model_version": "bayesian-logistic-v1",
+      "training_samples": 0
+    },
+    "REFLECTED_XSS": {
+      "model_version": "bayesian-logistic-v1",
+      "training_samples": 0
+    },
+    "SQLI": {
+      "model_version": "bayesian-logistic-v1",
+      "training_samples": 0
+    }
+  },
+  "selection": {
+    "top_k": 10,
+    "candidates_scored": 200,
+    "selected": 10,
+    "deferred": 190,
+    "expected_findings": 8.822706823357109
+  },
+  "guarantee": null,
+  "verification": {
+    "ran": true,
+    "candidates_verified": 10,
+    "outcomes": {
+      "SUPPORTED": 10
+    }
+  },
+  "verification_order": [
+    {
+      "order": 1,
+      "candidate_id": "cand_3ec1d5a6baf6625d",
+      "input_point_ref": "inp_eb2cafc041e201e4",
+      "family": "SQLI",
+      "probability": 0.883740848506667,
+      "selection_rank": 78,
+      "prior_probability": 0.883740848506667,
+      "final_confidence": 0.9538382290084836,
+      "verification_outcome": "SUPPORTED",
+      "verification_signal": "SUPPORT_REPRODUCED"
+    },
+    {
+      "order": 2,
+      "candidate_id": "cand_2c6a11c1f4f4b552",
+      "input_point_ref": "inp_b2410727948d97ea",
+      "family": "SQLI",
+      "probability": 0.883393956301956,
+      "selection_rank": 79,
+      "prior_probability": 0.883393956301956,
+      "final_confidence": 0.9536895319266289,
+      "verification_outcome": "SUPPORTED",
+      "verification_signal": "SUPPORT_REPRODUCED"
+    },
+    {
+      "order": 3,
+      "candidate_id": "cand_cfbe65aebebc7fd2",
+      "input_point_ref": "inp_138a05fc67d9463a",
+      "family": "SQLI",
+      "probability": 0.8828894343387211,
+      "selection_rank": 80,
+      "prior_probability": 0.8828894343387211,
+      "final_confidence": 0.9534731403601504,
+      "verification_outcome": "SUPPORTED",
+      "verification_signal": "SUPPORT_REPRODUCED"
+    },
+    {
+      "order": 4,
+      "candidate_id": "cand_0d2c376ca3b699ac",
+      "input_point_ref": "inp_0abb4d533ca64d82",
+      "family": "SQLI",
+      "probability": 0.8826684580769929,
+      "selection_rank": 81,
+      "prior_probability": 0.8826684580769929,
+      "final_confidence": 0.9533783157760573,
+      "verification_outcome": "SUPPORTED",
+      "verification_signal": "SUPPORT_REPRODUCED"
+    },
+    {
+      "order": 5,
+      "candidate_id": "cand_04543ba56a754e9e",
+      "input_point_ref": "inp_b7c7def71a4ebf81",
+      "family": "SQLI",
+      "probability": 0.8825956392633554,
+      "selection_rank": 82,
+      "prior_probability": 0.8825956392633554,
+      "final_confidence": 0.9533470617453398,
+      "verification_outcome": "SUPPORTED",
+      "verification_signal": "SUPPORT_REPRODUCED"
+    },
+    {
+      "order": 6,
+      "candidate_id": "cand_404bdc9da19de1ee",
+      "input_point_ref": "inp_d4dd485c03213a20",
+      "family": "SQLI",
+      "probability": 0.8823559775101941,
+      "selection_rank": 83,
+      "prior_probability": 0.8823559775101941,
+      "final_confidence": 0.9532441763256214,
+      "verification_outcome": "SUPPORTED",
+      "verification_signal": "SUPPORT_REPRODUCED"
+    },
+    {
+      "order": 7,
+      "candidate_id": "cand_b4b67f3287ae4ebc",
+      "input_point_ref": "inp_21c5bb097e2d8ecd",
+      "family": "SQLI",
+      "probability": 0.8822899229425701,
+      "selection_rank": 84,
+      "prior_probability": 0.8822899229425701,
+      "final_confidence": 0.953215813557113,
+      "verification_outcome": "SUPPORTED",
+      "verification_signal": "SUPPORT_REPRODUCED"
+    },
+    {
+      "order": 8,
+      "candidate_id": "cand_c2ce92807bb94ffb",
+      "input_point_ref": "inp_083345ebc08ab7e9",
+      "family": "SQLI",
+      "probability": 0.8817609346452465,
+      "selection_rank": 85,
+      "prior_probability": 0.8817609346452465,
+      "final_confidence": 0.9529885821565235,
+      "verification_outcome": "SUPPORTED",
+      "verification_signal": "SUPPORT_REPRODUCED"
+    },
+    {
+      "order": 9,
+      "candidate_id": "cand_bb56f316e6fd3f02",
+      "input_point_ref": "inp_c4cd68ae0cff0141",
+      "family": "SQLI",
+      "probability": 0.8805280680364821,
+      "selection_rank": 86,
+      "prior_probability": 0.8805280680364821,
+      "final_confidence": 0.9524583558833697,
+      "verification_outcome": "SUPPORTED",
+      "verification_signal": "SUPPORT_REPRODUCED"
+    },
+    {
+      "order": 10,
+      "candidate_id": "cand_44c909712de3b896",
+      "input_point_ref": "inp_3316a2239fddc1d4",
+      "family": "SQLI",
+      "probability": 0.8804835837349241,
+      "selection_rank": 87,
+      "prior_probability": 0.8804835837349241,
+      "final_confidence": 0.9524392075452293,
+      "verification_outcome": "SUPPORTED",
+      "verification_signal": "SUPPORT_REPRODUCED"
+    }
+  ]
+}
