@@ -30,6 +30,7 @@ from vulnspider.cli_decision import (
     verification_selection,
 )
 from vulnspider.evaluation.live import DEFAULT_CUTOFFS, LiveEvaluationError
+from vulnspider.evaluation.random_predictor import RandomPredictor
 from vulnspider.discovery import (
     CombinedDiscoveryResult,
     CrawlPolicy,
@@ -335,6 +336,28 @@ def build_parser() -> argparse.ArgumentParser:
             "needed when the file covers more than one."
         ),
     )
+    parser.add_argument(
+        "--random-predictor",
+        action="store_true",
+        dest="simple_random_predictor",
+        help=(
+            "Add a random-predictor arm to the ranking evaluation: for each "
+            "input point it guesses one of SQLI/XSS/BAC/SAFE at random "
+            "(requires --ground-truth)."
+        ),
+    )
+    parser.add_argument(
+        "--random-safe-weight",
+        type=_non_negative_float,
+        default=None,
+        dest="simple_random_safe_weight",
+        metavar="W",
+        help=(
+            "Weight the random predictor's SAFE guess by W while each "
+            "vulnerability family stays at 1 (default: 1 = uniform; >1 abstains "
+            "more; implies --random-predictor)."
+        ),
+    )
     subparsers = parser.add_subparsers(dest="command")
     analyze = subparsers.add_parser(
         "analyze",
@@ -608,6 +631,26 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Which application in the ground truth file was scanned. Only "
             "needed when the file covers more than one."
+        ),
+    )
+    analyze.add_argument(
+        "--random-predictor",
+        action="store_true",
+        help=(
+            "Add a random-predictor arm to the ranking evaluation: for each "
+            "input point it guesses one of SQLI/XSS/BAC/SAFE at random "
+            "(requires --ground-truth)."
+        ),
+    )
+    analyze.add_argument(
+        "--random-safe-weight",
+        type=_non_negative_float,
+        default=None,
+        metavar="W",
+        help=(
+            "Weight the random predictor's SAFE guess by W while each "
+            "vulnerability family stays at 1 (default: 1 = uniform; >1 abstains "
+            "more; implies --random-predictor)."
         ),
     )
     add_decision_subcommands(subparsers)
@@ -948,10 +991,16 @@ def _evaluation_request_from_args(
 ) -> EvaluationRequest | None:
     """Build the optional ranking-evaluation stage's request, if asked for."""
 
+    want_random = bool(args.random_predictor) or args.random_safe_weight is not None
     if args.ground_truth is None:
-        if args.eval_output is not None or args.eval_cutoffs is not None:
+        if (
+            args.eval_output is not None
+            or args.eval_cutoffs is not None
+            or want_random
+        ):
             raise CLIError(
-                "--eval-output and --eval-cutoffs require --ground-truth"
+                "--eval-output, --eval-cutoffs, and --random-predictor require "
+                "--ground-truth"
             )
         return None
     if not args.ground_truth.is_file():
@@ -964,11 +1013,18 @@ def _evaluation_request_from_args(
                 "--eval-output must differ from the analysis, HTML, crawl, "
                 "and verification report destinations"
             )
+    random_predictor = None
+    if want_random:
+        safe_weight = (
+            1.0 if args.random_safe_weight is None else args.random_safe_weight
+        )
+        random_predictor = RandomPredictor.with_safe_weight(safe_weight)
     return EvaluationRequest(
         ground_truth_path=args.ground_truth,
         output=output,
         cutoffs=tuple(args.eval_cutoffs or DEFAULT_CUTOFFS),
         application_id=args.application_id,
+        random_predictor=random_predictor,
     )
 
 
@@ -992,6 +1048,8 @@ def _simple_options_without_url(args: argparse.Namespace) -> bool:
         or args.simple_eval_output is not None
         or args.simple_eval_cutoffs is not None
         or args.simple_application_id is not None
+        or args.simple_random_predictor
+        or args.simple_random_safe_weight is not None
         or args.simple_cookie is not None
     )
 
@@ -1038,6 +1096,8 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         eval_output=args.simple_eval_output,
         eval_cutoffs=args.simple_eval_cutoffs,
         application_id=args.simple_application_id,
+        random_predictor=args.simple_random_predictor,
+        random_safe_weight=args.simple_random_safe_weight,
         max_pages=None,
         max_depth=None,
         max_requests=None,
@@ -1449,6 +1509,18 @@ def _bounded_top_k(value: str) -> int:
             f"--top-k must be between 1 and {_MAX_TOP_K}"
         )
     return number
+
+
+def _non_negative_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "value must be a non-negative number"
+        ) from exc
+    if parsed < 0 or not (parsed == parsed) or parsed in (float("inf"), float("-inf")):
+        raise argparse.ArgumentTypeError("value must be a non-negative number")
+    return parsed
 
 
 def _non_negative_integer(value: str) -> int:

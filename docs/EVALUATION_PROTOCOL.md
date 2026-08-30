@@ -75,13 +75,25 @@ v0.1에서는 본격적인 최종 논문 평가보다 **평가 가능성 확보*
 
 모든 후보를 동일하게 검증한다고 가정.
 
-### Baseline B — Random Top-K
+### Baseline B — Random 예측기
 
-무작위 후보 선택.
+무작위 예측기. "그냥 적게/아무렇게나 뽑아도 되는가?"에 답한다. 두 변형을 쓴다.
 
-목적:
+**B-1. Uniform random ordering** (`ARM_RANDOM`, 항상 켜짐). 모든 후보에 같은
+점수를 줘 전체가 하나의 동점군이 되게 한다. `metrics`가 §6-A 규칙 4로 그 순위의
+기댓값을 **닫힌 형식으로** 계산하므로 시드도 시뮬레이션도 없다. `Precision@K`는
+정확히 유병률(vulnerable/candidates)로 수렴한다.
 
-"그냥 적게 뽑아도 되는가?"에 답한다.
+**B-2. Per-input-point 랜덤 유형 추측** (`--random-predictor`,
+`evaluation/random_predictor.py`). 더 직관적인 랜덤 분류기다. 각 **입력점**마다
+`{SQLI, REFLECTED_XSS, BROKEN_ACCESS_CONTROL, SAFE}` 중 하나를 가중치로 추첨하고,
+그 유형의 `InputPoint × family` 후보만 양성(점수 1.0)으로, 나머지·SAFE·해당 family가
+없는 경우는 음성(0.0)으로 둔다. 대부분의 입력점이 안전하므로 `--random-safe-weight W`
+로 SAFE에 더 큰 가중치를 줄 수 있다(W=1 균등, W>1 기권 성향). 이 2단 점수도 **동일한**
+`evaluate_ranking`으로 채점되어 VulnSpider와 같은 지표로 비교된다. 추측이 무작위라
+한 draw는 잡음이므로, 지표는 `trials`회(기본 1000) 시드 고정 몬테카를로의 평균이다.
+각 draw의 지표 자체는 §6-A 규칙 4의 정확한 동점 기댓값이라, 유형 추측만 시뮬레이션되고
+동점 내 순서는 시뮬레이션되지 않는다(결과는 시드에 대해 결정적).
 
 ### Baseline C — Static heuristic only
 

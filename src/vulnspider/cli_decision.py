@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +64,11 @@ from vulnspider.evaluation.live import (
     build_scored_candidates,
     evaluate_live_run,
     render_live_evaluation_table,
+)
+from vulnspider.evaluation.random_predictor import (
+    RandomPredictor,
+    RandomPredictorError,
+    evaluate_random_predictor,
 )
 from vulnspider.pipeline import AnalysisResult
 from vulnspider.reporting.decision_html_report import write_decision_html_report
@@ -511,6 +516,7 @@ class EvaluationRequest:
     output: Path
     cutoffs: tuple[int, ...] = DEFAULT_CUTOFFS
     application_id: str | None = None
+    random_predictor: RandomPredictor | None = None
 
 
 def run_live_evaluation(
@@ -558,13 +564,25 @@ def run_live_evaluation(
             for observation in analysis.access_probe_observations
         },
     )
-    return evaluate_live_run(
+    report = evaluate_live_run(
         scored,
         application_id=application_id,
         target=target_url,
         top_k=top_k,
         cutoffs=request.cutoffs,
     )
+    if request.random_predictor is not None:
+        try:
+            arm = evaluate_random_predictor(
+                scored,
+                application_id=application_id,
+                predictor=request.random_predictor,
+                cutoffs=report.cutoffs,
+            )
+        except RandomPredictorError as exc:
+            raise LiveEvaluationError(str(exc)) from exc
+        report = replace(report, arms=report.arms + (arm,))
+    return report
 
 
 @dataclass(frozen=True, slots=True)
