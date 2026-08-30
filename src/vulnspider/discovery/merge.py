@@ -387,6 +387,7 @@ def _merge_request_templates(
                 headers=current.headers,
                 query=current.query,
                 form=current.form,
+                json_body=current.json_body,
                 cookies=current.cookies,
                 completeness=current.completeness,
                 context_key=current.context_key,

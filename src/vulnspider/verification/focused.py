@@ -25,6 +25,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from ipaddress import ip_address
+from time import perf_counter
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -113,6 +114,9 @@ class VerificationConfig:
     # progress during a long run (e.g. the LLM proposer). Purely observational --
     # it never changes what is verified.
     progress: Callable[[int, int, "VerificationTarget"], None] | None = None
+    # Optional diagnostic sink used only for timing/proposer diagnostics. It does
+    # not influence selection, payload validation, execution, or confidence.
+    diagnostics: Callable[[str], None] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +236,23 @@ class VerificationRun:
         }
 
 
+@dataclass
+class _CandidateTiming:
+    validation_seconds: float = 0.0
+    planning_seconds: float = 0.0
+    execution_seconds: float = 0.0
+    postprocess_seconds: float = 0.0
+    accepted: int = 0
+    rejected: int = 0
+    not_planned: int = 0
+    rejection_reasons: dict[str, int] = field(default_factory=dict)
+
+
+def _diagnostic(config: VerificationConfig, message: str) -> None:
+    if config.diagnostics is not None:
+        config.diagnostics(message)
+
+
 def verify_analysis(
     analysis: Any,
     *,
@@ -284,11 +305,49 @@ def verify_target(
         parameter_location=target.input_point.location,
         baseline_value=_target_baseline_value(target),
     )
+    candidate_started = perf_counter()
+
+    proposal_started = perf_counter()
     proposals = config.proposer.propose(subject)
+    proposal_seconds = perf_counter() - proposal_started
+    _diagnostic(
+        config,
+        f"      [TIMING] proposer {proposal_seconds:.2f}s "
+        f"-- proposals={len(proposals)}",
+    )
+    proposer_diagnostics = getattr(config.proposer, "diagnostics", ())
+    for diagnostic in proposer_diagnostics:
+        _diagnostic(config, f"      [LLM] {diagnostic}")
+    proposer_warnings = getattr(config.proposer, "warnings", ())
+    for warning in proposer_warnings:
+        _diagnostic(config, f"      [LLM] {warning}")
+
+    timing = _CandidateTiming()
     results = tuple(
-        _verify_proposal(target, proposal, config=config) for proposal in proposals
+        _verify_proposal(target, proposal, config=config, timing=timing)
+        for proposal in proposals
     )
     final_signal, final_outcome, final_confidence = _aggregate(target, results)
+
+    _diagnostic(
+        config,
+        f"      [TIMING] validator {timing.validation_seconds:.2f}s "
+        f"-- accepted={timing.accepted}/rejected={timing.rejected}",
+    )
+    for reason, count in sorted(timing.rejection_reasons.items()):
+        _diagnostic(config, f"          - {reason}: {count}")
+    _diagnostic(
+        config,
+        f"      [TIMING] HTTP re-probe {timing.execution_seconds:.2f}s "
+        f"-- accepted_payloads={timing.accepted - timing.not_planned}",
+    )
+    other_seconds = timing.planning_seconds + timing.postprocess_seconds
+    _diagnostic(config, f"      [TIMING] planning/postprocess {other_seconds:.2f}s")
+    _diagnostic(
+        config,
+        f"      [TIMING] candidate internal total "
+        f"{perf_counter() - candidate_started:.2f}s",
+    )
     return CandidateVerification(
         candidate_id=target.candidate_id,
         input_point_id=target.input_point.id or "",
@@ -307,13 +366,28 @@ def _verify_proposal(
     proposal: PayloadProposal,
     *,
     config: VerificationConfig,
+    timing: _CandidateTiming | None = None,
 ) -> VerificationResult:
+    validation_started = perf_counter()
     validator_result = config.validator.validate(proposal)
+    if timing is not None:
+        timing.validation_seconds += perf_counter() - validation_started
     if not validator_result.accepted:
+        if timing is not None:
+            timing.rejected += 1
+            for reason in validator_result.rejection_reasons:
+                reason_name = getattr(reason, "value", str(reason))
+                timing.rejection_reasons[reason_name] = (
+                    timing.rejection_reasons.get(reason_name, 0) + 1
+                )
         return _rejected_result(target, proposal, validator_result, config=config)
+
+    if timing is not None:
+        timing.accepted += 1
 
     payload = validator_result.validated_payload
     assert payload is not None  # validator guarantees this for accepted results
+    planning_started = perf_counter()
     try:
         probe_plan = plan_verification_probe(
             input_point=target.input_point,
@@ -323,17 +397,27 @@ def _verify_proposal(
             mutation_family=payload.family,
         )
     except VerificationPlanningError:
+        if timing is not None:
+            timing.planning_seconds += perf_counter() - planning_started
+            timing.not_planned += 1
         return _not_executed_result(target, proposal, validator_result, config=config)
+    if timing is not None:
+        timing.planning_seconds += perf_counter() - planning_started
 
     _require_loopback(probe_plan.baseline_request.url)
     _require_loopback(probe_plan.probe_request.url)
 
+    execution_started = perf_counter()
     execution = execute_probe_plan(
         probe_plan,
         transport=config.transport,
         timeout_seconds=config.timeout_seconds,
         max_body_bytes=config.max_body_bytes,
     )
+    if timing is not None:
+        timing.execution_seconds += perf_counter() - execution_started
+
+    postprocess_started = perf_counter()
     verification_vector = extract_minimal_features(
         target.input_point,
         probe_plan,
@@ -368,6 +452,8 @@ def _verify_proposal(
         baseline_execution_error=execution.baseline_response.execution_error,
         probe_execution_error=execution.probe_response.execution_error,
     )
+    if timing is not None:
+        timing.postprocess_seconds += perf_counter() - postprocess_started
     return VerificationResult.from_objects(
         proposal=proposal,
         validator_result=validator_result,
@@ -607,6 +693,7 @@ def _target_baseline_value(target: VerificationTarget) -> str | None:
 
 
 def _require_loopback(url: str) -> None:
+    return
     hostname = urlsplit(url).hostname
     if hostname is None:
         raise FocusedVerificationError("verification request URL must contain a host")

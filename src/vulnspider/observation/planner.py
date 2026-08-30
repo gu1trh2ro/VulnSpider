@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from dataclasses import dataclass
 from urllib.parse import quote, unquote_plus, urlencode, urlsplit, urlunsplit
 
@@ -91,13 +93,36 @@ def plan_probe_request(
     )
     probe_query = request_template.query
     probe_form = request_template.form
+    probe_json_body = request_template.json_body
+
     if input_point.location == InputLocation.QUERY:
-        probe_query = _replace_pair_value(request_template.query, pair_index, marker)
+        probe_query = _replace_pair_value(
+            request_template.query,
+            pair_index,
+            marker,
+        )
     elif input_point.location == InputLocation.FORM:
-        probe_form = _replace_pair_value(request_template.form, pair_index, marker)
+        probe_form = _replace_pair_value(
+            request_template.form,
+            pair_index,
+            marker,
+        )
+    elif input_point.location in {InputLocation.JSON, InputLocation.JSON_BODY}:
+        # RequestTemplate.json_body stores each member value as canonical JSON
+        # text, so a string marker must itself be encoded as a JSON string.
+        encoded_marker = json.dumps(
+            marker,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        probe_json_body = _replace_pair_value(
+            request_template.json_body,
+            pair_index,
+            encoded_marker,
+        )
     else:
         raise ProbePlanningError(
-            f"location {input_point.location.value} cannot be probed by v0.1 planner"
+            f"location {input_point.location.value} cannot be probed by planner"
         )
 
     baseline_request = _request_instance_from_template(request_template)
@@ -114,6 +139,7 @@ def plan_probe_request(
         headers=request_template.headers,
         query=probe_query,
         form=probe_form,
+        json_body=probe_json_body,
         cookies=request_template.cookies,
     )
     return ProbePlan(
@@ -242,6 +268,8 @@ def _pairs_for_location(
         return request_template.query
     if location == InputLocation.FORM:
         return request_template.form
+    if location in {InputLocation.JSON, InputLocation.JSON_BODY}:
+        return request_template.json_body
     raise ProbePlanningError(f"unsupported InputPoint location: {location.value}")
 
 
@@ -283,6 +311,7 @@ def _request_instance_from_template(request_template: RequestTemplate) -> Reques
         headers=request_template.headers,
         query=request_template.query,
         form=request_template.form,
+        json_body=request_template.json_body,
         cookies=request_template.cookies,
     )
 

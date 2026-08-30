@@ -302,6 +302,7 @@ class RequestTemplate:
     provenance: ParamInput = field(default_factory=tuple)
     metadata: Mapping[str, Any] = field(default_factory=dict)
     id: str | None = None
+    json_body: ParamInput = field(default_factory=tuple)
     fingerprint: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -309,6 +310,7 @@ class RequestTemplate:
         headers = _freeze_string_mapping(self.headers, label="request headers")
         query = canonical_param_pairs(self.query)
         form = canonical_param_pairs(self.form)
+        json_body = canonical_param_pairs(self.json_body)
         cookies = _freeze_string_mapping(self.cookies, label="request cookies")
         completeness = RequestContextCompleteness(self.completeness)
         provenance = canonical_param_pairs(self.provenance)
@@ -322,6 +324,7 @@ class RequestTemplate:
             tuple(sorted(headers.items())),
             query,
             form,
+            json_body,
             tuple(sorted(cookies.items())),
             completeness.value,
             self.context_key,
@@ -331,6 +334,7 @@ class RequestTemplate:
         object.__setattr__(self, "headers", headers)
         object.__setattr__(self, "query", query)
         object.__setattr__(self, "form", form)
+        object.__setattr__(self, "json_body", json_body)
         object.__setattr__(self, "cookies", cookies)
         object.__setattr__(self, "completeness", completeness)
         object.__setattr__(self, "provenance", provenance)
@@ -349,12 +353,14 @@ class RequestInstance:
     form: ParamInput = field(default_factory=tuple)
     cookies: dict[str, str] = field(default_factory=dict)
     id: str | None = None
+    json_body: ParamInput = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "method", HttpMethod(self.method))
         object.__setattr__(self, "headers", dict(self.headers))
         object.__setattr__(self, "query", canonical_param_pairs(self.query))
         object.__setattr__(self, "form", canonical_param_pairs(self.form))
+        object.__setattr__(self, "json_body", canonical_param_pairs(self.json_body))
         object.__setattr__(self, "cookies", dict(self.cookies))
         if not self.id:
             fingerprint = stable_fingerprint(
@@ -364,6 +370,7 @@ class RequestInstance:
                 tuple(sorted(self.headers.items())),
                 self.query,
                 self.form,
+                self.json_body,
                 tuple(sorted(self.cookies.items())),
             )
             object.__setattr__(self, "id", f"req_{fingerprint[:16]}")
@@ -426,6 +433,8 @@ def validate_input_point_request_context(
         pairs = request_template.query
     elif input_point.location == InputLocation.FORM:
         pairs = request_template.form
+    elif input_point.location in {InputLocation.JSON, InputLocation.JSON_BODY}:
+        pairs = request_template.json_body
     else:
         raise ValueError(
             f"InputPoint location {input_point.location.value} is not request-bindable"

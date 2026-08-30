@@ -10,7 +10,7 @@ import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 from tqdm import tqdm  # 진행률 바를 위해 추가
 
 from vulnspider import __version__
@@ -701,6 +701,10 @@ def main(
         pbar.set_postfix_str(stage)
         pbar.update(1) # 2단계: 크롤+분석 진입
         time.sleep(0.5)
+
+        if args.input is None:
+            args.url = _normalize_scan_url(args.url)
+
         _progress(
             f"[*] {stage} 시작 -> "
             f"{args.url if args.input is None else args.input}"
@@ -798,6 +802,7 @@ def main(
                 _progress(
                     "    로컬 LLM 모델 로딩 중 (최초 1회, 수 초~수십 초 소요될 수 있음) …"
                 )
+            verification_progress = _VerificationProgressTimer()
             verification_run = verify_analysis(
                 analysis,
                 config=VerificationConfig(
@@ -805,10 +810,12 @@ def main(
                     transport=transport,
                     confidence_model=confidence_model,
                     max_candidates=args.top_k,
-                    progress=_verify_candidate_progress,
+                    progress=verification_progress,
                 ),
                 selection=verification_selection(ranking),
             )
+
+            verification_progress.finish()
             _counts = verification_run.counts()
             _progress(
                 "[OK] 검증 완료 -- "
@@ -1174,13 +1181,64 @@ def _progress(message: str) -> None:
     tqdm.write("", file=sys.stderr)
 
 
-def _verify_candidate_progress(index: int, total: int, target: Any) -> None:
-    """Per-candidate verification progress (the long, LLM-heavy stage)."""
+class _VerificationProgressTimer:
+    """Measure wall-clock time for each focused-verification candidate."""
 
-    _progress(
-        f"    - 검증 {index}/{total}: "
-        f"{target.vulnerability_type.value} rank {target.selection_rank}"
-    )
+    def __init__(self) -> None:
+        self._started_at: float | None = None
+        self._last_label: str | None = None
+        self._last_index: int | None = None
+        self._last_total: int | None = None
+
+    def __call__(self, index: int, total: int, target: Any) -> None:
+        now = time.perf_counter()
+
+        # 다음 후보가 시작되는 시점 = 이전 후보가 끝난 시점
+        if (
+            self._started_at is not None
+            and self._last_label is not None
+            and self._last_index is not None
+            and self._last_total is not None
+        ):
+            elapsed = now - self._started_at
+
+            _progress(
+                f"    - 검증 {self._last_index}/{self._last_total}: "
+                f"{self._last_label:<25} "
+                f"elapsed time : {elapsed:.2f}s"
+            )
+
+        self._started_at = now
+        self._last_index = index
+        self._last_total = total
+        self._last_label = (
+            f"{target.vulnerability_type.value} "
+            f"rank {target.selection_rank}"
+        )
+
+    def finish(self) -> None:
+        """Print the final candidate because no next callback follows it."""
+
+        if (
+            self._started_at is None
+            or self._last_label is None
+            or self._last_index is None
+            or self._last_total is None
+        ):
+            return
+
+        elapsed = time.perf_counter() - self._started_at
+
+        _progress(
+            f"    - 검증 {self._last_index}/{self._last_total}: "
+            f"{self._last_label:<25} "
+            f"elapsed time : {elapsed:.2f}s"
+        )
+
+        self._started_at = None
+        self._last_label = None
+        self._last_index = None
+        self._last_total = None
 
 
 def _report_uri(path: Path) -> str:
@@ -1463,6 +1521,31 @@ def _reject_dynamic_options_without_opt_in(args: argparse.Namespace) -> None:
     if any(getattr(args, name) is not None for name in _DYNAMIC_OPTION_NAMES):
         raise CLIError("Dynamic policy and authority options require --dynamic")
 
+def _normalize_scan_url(url: str) -> str:
+    """Remove URL fragments before HTTP crawling / authority checks."""
+
+    parts = urlsplit(url)
+
+    if not parts.fragment:
+        return url
+
+    normalized = urlunsplit(
+        (
+            parts.scheme,
+            parts.netloc,
+            parts.path or "/",
+            parts.query,
+            "",
+        )
+    )
+
+    _progress(
+        f"[*] SPA/URL fragment '#{parts.fragment}' detected "
+        f"-> scan URL normalized to {normalized}"
+    )
+
+    return normalized
+
 
 def _dynamic_authority_from_args(
     args: argparse.Namespace,
@@ -1485,13 +1568,17 @@ def _dynamic_authority_from_args(
                 f"{allowed}"
             ) from None
         grants.append(DynamicResourceGrant(kind=kind, url=url))
+
     return DynamicRequestAuthority(
         root_url=args.url,
         navigation_urls=tuple(args.dynamic_allow_navigation or ()),
         resource_grants=tuple(grants),
-        allow_rendered_navigation=simple_mode,
-        allow_passive_same_origin_resources=simple_mode,
-        allow_passive_same_origin_fetch_xhr=simple_mode,
+        # SPA discovery must remain enabled in both simple mode and
+        # `analyze --dynamic`. Juice Shop relies on rendered routes and
+        # same-origin fetch/XHR traffic to expose many input points.
+        allow_rendered_navigation=True,
+        allow_passive_same_origin_resources=True,
+        allow_passive_same_origin_fetch_xhr=True,
     )
 
 

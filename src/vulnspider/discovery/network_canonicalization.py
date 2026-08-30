@@ -114,8 +114,9 @@ def canonicalize_network_discovery(
         )
         for candidate in post_candidates:
             builder.add_structural_json_body_surface(
-                candidate.base_url,
+                candidate.canonical_url,
                 member_names=candidate.member_names,
+                member_pairs=candidate.member_pairs,
                 observation_key=(
                     f"network:{candidate.resource_type}:{candidate.id}"
                 ),
@@ -126,8 +127,8 @@ def canonicalize_network_discovery(
             )
         if post_candidates:
             builder.add_warning(
-                "NETWORK_POST_JSON_STRUCTURAL_ONLY",
-                "Blocked browser POST JSON attempts were retained as structure only.",
+                "NETWORK_POST_JSON_CAPTURED",
+                "Blocked browser POST JSON attempts were retained as reconstructable request templates when safe.",
                 {
                     "structural_candidate_count": len(post_candidates),
                     "producer_kind": discovery_metadata.collector_kind.value,

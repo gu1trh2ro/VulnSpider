@@ -17,6 +17,7 @@ import tempfile
 from time import monotonic
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
+from urllib.parse import parse_qsl, urlsplit
 
 from vulnspider.discovery.contracts import (
     BACStaticHint,
@@ -69,7 +70,7 @@ from vulnspider.domain import (
 )
 
 
-DYNAMIC_CRAWLER_VERSION = "native-dynamic-crawler/1.1"
+DYNAMIC_CRAWLER_VERSION = "native-dynamic-crawler/1.2"
 DYNAMIC_SCOPE_POLICY_VERSION = "same-origin-v1"
 _REQUIRED_SAFETY_INVARIANT = (
     DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION
@@ -88,6 +89,81 @@ def _reduce_mapping_proxy(
 
 
 copyreg.pickle(type(MappingProxyType({})), _reduce_mapping_proxy)
+
+
+_REDIRECT_PATH_HINTS = frozenset({
+    "/redirect",
+    "/redir",
+    "/out",
+    "/go",
+    "/forward",
+})
+_REDIRECT_PARAMETER_NAMES = frozenset({
+    "to",
+    "url",
+    "target",
+    "redirect",
+    "redirect_url",
+    "redirect_uri",
+    "next",
+    "continue",
+})
+
+
+def _http_origin(url: str) -> tuple[str, str, int] | None:
+    """Return a normalized HTTP(S) origin, or None for an invalid URL."""
+
+    try:
+        parsed = urlsplit(url)
+        scheme = parsed.scheme.lower()
+        if scheme not in {"http", "https"}:
+            return None
+        host = (parsed.hostname or "").lower()
+        if not host:
+            return None
+        port = parsed.port
+    except (TypeError, ValueError):
+        return None
+    if port is None:
+        port = 443 if scheme == "https" else 80
+    return (scheme, host, port)
+
+
+def _external_redirect_target(
+    root_url: str,
+    candidate_url: str,
+) -> str | None:
+    """Detect a same-origin redirector that points at another HTTP(S) origin.
+
+    The redirector URL itself remains part of discovery. This helper is only
+    used to prevent the dynamic crawler from navigating through the redirector
+    to a cross-origin destination.
+    """
+
+    root_origin = _http_origin(root_url)
+    if root_origin is None:
+        return None
+    try:
+        parsed = urlsplit(candidate_url)
+    except (TypeError, ValueError):
+        return None
+
+    path = (parsed.path.rstrip("/") or "/").lower()
+    if path not in _REDIRECT_PATH_HINTS:
+        return None
+
+    for raw_name, raw_value in parse_qsl(parsed.query, keep_blank_values=True):
+        if raw_name.strip().lower() not in _REDIRECT_PARAMETER_NAMES:
+            continue
+        value = raw_value.strip()
+        if not value:
+            continue
+        target_origin = _http_origin(value)
+        if target_origin is None:
+            continue
+        if target_origin != root_origin:
+            return value
+    return None
 
 
 class DynamicCrawlerError(ValueError):
@@ -272,8 +348,6 @@ class DynamicCrawlResult:
             or self.route_actions_attempted < 0
         ):
             raise DynamicCrawlerError("route_actions_attempted must be non-negative")
-        if self.route_actions_attempted != 0:
-            raise DynamicCrawlerError("Milestone 4 must not execute route actions")
         if type(self.browser_audit) is not BrowserAuditSummary:
             raise TypeError("browser_audit must be BrowserAuditSummary")
         self.discovery.validate()
@@ -425,6 +499,7 @@ class _CrawlState:
     warnings: dict[str, DiscoveryWarning] = field(default_factory=dict)
     skipped: int = 0
     explicit_navigation_calls: int = 0
+    route_actions_attempted: int = 0
     operational_failure: bool = False
     depth_budget_exhausted: bool = False
     stop_reason: DynamicCrawlTerminationReason | None = None
@@ -687,7 +762,7 @@ class DynamicCrawler:
             completion=completion,
             termination_reason=termination,
             navigation_attempts=audit.main_frame_navigation_allowed_count,
-            route_actions_attempted=0,
+            route_actions_attempted=state.route_actions_attempted,
             discovery=discovery,
             browser_audit=audit,
         )
@@ -868,6 +943,24 @@ class DynamicCrawler:
             state.page_urls.add(final_url)
             self._schedule_links(state, page_result)
 
+            remaining_actions = (
+                state.policy.max_route_actions - state.route_actions_attempted
+            )
+            if remaining_actions > 0 and self._remaining_seconds(state) > 0:
+                action_runner = getattr(session, "perform_safe_route_actions", None)
+                if callable(action_runner):
+                    try:
+                        attempted = action_runner(remaining_actions)
+                    except DynamicBrowserError as exc:
+                        self._record_browser_failure(
+                            state, exc, requested_url=requested_url
+                        )
+                        return
+                    if type(attempted) is int and attempted > 0:
+                        state.route_actions_attempted += min(
+                            attempted, remaining_actions
+                        )
+
     def _schedule_links(
         self,
         state: _CrawlState,
@@ -893,6 +986,26 @@ class DynamicCrawler:
                     },
                 )
                 continue
+
+            external_redirect = _external_redirect_target(
+                state.root_url,
+                candidate,
+            )
+            if external_redirect is not None:
+                state.warn(
+                    "DYNAMIC_EXTERNAL_REDIRECT_SUPPRESSED",
+                    "External redirect target was discovered but not navigated.",
+                    {
+                        "destination_fingerprint": _url_fingerprint(candidate),
+                        "external_target_fingerprint": _url_fingerprint(
+                            external_redirect
+                        ),
+                        "link_id": link.id,
+                        "reason": "CROSS_ORIGIN_REDIRECT_TARGET",
+                    },
+                )
+                continue
+
             unsafe_token = authentication_state_change_token(candidate)
             if unsafe_token is not None:
                 state.warn(

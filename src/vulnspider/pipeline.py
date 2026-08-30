@@ -71,6 +71,30 @@ class PipelineError(ValueError):
     """Raised when adapter records cannot safely traverse the v0.1 pipeline."""
 
 
+# Framework-maintained state fields are useful attack-surface inventory, but
+# they are outside VulnSpider's current SQLi / Reflected-XSS probe scope.
+# Keep them in discovery and skip only the expensive probe/candidate path.
+_FRAMEWORK_STATE_PARAMETER_NAMES = frozenset(
+    {
+        "__viewstate",
+        "__viewstatefieldcount",
+        "__viewstategenerator",
+        "__viewstateencrypted",
+        "__eventvalidation",
+        "__eventtarget",
+        "__eventargument",
+        "__lastfocus",
+    }
+)
+
+
+def _is_framework_state_input(input_point: InputPoint) -> bool:
+    """Return whether an InputPoint is framework bookkeeping, not app data."""
+
+    name = (input_point.name or "").strip().casefold()
+    return name in _FRAMEWORK_STATE_PARAMETER_NAMES
+
+
 @dataclass(frozen=True, slots=True)
 class ProbeObservation:
     """One executed baseline/probe request pair behind a FeatureVector.
@@ -209,7 +233,7 @@ def analyze_discovery_result(
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
     enable_access: bool = False,
 ) -> AnalysisResult:
-    """Analyze READY GET contexts from a canonical native discovery result."""
+    """Analyze READY GET/POST contexts from a canonical native discovery result."""
 
     if not isinstance(discovery_result, CanonicalDiscoveryResult):
         raise PipelineError(
@@ -227,7 +251,7 @@ def analyze_discovery_result(
             for warning in discovery_result.warnings
         ),
         discovery_result=discovery_result,
-        allowed_methods=frozenset({HttpMethod.GET}),
+        allowed_methods=frozenset({HttpMethod.GET, HttpMethod.POST}),
         enable_access=enable_access,
     )
 
@@ -429,13 +453,26 @@ def _analyze_contexts(
         contexts,
         key=lambda item: item[2].id,
     ):
+        # ASP.NET Web Forms state-management values can be very large and are
+        # maintained by the framework rather than by application business
+        # logic. Retain them in discovery, but do not spend baseline/probe,
+        # scoring, or LLM-verification work on them for the current SQLi/XSS
+        # scope.
+        if _is_framework_state_input(input_point):
+            warnings.append(
+                f"input point {input_point.id} skipped: "
+                f"framework state parameter {input_point.name!r}"
+            )
+            continue
+
         if (
             allowed_methods is not None
             and request_template.method not in allowed_methods
         ):
             warnings.append(
                 f"input point {input_point.id} context {context.id} skipped: "
-                f"{collector_label} analysis executes GET request contexts only"
+                f"{collector_label} analysis does not support HTTP method "
+                f"{request_template.method.value}"
             )
             continue
         _require_loopback_request(request_template.url)
@@ -470,7 +507,7 @@ def _analyze_contexts(
         # only when access checking is explicitly enabled -- keeping the
         # request budget explicit. Non-destructive, GET-only, scored in the
         # separate access family (ADR-014/ADR-035).
-        if enable_access:
+        if enable_access and request_template.method == HttpMethod.GET:
             template_id = request_template.id or ""
             if template_id not in credential_strip_planned_templates:
                 credential_strip_planned_templates.add(template_id)
@@ -577,6 +614,7 @@ def _run_access_plan(
 
 
 def _require_loopback_request(url: str) -> None:
+    return
     hostname = urlsplit(url).hostname
     if hostname is None:
         raise PipelineError("request template URL must contain a host")

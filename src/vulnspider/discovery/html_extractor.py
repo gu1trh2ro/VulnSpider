@@ -812,14 +812,90 @@ class CanonicalDiscoveryBuilder:
         observation_key: str,
         not_ready_reasons: Sequence[NonProbeReadyReason],
         origin_kind: str,
+        member_pairs: Sequence[tuple[str, str]] = (),
     ) -> None:
-        """Add value-free top-level JSON names with no request context."""
+        """Add top-level JSON members, binding a complete request when values exist."""
 
         endpoint = self._add_endpoint(
             url,
             method=HttpMethod.POST,
             observation_key=observation_key,
         )
+        canonical_pairs = tuple(
+            (canonical_name, str(value))
+            for name, value in member_pairs
+            if (canonical_name := _canonical_input_name(name))
+        )
+        if canonical_pairs:
+            if tuple(sorted(name for name, _ in canonical_pairs)) != tuple(
+                sorted(
+                    canonical_name
+                    for name in member_names
+                    if (canonical_name := _canonical_input_name(name))
+                )
+            ):
+                raise DiscoveryContractError(
+                    "JSON member names and retained values do not align"
+                )
+            template = RequestTemplate(
+                endpoint_id=endpoint.id or "",
+                endpoint_fingerprint=endpoint.fingerprint,
+                method=HttpMethod.POST,
+                url=url,
+                query=tuple(parse_qsl(urlsplit(url).query, keep_blank_values=True)),
+                json_body=canonical_pairs,
+                completeness=RequestContextCompleteness.COMPLETE,
+                context_key=f"json:{observation_key}",
+                provenance=(("json_body", "browser-request-body"),),
+                metadata={
+                    "context_kind": "json_body",
+                    "content_type": "application/json",
+                    "source_page": self.source_url,
+                    "reconstruction_status": "complete",
+                    "json_value_encoding": "canonical-json-text",
+                },
+            )
+            stored_template = self.templates.setdefault(template.id or "", template)
+            self._observe(
+                DiscoverySubjectKind.REQUEST_TEMPLATE,
+                stored_template.id or "",
+                f"template:{observation_key}",
+            )
+            for member_index, (canonical_name, value) in enumerate(canonical_pairs):
+                point = InputPoint(
+                    endpoint_id=endpoint.id or "",
+                    endpoint_fingerprint=endpoint.fingerprint,
+                    location=InputLocation.JSON_BODY,
+                    name=canonical_name,
+                    occurrence_index=None,
+                    baseline_value=value,
+                    type_hint="json",
+                    source_page=self.source_url,
+                    metadata={
+                        self.native_metadata_key: True,
+                        "hidden": False,
+                        "visibility": "network_observed",
+                        "value_state": "retained_safe",
+                        "json_value_encoding": "canonical-json-text",
+                    },
+                )
+                self._remember_point(
+                    point,
+                    raw_query_token=None,
+                    origin_kind=origin_kind,
+                    pair_index=member_index,
+                    control_index=-1,
+                    hidden=False,
+                )
+                self._bind(
+                    point,
+                    stored_template,
+                    observation_key=f"{observation_key}:json:{member_index}",
+                    ready=True,
+                    not_ready_reasons=(),
+                )
+            return
+
         for member_index, canonical_name in enumerate(
             _canonical_input_name(name) for name in member_names
         ):
