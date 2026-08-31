@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 from dataclasses import dataclass, field
 from threading import Lock
@@ -40,6 +41,7 @@ from vulnspider.sensitive import credential_field_name
 NEUTRAL_MARKER_STRATEGY = "neutral-reflection-marker-v1"
 SENTINEL_MARKER_STRATEGY = "sentinel-reflection-marker-v1"
 DEFAULT_MARKER_STRATEGY = SENTINEL_MARKER_STRATEGY
+NUMERIC_ADJACENT_MARKER_STRATEGY = "numeric-adjacent-v1"
 MARKER_PREFIX = "VULNSPIDER_"
 MARKER_TOKEN_LENGTH = 16
 
@@ -55,6 +57,8 @@ RAW_QUERY_ALIGNMENT_FAILED = "raw-query-alignment-failed"
 DEFAULT_POST_PROBE_PLAN_BUDGET = 4
 POST_PROBE_PLAN_BUDGET_EXHAUSTED = "POST_PROBE_PLAN_BUDGET_EXHAUSTED"
 POST_PROBE_PLAN_BUDGET_REQUIRED = "POST_PROBE_PLAN_BUDGET_REQUIRED"
+POST_PROBE_SCALAR_TYPE_UNSUPPORTED = "POST_PROBE_SCALAR_TYPE_UNSUPPORTED"
+POST_PROBE_NUMERIC_VALUE_NONFINITE = "POST_PROBE_NUMERIC_VALUE_NONFINITE"
 
 
 class ProbePlanningError(ValueError):
@@ -144,14 +148,26 @@ def plan_probe_request(
 
     target_pairs = _pairs_for_location(input_point.location, request_template)
     pair_index, baseline_value = _target_pair_index(input_point, target_pairs)
+    selective_post_probe = _is_selective_post_probe(input_point, request_template)
+    decoded_post_json_value: object = None
+    marker_baseline_value = baseline_value
+    if (
+        selective_post_probe
+        and input_point.location in {InputLocation.JSON, InputLocation.JSON_BODY}
+    ):
+        decoded_post_json_value = _decode_post_json_value(baseline_value)
+        if type(decoded_post_json_value) is str:
+            marker_baseline_value = decoded_post_json_value
     marker = deterministic_probe_marker(
         input_point=input_point,
         request_template=request_template,
         request_context=request_context,
         probe_family=probe_family,
         marker_strategy=marker_strategy,
-        baseline_value=baseline_value,
+        baseline_value=marker_baseline_value,
     )
+    probe_marker: str | None = marker
+    effective_marker_strategy = marker_strategy
     probe_query = request_template.execution_query
     probe_form = request_template.form
     probe_json_body = request_template.execution_json_body
@@ -169,13 +185,24 @@ def plan_probe_request(
             marker,
         )
     elif input_point.location in {InputLocation.JSON, InputLocation.JSON_BODY}:
-        # RequestTemplate.json_body stores each member value as canonical JSON
-        # text, so a string marker must itself be encoded as a JSON string.
-        encoded_marker = json.dumps(
-            marker,
-            ensure_ascii=True,
-            separators=(",", ":"),
-        )
+        if selective_post_probe:
+            (
+                encoded_marker,
+                probe_marker,
+                effective_marker_strategy,
+            ) = _type_aware_post_json_probe_value(
+                value=decoded_post_json_value,
+                string_marker=marker,
+                string_marker_strategy=marker_strategy,
+            )
+        else:
+            # RequestTemplate.json_body stores each member value as canonical
+            # JSON text, so a string marker must itself be JSON encoded.
+            encoded_marker = json.dumps(
+                marker,
+                ensure_ascii=True,
+                separators=(",", ":"),
+            )
         probe_json_body = _replace_pair_value(
             request_template.execution_json_body,
             pair_index,
@@ -186,7 +213,7 @@ def plan_probe_request(
             f"location {input_point.location.value} cannot be probed by planner"
         )
 
-    if _is_selective_post_probe(input_point, request_template):
+    if selective_post_probe:
         _validate_selective_post_preflight(
             input_point=input_point,
             request_template=request_template,
@@ -229,8 +256,8 @@ def plan_probe_request(
         changed_fields=(_changed_field(input_point),),
         request_template_id=request_template.id,
         request_context_id=request_context.id,
-        probe_marker=marker,
-        marker_strategy=marker_strategy,
+        probe_marker=probe_marker,
+        marker_strategy=effective_marker_strategy,
     )
 
 
@@ -260,11 +287,14 @@ def deterministic_probe_marker(
             nonce,
         )
         identifier = f"{MARKER_PREFIX}{fingerprint[:MARKER_TOKEN_LENGTH].upper()}"
-        if identifier == baseline_value:
+        candidate = (
+            identifier + PROBE_SENTINEL
+            if marker_strategy == SENTINEL_MARKER_STRATEGY
+            else identifier
+        )
+        if identifier == baseline_value or candidate == baseline_value:
             continue
-        if marker_strategy == SENTINEL_MARKER_STRATEGY:
-            return identifier + PROBE_SENTINEL
-        return identifier
+        return candidate
     raise ProbePlanningError("could not generate a marker distinct from baseline")
 
 
@@ -278,6 +308,57 @@ def marker_identifier(marker: str) -> str:
     """
 
     return marker.split("Z", 1)[0]
+
+
+def _decode_post_json_value(encoded_value: str) -> object:
+    try:
+        return json.loads(encoded_value)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise ProbePlanningError("POST replay JSON scalar is invalid") from exc
+
+
+def _type_aware_post_json_probe_value(
+    *,
+    value: object,
+    string_marker: str,
+    string_marker_strategy: str,
+) -> tuple[str, str | None, str]:
+    """Return one bounded scalar mutation without changing its JSON type."""
+
+    if type(value) is str:
+        return (
+            json.dumps(
+                string_marker,
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ),
+            string_marker,
+            string_marker_strategy,
+        )
+    if type(value) is int:
+        return (
+            json.dumps(value + 1, separators=(",", ":")),
+            None,
+            NUMERIC_ADJACENT_MARKER_STRATEGY,
+        )
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ProbePlanningError(POST_PROBE_NUMERIC_VALUE_NONFINITE)
+        probe_value = math.nextafter(value, math.inf)
+        if not math.isfinite(probe_value):
+            probe_value = math.nextafter(value, -math.inf)
+        if not math.isfinite(probe_value) or probe_value == value:
+            raise ProbePlanningError(POST_PROBE_NUMERIC_VALUE_NONFINITE)
+        return (
+            json.dumps(
+                probe_value,
+                allow_nan=False,
+                separators=(",", ":"),
+            ),
+            None,
+            NUMERIC_ADJACENT_MARKER_STRATEGY,
+        )
+    raise ProbePlanningError(POST_PROBE_SCALAR_TYPE_UNSUPPORTED)
 
 
 def _validate_planning_inputs(

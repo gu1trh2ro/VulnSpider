@@ -246,6 +246,27 @@ Gate 1C 기간에는 다음 파일을 coordination 대상으로 취급한다.
   query-member invariants, deterministic cap/order, GET/pairing/provenance와 artifact
   secret 경계를 다시 검토하고 `APPROVE — 0 blockers, 0 majors, 0 minors`를
   판정했다.
+- 2026-08-31: Gate 1C-D-2 제품 수정 전 type-aware scalar tests를 추가해 19개 중
+  6 failure를 재현했다. integer/float가 string marker로 바뀌고 boolean/null이
+  plan과 budget을 소비하며 max finite float도 string이 되는 RED였다.
+- 2026-08-31: 기존 planner 안의 JSON scalar mutation seam만 확장했다. string은
+  기존 marker를 유지하고 integer는 `n + 1`, finite float는 adjacent finite
+  number를 사용한다. boolean/null/non-finite는 RequestInstance/budget 전에
+  fail-closed하며 numeric reflection feature는 missing으로 남긴다.
+- 2026-08-31: 첫 독립 D-2 review는 112개 좁은 회귀와 numeric edge를 확인하고
+  `PASS — APPROVE`를 판정했다. 후속 self-audit에서 observed JSON string이 full
+  sentinel marker와 같은 경우 encoded/raw collision 비교 때문에 no-op plan이
+  거부되는 edge를 추가 RED로 재현했다. 기존 deterministic marker primitive가
+  identifier/full candidate collision을 모두 nonce fallback하도록 수정했다.
+- 2026-08-31: 최종 snapshot의 D-2 core 21개와 POST readiness, GET planner,
+  pairing/provenance, submit-gate, BAC live-cookie, simple SPA 회귀를 합친 109개가
+  PASS했다. format/lint, in-memory `tqdm` stub type-hint와 `git diff --check`도
+  PASS했다. 전체 suite와 real-target E2E는 요청대로 실행하지 않았다.
+- 2026-08-31: fresh final re-review는 string identifier/full-sentinel collision,
+  decoded JSON scalar 분기, unsupported type의 pre-budget fail-closed, exact sidecar/
+  single-member/member-order, cap 4와 numeric missing-reflection/pairing provenance를
+  재검토했다. 별도 67개 표적 테스트와 `git diff --check`가 PASS했고
+  `PASS — 0 blockers, 0 majors, 0 minors`를 판정했다.
 
 ## Gate 1C-A 후속 경계
 
@@ -445,6 +466,55 @@ boolean baseline scalar를 모두 exact sidecar value로 보존하지만, probe 
 - [x] baseline dedup 없이 기존 ProbePlan/ResponsePair provenance를 유지한다.
 - [x] GET, submit-gate, BAC live-cookie와 simple SPA 표적 회귀를 유지한다.
 
+## Gate 1C-D-2 type-aware POST mutation contract
+
+Gate 1C-D-2는 D-1의 planner, preflight, budget, execution과 pairing 경로를
+그대로 사용하고 target top-level JSON scalar의 mutation value만 type-aware하게
+선택한다. `SAFE_FOR_PROBE` + `READY` + owner-bound complete
+`EphemeralRequestMaterial` 조건과 plan cap 4/transport request cap 8은 바꾸지
+않는다.
+
+Mutation matrix는 다음과 같다.
+
+| Observed JSON type | Active probe | Probe/feature contract |
+| --- | --- | --- |
+| string | 기존 deterministic sentinel reflection marker의 canonical JSON string | 기존 marker strategy와 reflection feature를 그대로 사용한다. |
+| integer | observed integer `n`의 `n + 1` | JSON integer type을 유지하고 정수에서 가능한 최소 non-zero 변화량 1만 적용한다. 문자열 marker를 전송하지 않으므로 reflection feature는 미관찰이다. |
+| finite number/float | `math.nextafter(n, +inf)`; non-finite가 되면 `math.nextafter(n, -inf)` | 같은 binary float에서 표현 가능한 가장 가까운 유한 값을 사용한다. JSON number/float semantics를 유지하고 reflection feature는 미관찰이다. |
+| boolean | plan 0 | `false -> true`가 권한/상태 의미를 바꿀 수 있어 active mutation 근거가 없다. |
+| null | plan 0 | 대체 값의 안전한 type/semantic contract가 없다. |
+| non-finite float | plan 0 | 표준 JSON transport value로 안전하게 재직렬화할 수 없다. |
+| object/array | plan 0 | 기존 nested JSON non-goal을 유지한다. |
+
+숫자 probe의 `ProbePlan.probe_marker`는 `None`이고 strategy는
+`numeric-adjacent-v1`이다. 따라서 실제 request에 존재하지 않는 문자열을
+reflection marker로 귀속하지 않는다. 기존 status/length differential 및 새 SQL
+error feature는 그대로 관찰하지만 marker reflection/count/HTML encoding feature는
+missing으로 남긴다. 별도 payload family나 mutation framework는 추가하지 않는다.
+
+모든 허용 type에서 baseline은 sidecar의 exact observed canonical JSON scalar
+tuple이다. probe는 같은 tuple index의 target value 하나만 바꾸며 method, execution
+URL, authority/path/query, headers/cookies/form, JSON member set/order와 다른 member
+value를 그대로 유지한다. boolean/null/non-finite 거부는 budget reservation과
+`RequestInstance` 생성 전에 일어나므로 cap을 소비하지 않는다.
+
+## Gate 1C-D-2 acceptance criteria
+
+- [x] string scalar는 기존 non-destructive marker semantics를 재사용한다.
+- [x] observed string이 identifier/full sentinel marker와 충돌해도 deterministic
+  nonce fallback으로 non-noop string probe를 만든다.
+- [x] integer는 type을 유지하며 deterministic `n + 1`만 사용한다.
+- [x] finite float는 가장 가까운 유한 float로만 바뀌고 number semantics를
+  유지한다.
+- [x] boolean/null/non-finite float는 plan과 budget을 소비하지 않는다.
+- [x] exact ephemeral baseline, single-member diff와 member set/order를 유지한다.
+- [x] persistent `null` baseline과 owner mismatch는 계속 거부한다.
+- [x] STRUCTURAL_ONLY/BLOCKED_SENSITIVE/nested/GraphQL/multipart는 plan 0이다.
+- [x] plan cap 4/transport cap 8과 deterministic plan order/count를 유지한다.
+- [x] numeric probe의 reflection features는 fabricated zero가 아닌 missing이다.
+- [x] GET marker, ProbePlan/ResponsePair provenance, submit-gate, BAC live-cookie와
+  simple SPA 회귀를 유지한다.
+
 ## Decision Log
 
 - Decision: structural candidate와 exact replay value는 structural owner ID로
@@ -485,10 +555,17 @@ boolean baseline scalar를 모두 exact sidecar value로 보존하지만, probe 
   사용하고 type-aware bounded values는 D-2로 분리한다.
 - Reason: 이번 Gate의 핵심은 exact baseline, single-member isolation과 budget이며,
   새로운 payload family/type semantics를 동시에 도입하지 않는다.
+- Decision: D-2 integer는 `n + 1`, finite float는 가장 가까운 representable finite
+  value를 사용하고 boolean/null/non-finite는 active target에서 제외한다.
+- Reason: integer/float의 원래 JSON type을 유지하면서 가능한 가장 작은 deterministic
+  변형만 허용하고, 권한/상태 의미를 바꿀 근거가 없는 scalar는 fail-closed하기
+  위해서다.
+- Decision: numeric probe에는 문자열 `probe_marker`를 귀속하지 않고 reflection
+  feature를 missing으로 남긴다.
+- Reason: 실제 request에 없는 identifier를 reflection evidence로 해석하거나 짧은
+  숫자 문자열의 우연한 응답 등장을 positive reflection으로 오판하지 않기 위해서다.
 
 ## Open Questions
 
-- Gate 1C-D-2에서 number/boolean type-aware mutation이 feature extraction에 주는
-  영향과 scalar별 bounded value를 결정한다.
 - sidecar lifetime을 planning 직후 더 단축할 수 있는지는 Gate 1C-D-2/E에서
   검토한다.

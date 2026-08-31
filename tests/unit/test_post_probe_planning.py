@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 import inspect
+import json
+import math
 import threading
 import unittest
 from unittest.mock import patch
@@ -24,6 +26,11 @@ from vulnspider.domain import (
     InputLocation,
     InputPoint,
     InputPointRequestContext,
+)
+from vulnspider.features import (
+    MARKER_REFLECTED,
+    REFLECTION_COUNT_NORM,
+    SAFE_HTML_ENCODING_DETECTED,
 )
 from vulnspider.observation import (
     PostProbePlanningBudget,
@@ -226,11 +233,14 @@ class PostProbePlanningTests(unittest.TestCase):
 
     def test_exact_baseline_and_one_top_level_scalar_mutation(self) -> None:
         result, material = _safe_result(
-            b'{"keyword":"phone","page":1,"enabled":true}'
+            b'{"keyword":"phone","page":1,"ratio":1.25}'
         )
-        ready = {point.name: (point, template, context) for point, template, context in result.ready_contexts()}
+        ready = {
+            point.name: (point, template, context)
+            for point, template, context in result.ready_contexts()
+        }
 
-        self.assertEqual(set(ready), {"enabled", "keyword", "page"})
+        self.assertEqual(set(ready), {"keyword", "page", "ratio"})
         for target_name, (point, template, context) in ready.items():
             with self.subTest(target=target_name):
                 plan = ProbePlanner().plan(point, template, context)
@@ -271,6 +281,193 @@ class PostProbePlanningTests(unittest.TestCase):
                     plan.changed_fields,
                     (f"json_body.{target_name}",),
                 )
+
+    def test_string_scalar_reuses_existing_light_probe_marker(self) -> None:
+        result, _material = _safe_result(
+            b'{"keyword":"phone","page":1}'
+        )
+        ready = {
+            point.name: (point, template, context)
+            for point, template, context in result.ready_contexts()
+        }
+
+        point, template, context = ready["keyword"]
+        plan = ProbePlanner().plan(point, template, context)
+        encoded_probe = dict(plan.probe_request.json_body)["keyword"]
+
+        self.assertIs(type(json.loads(encoded_probe)), str)
+        self.assertEqual(json.loads(encoded_probe), plan.probe_marker)
+        self.assertEqual(
+            plan.marker_strategy,
+            planner_module.DEFAULT_MARKER_STRATEGY,
+        )
+
+    def test_string_marker_collision_uses_deterministic_fallback(self) -> None:
+        first, _material = _safe_result(
+            b'{"keyword":"phone","page":1}'
+        )
+        first_ready = {
+            point.name: (point, template, context)
+            for point, template, context in first.ready_contexts()
+        }
+        first_marker = ProbePlanner().plan(*first_ready["keyword"]).probe_marker
+        if first_marker is None:
+            raise AssertionError("expected string marker")
+
+        collision_body = json.dumps(
+            {"keyword": first_marker, "page": 1},
+            separators=(",", ":"),
+        ).encode()
+        collision, _material = _safe_result(collision_body)
+        collision_ready = {
+            point.name: (point, template, context)
+            for point, template, context in collision.ready_contexts()
+        }
+
+        plan = ProbePlanner().plan(*collision_ready["keyword"])
+        self.assertNotEqual(plan.probe_marker, first_marker)
+        self.assertNotEqual(
+            dict(plan.baseline_request.json_body)["keyword"],
+            dict(plan.probe_request.json_body)["keyword"],
+        )
+
+    def test_integer_scalar_uses_minimal_adjacent_integer(self) -> None:
+        result, _material = _safe_result(
+            b'{"keyword":"phone","page":41}'
+        )
+        ready = {
+            point.name: (point, template, context)
+            for point, template, context in result.ready_contexts()
+        }
+
+        point, template, context = ready["page"]
+        plan = ProbePlanner().plan(point, template, context)
+        baseline_value = json.loads(dict(plan.baseline_request.json_body)["page"])
+        probe_value = json.loads(dict(plan.probe_request.json_body)["page"])
+
+        self.assertIs(type(baseline_value), int)
+        self.assertIs(type(probe_value), int)
+        self.assertEqual(probe_value, baseline_value + 1)
+        self.assertIsNone(plan.probe_marker)
+        self.assertEqual(plan.marker_strategy, "numeric-adjacent-v1")
+
+    def test_float_scalar_uses_closest_finite_numeric_probe(self) -> None:
+        result, _material = _safe_result(
+            b'{"keyword":"phone","ratio":1.25}'
+        )
+        ready = {
+            point.name: (point, template, context)
+            for point, template, context in result.ready_contexts()
+        }
+
+        point, template, context = ready["ratio"]
+        plan = ProbePlanner().plan(point, template, context)
+        baseline_value = json.loads(dict(plan.baseline_request.json_body)["ratio"])
+        probe_value = json.loads(dict(plan.probe_request.json_body)["ratio"])
+
+        self.assertIs(type(baseline_value), float)
+        self.assertIs(type(probe_value), float)
+        self.assertTrue(math.isfinite(probe_value))
+        self.assertEqual(probe_value, math.nextafter(baseline_value, math.inf))
+        self.assertIsNone(plan.probe_marker)
+        self.assertEqual(plan.marker_strategy, "numeric-adjacent-v1")
+
+    def test_largest_finite_float_steps_inward_and_nonfinite_is_rejected(self) -> None:
+        result, _material = _safe_result(
+            b'{"keyword":"phone","ratio":1.7976931348623157e308}'
+        )
+        ready = {
+            point.name: (point, template, context)
+            for point, template, context in result.ready_contexts()
+        }
+        point, template, context = ready["ratio"]
+
+        plan = ProbePlanner().plan(point, template, context)
+        baseline_value = json.loads(dict(plan.baseline_request.json_body)["ratio"])
+        probe_value = json.loads(dict(plan.probe_request.json_body)["ratio"])
+        self.assertEqual(probe_value, math.nextafter(baseline_value, -math.inf))
+
+        nonfinite, _material = _safe_result(
+            b'{"keyword":"phone","ratio":1e309}'
+        )
+        nonfinite_ready = {
+            point.name: (point, template, context)
+            for point, template, context in nonfinite.ready_contexts()
+        }
+        point, template, context = nonfinite_ready["ratio"]
+        with self.assertRaisesRegex(
+            ProbePlanningError,
+            "POST_PROBE_NUMERIC_VALUE_NONFINITE",
+        ):
+            ProbePlanner().plan(point, template, context)
+
+    def test_boolean_and_null_are_not_active_mutation_targets(self) -> None:
+        result, _material = _safe_result(
+            b'{"keyword":"phone","enabled":false,"cursor":null}'
+        )
+        ready = {
+            point.name: (point, template, context)
+            for point, template, context in result.ready_contexts()
+        }
+
+        for target_name in ("enabled", "cursor"):
+            with self.subTest(target=target_name):
+                point, template, context = ready[target_name]
+                with self.assertRaisesRegex(
+                    ProbePlanningError,
+                    "POST_PROBE_SCALAR_TYPE_UNSUPPORTED",
+                ):
+                    ProbePlanner().plan(point, template, context)
+
+    def test_unsupported_scalars_do_not_consume_post_budget(self) -> None:
+        result, _material = _safe_result(
+            b'{"keyword":"phone","enabled":false,"cursor":null,'
+            b'"field_0":0,"field_1":1,"field_2":2,"field_3":3}'
+        )
+        transport = RecordingTransport()
+
+        analysis = analyze_discovery_result(
+            result,
+            top_k=16,
+            transport=transport,
+        )
+
+        names_by_id = {point.id: point.name for point in result.input_points}
+        planned_names = tuple(
+            names_by_id[item.probe_plan.input_point_id]
+            for item in analysis.probe_observations
+        )
+        self.assertEqual(len(planned_names), POST_PLAN_CAP)
+        self.assertNotIn("enabled", planned_names)
+        self.assertNotIn("cursor", planned_names)
+        self.assertEqual(len(transport.calls), POST_PLAN_CAP * 2)
+
+    def test_numeric_probe_leaves_reflection_features_unobserved(self) -> None:
+        result, _material = _safe_result(
+            b'{"keyword":"phone","page":41}'
+        )
+
+        analysis = analyze_discovery_result(
+            result,
+            top_k=4,
+            transport=RecordingTransport(),
+        )
+
+        ids_by_name = {point.name: point.id for point in result.input_points}
+        page_vector = next(
+            vector
+            for vector in analysis.feature_vectors
+            if vector.input_point_id == ids_by_name["page"]
+        )
+        for feature_name in (
+            MARKER_REFLECTED,
+            REFLECTION_COUNT_NORM,
+            SAFE_HTML_ENCODING_DETECTED,
+        ):
+            with self.subTest(feature=feature_name):
+                feature = page_vector.features[feature_name]
+                self.assertFalse(feature.observed)
+                self.assertIsNone(feature.value)
 
     def test_second_scalar_plans_do_not_mix_values(self) -> None:
         result, _material = _safe_result(b'{"keyword":"phone","page":1}')
