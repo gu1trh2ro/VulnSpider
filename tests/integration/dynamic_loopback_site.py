@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 from threading import Event, Lock, Thread
 from urllib.parse import urlsplit
 
@@ -19,6 +20,14 @@ class LoopbackRequest:
     method: str
     path: str
     raw_target: str
+
+
+@dataclass(frozen=True, slots=True)
+class LoopbackPostRequest:
+    path: str
+    raw_target: str
+    content_type: str
+    body: bytes
 
 
 class _QuietThreadingHttpServer(ThreadingHTTPServer):
@@ -80,6 +89,7 @@ class DynamicLoopbackSite:
         self._lock = Lock()
         self._primary_requests: list[LoopbackRequest] = []
         self._sentinel_requests: list[LoopbackRequest] = []
+        self._post_requests: list[LoopbackPostRequest] = []
         self.slow_started = Event()
         self.release_slow = Event()
         self._primary: _ServerHandle | None = None
@@ -101,6 +111,7 @@ class DynamicLoopbackSite:
         self.network_canonicalization_script_url = ""
         self.network_canonicalization_style_url = ""
         self.observed_post_json_url = ""
+        self.golden_post_e2e_url = ""
         self.unsafe_get_url = ""
         self.autosubmit_url = ""
         self.page_close_url = ""
@@ -161,6 +172,11 @@ class DynamicLoopbackSite:
     def sentinel_requests(self) -> tuple[LoopbackRequest, ...]:
         with self._lock:
             return tuple(self._sentinel_requests)
+
+    @property
+    def post_requests(self) -> tuple[LoopbackPostRequest, ...]:
+        with self._lock:
+            return tuple(self._post_requests)
 
     @property
     def primary_port(self) -> int:
@@ -483,6 +499,68 @@ class DynamicLoopbackSite:
                           marker.textContent = "attempts-complete";
                           document.body.appendChild(marker);
                         }});
+                        </script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/golden-post-e2e":
+                    html = """<!doctype html>
+                    <html>
+                      <head>
+                        <meta charset="utf-8">
+                        <link rel="icon" href="data:,">
+                      </head>
+                      <body>
+                        <div id="golden-post-started">started</div>
+                        <script>
+                        const jsonHeaders = {
+                          "Content-Type": "application/json; charset=utf-8"
+                        };
+                        const attempts = [
+                          fetch("/api/search", {
+                            method: "POST",
+                            headers: jsonHeaders,
+                            body: JSON.stringify({
+                              keyword: "phone",
+                              page: 1
+                            })
+                          }),
+                          fetch("/cart/add", {
+                            method: "POST",
+                            headers: jsonHeaders,
+                            body: JSON.stringify({
+                              product_id: "golden-sku",
+                              quantity: 1
+                            })
+                          }),
+                          fetch("/login", {
+                            method: "POST",
+                            headers: jsonHeaders,
+                            body: JSON.stringify({
+                              username: "golden-post-user",
+                              password: "GOLDEN_POST_PASSWORD_SENTINEL"
+                            })
+                          }),
+                          fetch("/graphql", {
+                            method: "POST",
+                            headers: jsonHeaders,
+                            body: JSON.stringify({
+                              query: "mutation GoldenAddItem { addItem(id: 1) { id } }",
+                              operationName: "GoldenAddItem"
+                            })
+                          })
+                        ];
+                        Promise.allSettled(attempts).then(() => {
+                          const marker = document.createElement("div");
+                          marker.id = "golden-post-complete";
+                          marker.textContent = "attempts-complete";
+                          document.body.appendChild(marker);
+                        });
                         </script>
                       </body>
                     </html>"""
@@ -1582,7 +1660,32 @@ class DynamicLoopbackSite:
                 self._send(404, b"missing", "text/plain")
 
             def do_POST(self) -> None:
+                content_length = self.headers.get("Content-Length", "0")
+                try:
+                    body_length = max(0, int(content_length))
+                except ValueError:
+                    body_length = 0
+                body = self.rfile.read(body_length)
                 site._record(site._primary_requests, "POST", self.path)
+                site._record_post(
+                    self.path,
+                    content_type=self.headers.get("Content-Type", ""),
+                    body=body,
+                )
+                if urlsplit(self.path).path == "/api/search":
+                    try:
+                        parsed = json.loads(body)
+                    except (json.JSONDecodeError, TypeError, ValueError):
+                        self._send(400, b"invalid JSON", "text/plain")
+                        return
+                    response = json.dumps(
+                        parsed,
+                        ensure_ascii=True,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ).encode("utf-8")
+                    self._send(200, response, "application/json")
+                    return
                 self._send(500, b"POST must not execute", "text/plain")
 
             def do_HEAD(self) -> None:
@@ -1680,6 +1783,9 @@ class DynamicLoopbackSite:
         )
         self.observed_post_json_url = (
             network_observation_origin + "/observed-post-json"
+        )
+        self.golden_post_e2e_url = (
+            network_observation_origin + "/golden-post-e2e"
         )
         self.unsafe_get_url = (
             f"http://127.0.0.1:{self.primary_port}/unsafe-get"
@@ -1833,4 +1939,22 @@ class DynamicLoopbackSite:
         with self._lock:
             log.append(
                 LoopbackRequest(method=method, path=route, raw_target=path)
+            )
+
+    def _record_post(
+        self,
+        path: str,
+        *,
+        content_type: str,
+        body: bytes,
+    ) -> None:
+        route = urlsplit(path).path
+        with self._lock:
+            self._post_requests.append(
+                LoopbackPostRequest(
+                    path=route,
+                    raw_target=path,
+                    content_type=content_type,
+                    body=body,
+                )
             )

@@ -267,6 +267,16 @@ Gate 1C 기간에는 다음 파일을 coordination 대상으로 취급한다.
   single-member/member-order, cap 4와 numeric missing-reflection/pairing provenance를
   재검토했다. 별도 67개 표적 테스트와 `git diff --check`가 PASS했고
   `PASS — 0 blockers, 0 majors, 0 minors`를 판정했다.
+- 2026-08-31: Gate 1C-E 제품 수정 전 real Chromium Golden test를 추가해 fixture
+  route/recording seam 부재를 RED로 확인했다. D-2 이후 SAFE POST가 READY/executable이
+  된 현재 계약과 충돌하던 두 기존 integration assertion도 RED로 재현했다.
+- 2026-08-31: 기존 loopback HTTP/Playwright seam만 확장해 SAFE search, state-changing
+  cart, sensitive login, GraphQL mutation을 한 SPA에서 관측했다. 제품 코드는 변경하지
+  않았고 `/api/search`만 2 plans/4 POST requests로 analysis까지 전달되며 나머지는
+  discovery-only/0 transport임을 고정했다. 최종 D/C/B/A, GET/HEAD, submit-gate,
+  BAC/redaction, pairing/provenance, simple SPA/results-pack을 포함한 149개 표적 테스트와
+  format/lint/`git diff --check`가 PASS했다. 전체 suite와 external target은 실행하지
+  않았다.
 
 ## Gate 1C-A 후속 경계
 
@@ -514,6 +524,46 @@ value를 그대로 유지한다. boolean/null/non-finite 거부는 budget reserv
 - [x] numeric probe의 reflection features는 fabricated zero가 아닌 missing이다.
 - [x] GET marker, ProbePlan/ResponsePair provenance, submit-gate, BAC live-cookie와
   simple SPA 회귀를 유지한다.
+
+## Gate 1C-E Golden POST E2E contract
+
+Gate 1C-E는 새 replay architecture를 추가하지 않고 기존 real Chromium
+`DynamicLoopbackSite` seam에 네 POST observation을 함께 발생시키는 golden SPA를
+추가한다. 브라우저 observation 단계는 모든 POST transport를 계속 차단하고 구조만
+수집하며, 이후 기존 `analyze_url` planner/executor가 `SAFE_FOR_PROBE`인
+`/api/search`만 active transport로 전달한다.
+
+Golden fixture matrix는 다음과 같다.
+
+| Observed request | Persistent discovery | Readiness / active replay |
+| --- | --- | --- |
+| `POST /api/search` string `keyword`, integer `page` | endpoint, top-level scalar InputPoint, value-free template/context | `SAFE_FOR_PROBE`, `READY`; exact sidecar baseline으로 2 plans / 4 requests |
+| `POST /cart/add` | endpoint와 두 scalar InputPoint 유지, observed value 없음 | `STRUCTURAL_ONLY`, `NOT_READY`; 0 plans / 0 requests |
+| `POST /login` username/password | value-free endpoint/InputPoint/template 유지, credential value 없음 | `BLOCKED_SENSITIVE`, `NOT_READY`; 0 plans / 0 requests |
+| GraphQL mutation POST | endpoint와 top-level structure 유지, operation/query value 없음 | `STRUCTURAL_ONLY`, `NOT_READY`; 0 plans / 0 requests |
+
+SAFE 실행은 plan마다 baseline/probe를 한 쌍씩 소유하므로 observed search body가
+정확히 두 번, string single-member probe가 한 번, integer `1 -> 2` probe가 한 번
+전송된다. 따라서 fixture의 실제 active POST는 `/api/search` 4회뿐이며 D-1의
+4-plan/8-request 상한과 D-2 type-aware contract를 더 강화하지도 완화하지도 않는다.
+각 `ResponsePair`는 exact plan id, baseline/probe request id와 role을 보존하고 두
+FeatureVector 및 네 scoring result까지 기존 analysis pipeline으로 전달된다.
+
+## Gate 1C-E acceptance criteria
+
+- [x] real Chromium fetch observation에서 SAFE/state-changing/sensitive/GraphQL
+  endpoint와 top-level InputPoint가 모두 보존된다.
+- [x] `/api/search`만 `SAFE_FOR_PROBE` + `READY` handoff를 거쳐 keyword/page 두
+  single-member plan과 정확히 4개의 POST request를 만든다.
+- [x] string marker와 integer `1 -> 2`가 원래 JSON type, member set/order와 다른
+  member 값을 보존한다.
+- [x] cart/login/GraphQL은 `NOT_READY`, plan 0, active transport 0이다.
+- [x] discovery/crawl/analysis artifact에는 search, cart, login, GraphQL의 raw
+  observed value가 없다. exact search body는 live owner-bound sidecar에만 있다.
+- [x] ProbePlan/ResponsePair request id, role, plan provenance와 analysis handoff가
+  유지된다.
+- [x] D/C/B/A, GET/HEAD, submit-gate, BAC cookie/redaction, simple SPA와 PR #21
+  results-pack 표적 회귀를 유지한다.
 
 ## Decision Log
 
