@@ -12,8 +12,8 @@
 ## 0. 핵심 요약 (TL;DR)
 
 ```powershell
-# (한 번만) 동적 크롤용 브라우저 엔진 설치
-pip install "playwright>=1.48,<2"
+# (한 번만) 프로젝트 + 동적 크롤 dependency 설치
+python -m pip install -e ".[dynamic]"
 python -m playwright install chromium
 
 # 공개 테스트 사이트에 동적 스캔 → 대시보드 HTML 생성
@@ -37,7 +37,7 @@ python -m vulnspider --url http://testaspnet.vulnweb.com/ --top-k 20 --static-on
 |---|---|
 | Python | 3.11 이상 |
 | 코드 경로 | 이 저장소의 `src`를 `PYTHONPATH`에 넣고 실행 (아래 "실행 함정" 참고) |
-| 동적 크롤 | `pip install "playwright>=1.48,<2"` + `python -m playwright install chromium` |
+| 동적 크롤 | `python -m pip install -e ".[dynamic]"` + `python -m playwright install chromium` |
 | (선택) 로컬 LLM 검증 | `models\vulnspider-3b_v3.gguf` + `llama-cpp-python` — [models/README.md](../models/README.md) 참고 |
 
 ### ⚠️ 실행 함정 (반드시 이 방식으로)
@@ -210,8 +210,8 @@ python tools\verification_detail_report.py `
 ## 6. 예시: testaspnet.vulnweb.com 빠른 시작
 
 ```powershell
-# 1) (최초 1회) 브라우저 엔진
-pip install "playwright>=1.48,<2"
+# 1) (최초 1회) 프로젝트 + 브라우저 dependency
+python -m pip install -e ".[dynamic]"
 python -m playwright install chromium
 
 # 2) 동적 스캔 + 대시보드

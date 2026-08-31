@@ -277,6 +277,40 @@ Gate 1C 기간에는 다음 파일을 coordination 대상으로 취급한다.
   BAC/redaction, pairing/provenance, simple SPA/results-pack을 포함한 149개 표적 테스트와
   format/lint/`git diff --check`가 PASS했다. 전체 suite와 external target은 실행하지
   않았다.
+- 2026-09-01: Phase 2-0 환경 조사에서 저장소는 Python `>=3.11`만 명시하고 CI
+  workflow나 exact-version pin은 두지 않음을 확인했다. 이 workspace의 전용
+  `.venv-vulnspider` Python 3.12.13을 canonical test interpreter로 확정했다. 전역
+  `python` 3.14.6과 unavailable `py` launcher는 이 Gate에 사용하지 않았다.
+- 2026-09-01: CLI가 실제 progress bar와 progress write에 사용하는 `tqdm`을
+  unconditional import하면서 root `pyproject.toml` runtime dependencies에는 선언하지
+  않은 dependency declaration defect를 stub-free CLI import와 CLI test collection
+  RED로 재현했다. root dependency에 `tqdm>=4.66,<5`만 추가하고 canonical venv에
+  `.[dynamic]`을 설치했다. Playwright는 기존 `dynamic` extra와 lazy preflight 경계가
+  일치하므로 제품/manifest 결함이 아니며, 같은 interpreter의 Playwright 1.62.0과
+  matching Chromium headless launch를 확인했다.
+- 2026-09-01: 수정 후 stub-free CLI import와 `pip check`, CLI 11개,
+  observation/Gate 1C 76개, dynamic-browser 32개, real Chromium Golden 1개로 총
+  120개 표적 테스트가 PASS했다. format/lint/type-hint/`git diff --check`도 PASS했고
+  전체 suite는 Phase 2-0 범위에 따라 실행하지 않았다.
+- 2026-09-01: fresh independent review가 dynamic install guide의 direct Playwright
+  설치 명령은 새 core dependency를 누락한다는 minor를 발견했다. root와 docs guide를
+  모두 canonical `python -m pip install -e ".[dynamic]"` 명령으로 통일했다. 최종
+  independent re-review는 `PASS — 0 blockers, 0 majors, 0 minors`를 판정했다.
+
+## Phase 2-0 canonical test harness
+
+- Canonical interpreter:
+  `C:\School\spiderman\.venv-vulnspider\Scripts\python.exe` (Python 3.12.13).
+- VulnSpider dependency source of truth: root `pyproject.toml`. 별도
+  `payload_verifier_v2` manifest와 read-only legacy `setup.py`는 root package의
+  dependency source가 아니다.
+- Test runner: standard-library `unittest`; repository-wide command는
+  `python -B -m unittest discover -s tests`이고 이번 Gate에서는 실행하지 않는다.
+- Source checkout 실행은 `$env:PYTHONPATH = "src"`를 명시한다.
+- Dynamic browser dependency는 `pip install -e ".[dynamic]"`으로 설치하며 제품은
+  dynamic opt-in 전까지 Playwright를 import하지 않는다.
+- Phase 2-0 acceptance는 stub-free CLI import, observation/Gate 1C targeted tests,
+  strict browser preflight 및 real Chromium Golden test로 검증한다.
 
 ## Gate 1C-A 후속 경계
 
