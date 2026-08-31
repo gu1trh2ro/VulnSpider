@@ -1645,12 +1645,9 @@ def _dynamic_authority_from_args(
         root_url=args.url,
         navigation_urls=tuple(args.dynamic_allow_navigation or ()),
         resource_grants=tuple(grants),
-        # SPA discovery must remain enabled in both simple mode and
-        # `analyze --dynamic`. Juice Shop relies on rendered routes and
-        # same-origin fetch/XHR traffic to expose many input points.
-        allow_rendered_navigation=True,
-        allow_passive_same_origin_resources=True,
-        allow_passive_same_origin_fetch_xhr=True,
+        allow_rendered_navigation=simple_mode,
+        allow_passive_same_origin_resources=simple_mode,
+        allow_passive_same_origin_fetch_xhr=simple_mode,
     )
 
 
