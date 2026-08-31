@@ -1479,6 +1479,41 @@ DemoShop에서도 지금까지 BAC 후보는 "인증이 아예 없어 아무나 
 
 ---
 
+## ADR-040 — 보고서용 표 산출물 + 넓은 데스크톱 대시보드
+
+**Status:** Accepted
+
+**Date:** 2026-08-30
+
+**Decision:** 최종 보고서 탑재를 위해 두 가지를 개선한다.
+
+1. **실행마다 보고서용 표 파일 생성.** 평가 단계(`--ground-truth`)가 켜지면 평가
+   JSON 옆에 `reporting/report_tables.py`가 렌더한 표를 **Markdown + HTML** 두 형식으로
+   함께 저장한다. `<eval>-table.{md,html}`은 arm(Random / 검증 없음 / Full / 선택적
+   per-input-point 랜덤)별 Recall/Precision/MAP/NDCG@K 비교, `<eval>-inputs.{md,html}`은
+   ground truth에서 뽑은 **입력점별 취약 유형** 표다. Markdown은 Notion/문서에 바로
+   붙여넣고, HTML은 대시보드 팔레트로 스타일링돼 열람·스크린샷용. 지표·라벨은
+   재계산하지 않고 포맷만 한다.
+2. **대시보드를 넓은 데스크톱 레이아웃으로.** 결정 대시보드(`decision_html_report.py`)의
+   findings를 `repeat(auto-fit,minmax(540px,1fr))` 그리드로 흘려 세로 스크롤 대신 가로로
+   넓게 배치하고(후보 1개면 전체폭, 여럿이면 2열), 컨테이너 폭을 1240px로 넓히며 카드
+   그림자·헤더를 다듬었다. 변경은 decision 전용 `_EXTRA_STYLE` override에만 넣어 공유
+   `_DOCUMENT_STYLE`과 v0.1 리포트에는 영향이 없다.
+
+**Context:** 팀이 최종 보고서에 지표 표와 데모 입력점 취약 유형을 바로 실을 형태를 원했고,
+대시보드는 데스크톱 화면에서 세로로 길기보다 가로로 넓게 보이길 원했다.
+
+**Consequences:**
+
+- 평가가 있는 실행은 표 4개(md/html ×2)를 추가로 저장하고 CLI가 HTML 링크를 출력한다.
+  기존 평가 JSON/텍스트 표는 그대로.
+- 대시보드 findings 카드 구조·클래스(`article.finding`)는 불변이라 접힘/카운트 테스트에
+  영향 없음. `finding`을 `section.findings` 그리드로 감쌌을 뿐.
+- 표 렌더러는 순수 함수(입력: `LiveEvaluationReport`, `GroundTruthStore`)라 스캔 없이도
+  테스트된다. 전체 898 테스트 통과.
+
+---
+
 ## New Decision Template
 
 ```text

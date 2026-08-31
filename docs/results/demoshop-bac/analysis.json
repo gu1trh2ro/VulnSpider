@@ -1,0 +1,181 @@
+{
+  "report_version": "decision-report-v1",
+  "target": "http://127.0.0.1:8899/portal/",
+  "policy_version": "top-k-argmax-v1",
+  "warnings": [
+    "discovery FORM_CONTROL_NON_DATA: button control is not an injectable successful control",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
+    "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope."
+  ],
+  "models": {
+    "BROKEN_ACCESS_CONTROL": {
+      "model_version": "bayesian-logistic-v1",
+      "training_samples": 0
+    },
+    "REFLECTED_XSS": {
+      "model_version": "bayesian-logistic-v1",
+      "training_samples": 0
+    },
+    "SQLI": {
+      "model_version": "bayesian-logistic-v1",
+      "training_samples": 0
+    }
+  },
+  "selection": {
+    "top_k": 10,
+    "candidates_scored": 12,
+    "selected": 10,
+    "deferred": 2,
+    "expected_findings": 5.7980390457281095
+  },
+  "guarantee": null,
+  "verification": {
+    "ran": true,
+    "candidates_verified": 7,
+    "outcomes": {
+      "SUPPORTED": 2,
+      "UNCHANGED": 1,
+      "WEAKENED": 4
+    }
+  },
+  "verification_order": [
+    {
+      "order": 1,
+      "candidate_id": "acand_aa372664fd28d7ea",
+      "input_point_ref": "accplan_d730505910872372",
+      "family": "BROKEN_ACCESS_CONTROL",
+      "probability": 0.9533562908188665,
+      "selection_rank": 1,
+      "prior_probability": 0.9533562908188665,
+      "final_confidence": 0.9533562908188665,
+      "verification_outcome": "SUPPORTED",
+      "verification_signal": "SUPPORT_REPRODUCED"
+    },
+    {
+      "order": 2,
+      "candidate_id": "acand_d0e47503abcdbd8b",
+      "input_point_ref": "accplan_48a2a24e9e7478b3",
+      "family": "BROKEN_ACCESS_CONTROL",
+      "probability": 0.9533562908188665,
+      "selection_rank": 2,
+      "prior_probability": 0.9533562908188665,
+      "final_confidence": 0.9533562908188665,
+      "verification_outcome": "SUPPORTED",
+      "verification_signal": "SUPPORT_REPRODUCED"
+    },
+    {
+      "order": 3,
+      "candidate_id": "acand_dd8a8d5947bdb89d",
+      "input_point_ref": "accplan_39ab17bd942607d1",
+      "family": "BROKEN_ACCESS_CONTROL",
+      "probability": 0.5244144503221062,
+      "selection_rank": 7
+    },
+    {
+      "order": 4,
+      "candidate_id": "acand_155951a7d7e518da",
+      "input_point_ref": "accplan_4f9d267fbf6aeb10",
+      "family": "BROKEN_ACCESS_CONTROL",
+      "probability": 0.5179415860045358,
+      "selection_rank": 9
+    },
+    {
+      "order": 5,
+      "candidate_id": "acand_c2e3a8311f51fe6a",
+      "input_point_ref": "accplan_d810e8bb9f92ebcb",
+      "family": "BROKEN_ACCESS_CONTROL",
+      "probability": 0.5177957108429847,
+      "selection_rank": 10
+    },
+    {
+      "order": 6,
+      "candidate_id": "cand_a44e9b65c96aa368",
+      "input_point_ref": "inp_f9da04f7fc402cb9",
+      "family": "SQLI",
+      "probability": 0.552427148135962,
+      "selection_rank": 6,
+      "prior_probability": 0.552427148135962,
+      "final_confidence": 0.4509826011135243,
+      "verification_outcome": "UNCHANGED",
+      "verification_signal": "UNCHANGED"
+    },
+    {
+      "order": 7,
+      "candidate_id": "acand_7a7857c8557a8cd3",
+      "input_point_ref": "accplan_56a326a617a62805",
+      "family": "BROKEN_ACCESS_CONTROL",
+      "probability": 0.5242554763281477,
+      "selection_rank": 8,
+      "prior_probability": 0.5242554763281477,
+      "final_confidence": 0.3536800704588468,
+      "verification_outcome": "WEAKENED",
+      "verification_signal": "WEAKEN"
+    },
+    {
+      "order": 8,
+      "candidate_id": "cand_b43142e5d01f35bf",
+      "input_point_ref": "inp_2a7f011e22206b0e",
+      "family": "REFLECTED_XSS",
+      "probability": 0.4318118249764191,
+      "selection_rank": 4,
+      "prior_probability": 0.4318118249764191,
+      "final_confidence": 0.21849425925213523,
+      "verification_outcome": "WEAKENED",
+      "verification_signal": "WEAKEN"
+    },
+    {
+      "order": 9,
+      "candidate_id": "cand_6a59e6cdc7dd5cd1",
+      "input_point_ref": "inp_72bb13a27801ec9d",
+      "family": "REFLECTED_XSS",
+      "probability": 0.4317682458377255,
+      "selection_rank": 5,
+      "prior_probability": 0.4317682458377255,
+      "final_confidence": 0.21846393097997002,
+      "verification_outcome": "WEAKENED",
+      "verification_signal": "WEAKEN"
+    },
+    {
+      "order": 10,
+      "candidate_id": "cand_170106dd1622a036",
+      "input_point_ref": "inp_f9da04f7fc402cb9",
+      "family": "REFLECTED_XSS",
+      "probability": 0.39091202164249494,
+      "selection_rank": 3,
+      "prior_probability": 0.39091202164249494,
+      "final_confidence": 0.19100699890854683,
+      "verification_outcome": "WEAKENED",
+      "verification_signal": "WEAKEN"
+    }
+  ]
+}

@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VulnSpider 결정 리포트 — http://127.0.0.1:8899/</title>
+<style>
+  :root{
+    --paper:#f6f7f9; --card:#ffffff; --ink:#12161d; --muted:#5b6472;
+    --line:#e3e7ee; --accent:#2f4b7c;
+    --low:#7c8798; --medium:#c08a2d; --high:#c0463b;
+    --sqli:#2f6f8f; --xss:#7a5aa8; --bac:#2f7d5f; --track:#eef1f6;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+       line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px;margin:0 auto;padding:40px 24px 80px}
+  header.masthead{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:8px}
+  .brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .brand h1{font-size:26px;margin:0;letter-spacing:-.02em}
+  .tagline{color:var(--muted);font-size:14px;margin-top:4px}
+  .target{font-family:var(--mono);font-size:13px;margin-top:14px;
+          word-break:break-all;color:var(--accent)}
+  .stats{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--line);
+         border-radius:8px;background:var(--card);margin:22px 0 8px;overflow:hidden}
+  .stat{flex:1 1 120px;padding:14px 16px;border-right:1px solid var(--line)}
+  .stat:last-child{border-right:0}
+  .stat .n{font-family:var(--mono);font-size:22px;font-weight:600}
+  .stat .l{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:2px}
+  .bandbar{display:flex;gap:8px;margin:20px 0 30px;font-size:13px;flex-wrap:wrap}
+  .pill{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;
+        border:1px solid var(--line);background:var(--card)}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .dot.high{background:var(--high)} .dot.medium{background:var(--medium)} .dot.low{background:var(--low)}
+  h2.section{font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);
+             margin:34px 0 14px;font-weight:600}
+  .finding{background:var(--card);border:1px solid var(--line);border-radius:10px;
+           padding:20px 22px;margin-bottom:16px;border-left:4px solid var(--low)}
+  .finding.high{border-left-color:var(--high)}
+  .finding.medium{border-left-color:var(--medium)}
+  .fhead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+  .rank{font-family:var(--mono);font-size:13px;color:var(--muted)}
+  .vtype{font-weight:600;font-size:16px;margin:2px 0}
+  .ep{font-family:var(--mono);font-size:12.5px;color:var(--ink);word-break:break-all}
+  .ep.unknown{color:var(--muted);font-style:italic}
+  .ep .param{color:var(--accent)}
+  .meterwrap{min-width:200px;text-align:right}
+  .prio{font-family:var(--mono);font-size:20px;font-weight:600}
+  .prio.high{color:var(--high)} .prio.medium{color:var(--medium)} .prio.low{color:var(--low)}
+  .meter{height:7px;border-radius:4px;background:var(--line);margin-top:6px;overflow:hidden}
+  .meter > i{display:block;height:100%;border-radius:4px}
+  .meter > i.high{background:var(--high)} .meter > i.medium{background:var(--medium)} .meter > i.low{background:var(--low)}
+  .pcaption{font-size:11px;color:var(--muted);margin-top:5px;font-family:var(--mono)}
+  .why{margin-top:16px}
+  .why .lab{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px}
+  ul.ev{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:12px;color:#333}
+  ul.ev li{padding:2px 0;border-bottom:1px dotted var(--line)}
+  ul.ev li:last-child{border-bottom:0}
+  .sig{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line);margin-right:6px}
+  .sig.on{background:var(--high)} .sig.off{background:var(--low)} .sig.na{background:var(--line)}
+  table.rec{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px}
+  table.rec th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+               color:var(--muted);border-bottom:1px solid var(--line);padding:6px 8px}
+  table.rec td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  table.rec td.pl{font-family:var(--mono);color:var(--accent);word-break:break-all;max-width:340px}
+  table.rec td.role{font-family:var(--mono);text-transform:uppercase;font-size:10.5px;color:var(--muted)}
+  .status{font-family:var(--mono)}
+  .fix{margin-top:14px;padding:11px 13px;background:#f3f6fb;border:1px solid #e0e8f3;
+       border-radius:7px;font-size:13px}
+  .fix b{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent)}
+  .fix i{color:var(--muted)}
+  .ids{margin-top:10px;font-size:10.5px;color:var(--muted);font-family:var(--mono)}
+  .notice{background:var(--card);border:1px solid var(--line);border-radius:10px;
+          padding:14px 18px;margin:16px 0;font-size:13px}
+  .notice.small{padding:10px 14px;color:var(--muted);font-style:italic}
+  .notice .lab{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px}
+  .notice ul{margin:0;padding-left:18px}
+  .empty{background:var(--card);border:1px dashed var(--line);border-radius:10px;
+         padding:40px;text-align:center;color:var(--muted)}
+  footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);
+         font-size:12px;color:var(--muted)}
+  footer .warn{color:var(--high)}
+  @media (max-width:560px){.meterwrap{text-align:left;min-width:0;width:100%}}
+
+  .chart-grid{display:grid;gap:14px;margin:18px 0 6px;
+              grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .chart-card{background:var(--card);border:1px solid var(--line);
+              border-radius:12px;padding:16px 18px 14px}
+  .chart-card.wide{grid-column:1/-1}
+  .chart-card.wide .bars{display:grid;gap:9px 26px;
+              grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  details.more{margin-top:11px}
+  details.more > summary{cursor:pointer;font-size:12px;color:var(--accent);
+              font-weight:600;list-style:none;padding:3px 0}
+  details.more > summary::-webkit-details-marker{display:none}
+  details.more > summary::before{content:"\25B8  "}
+  details.more[open] > summary::before{content:"\25BE  "}
+  details.more .bars{margin-top:9px}
+  .chart-card h3{margin:0 0 12px;font-size:13px;font-weight:600;
+                 display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .chart-card h3 .en{font-size:10.5px;text-transform:uppercase;
+                     letter-spacing:.08em;color:var(--muted);font-weight:500}
+  .chart-note{margin-top:10px;font-size:11.5px;color:var(--muted);line-height:1.45}
+  .chart-caption{margin-top:8px;font-size:11.5px;color:var(--muted)}
+  .chart-empty{font-size:12.5px;color:var(--muted);font-style:italic;padding:10px 0}
+  .donut{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .donut-svg{width:118px;height:118px;flex:0 0 auto}
+  .donut-track{fill:none;stroke:var(--line)}
+  .donut-seg{fill:none;stroke-linecap:butt}
+  .donut-total{fill:var(--ink);font-family:var(--mono);font-size:30px;
+               font-weight:600;dominant-baseline:central}
+  .donut .chart-caption{flex-basis:100%}
+  ul.legend{list-style:none;margin:0;padding:0;font-size:12.5px;min-width:120px}
+  ul.legend li{display:flex;align-items:center;gap:8px;padding:3px 0}
+  ul.legend li b{margin-left:auto;font-family:var(--mono);font-weight:600}
+  .swatch{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
+  .bars{display:flex;flex-direction:column;gap:9px}
+  .bar-row{display:grid;grid-template-columns:minmax(84px,auto) 1fr auto;
+           align-items:center;gap:10px;font-size:12.5px}
+  .bar-label{color:var(--ink);word-break:break-word}
+  .bar-track{height:9px;border-radius:5px;background:var(--track);overflow:hidden}
+  .bar-track > i{display:block;height:100%;border-radius:5px;min-width:2px}
+  .bar-value{font-family:var(--mono);font-size:12px;color:var(--muted);
+             white-space:nowrap}
+  .bar-caption{grid-column:2/-1;font-size:11px;color:var(--muted);
+               font-family:var(--mono);margin-top:-3px}
+  .stack{display:flex;height:10px;border-radius:5px;overflow:hidden;
+         background:var(--track);margin-top:8px}
+  .stack > i{display:block;height:100%}
+
+  .ko-en{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;
+         color:var(--muted);font-weight:500;margin-left:8px}
+  .notice b{color:var(--ink)}
+  .why .bars{margin-top:4px}
+  .vpanel .vhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+         margin:2px 0 6px}
+  .vbadge{display:inline-block;padding:2px 9px;border-radius:999px;
+         font-size:12px;font-weight:600;color:#fff}
+  .vbadge.high{background:var(--high,#c0392b)}
+  .vbadge.low{background:var(--low,#7f8c8d)}
+  .vbadge.muted{background:var(--muted,#95a5a6)}
+  .vscore{font-size:12.5px;color:var(--ink)}
+  .vscore b{margin:0 3px}
+  ul.vreason{margin:4px 0 0;padding-left:18px;font-size:12.5px;color:var(--ink)}
+  ul.vreason li{margin:2px 0}
+  .fixhead{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px}
+  .fixchip{display:inline-block;padding:1px 9px;border-radius:999px;
+         background:var(--accent);color:#fff;font-size:11px;font-weight:600;
+         letter-spacing:0;text-transform:none}
+  .fixlead{font-size:12.5px;color:var(--ink);margin-bottom:10px;line-height:1.5}
+  .fixgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px}
+  @media(max-width:640px){.fixgrid{grid-template-columns:1fr}}
+  .fixsub{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+         color:var(--accent);font-weight:600;margin-bottom:3px}
+  .fix ul{margin:0;padding-left:16px}
+  .fix li{font-size:12px;color:var(--ink);line-height:1.5;margin:3px 0}
+  .fixnote{margin-top:10px;font-size:12px;color:var(--ink);line-height:1.5;
+         padding:7px 10px;background:rgba(0,0,0,.035);border-radius:6px}
+  .fixdisc{display:block;margin-top:10px;font-size:11px}
+
+  /* Wide desktop layout + visual polish (overrides the shared base;
+     applies to the decision dashboard only). Findings flow into a
+     responsive multi-column grid so the page reads wide, not tall. */
+  body{background:linear-gradient(180deg,#e9edf4 0,var(--paper) 340px) no-repeat,var(--paper)}
+  .wrap{max-width:1240px;padding:44px 32px 96px}
+  header.masthead{border-bottom-width:3px;padding-bottom:22px}
+  .brand h1{font-size:30px}
+  .ver{color:var(--muted)}
+  .stats{box-shadow:0 1px 3px rgba(18,22,29,.06)}
+  .stat .n{font-size:24px}
+  .notice{box-shadow:0 1px 2px rgba(18,22,29,.05)}
+  h2.section{font-size:14px;margin-top:42px;padding-bottom:9px;
+             border-bottom:1px solid var(--line)}
+  .findings{display:grid;grid-template-columns:repeat(auto-fit,minmax(540px,1fr));
+            gap:18px;align-items:start;margin-top:6px}
+  .finding{margin-bottom:0;border-radius:12px;
+           box-shadow:0 1px 3px rgba(18,22,29,.06),0 8px 22px rgba(18,22,29,.045);
+           transition:box-shadow .16s ease,transform .16s ease}
+  .finding:hover{transform:translateY(-1px);
+           box-shadow:0 2px 6px rgba(18,22,29,.09),0 12px 30px rgba(18,22,29,.075)}
+  .chart-grid{gap:16px}
+  @media print{
+    body{background:var(--paper)}
+    .finding,.stats,.notice{box-shadow:none}
+    .finding:hover{transform:none}
+    .findings{grid-template-columns:1fr 1fr}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <div class="brand">
+    <h1>VulnSpider</h1><span class="ver">결정 리포트 &middot; top-k-argmax-v1</span>
+  </div>
+  <div class="tagline">보정된 확률로 후보 순위를 매긴 뒤, 상위 후보를 실제로 재검증하여 신뢰도를 갱신했습니다. 아래 점수는 <b>검증 이후의 최종 신뢰도</b>이며, 여전히 확정된 취약점이 아니라 검증 우선순위입니다.</div>
+  <div class="target">대상 &rarr; http://127.0.0.1:8899/</div>
+  <div class="target">모델 &rarr; 휴리스틱 prior (학습 데이터 0개 — 기존 순서와 동일)</div>
+</header>
+
+<section class="stats">
+  <div class="stat"><div class="n">200</div><div class="l">채점된 후보</div></div>
+  <div class="stat"><div class="n">10</div><div class="l">선택됨</div></div>
+  <div class="stat"><div class="n">10</div><div class="l">Top-K</div></div>
+  <div class="stat"><div class="n">8.82</div><div class="l">기대 발견 수</div></div>
+  <div class="stat"><div class="n">10</div><div class="l">검증됨</div></div>
+  <div class="stat"><div class="n">10</div><div class="l">검증 뒷받침</div></div>
+</section>
+<div class="notice small">Top-K는 확률이 가장 높은 K개를 그대로 고른 것입니다. 후보가 취약할 확률의 합이 곧 기대 발견 수이므로, 확률순 정렬이 곧 기대 발견 수를 최대로 만드는 최적 선택입니다.</div>
+
+<div class="chart-grid">
+<section class="chart-card">
+  <h3>확률 구간 분포<span class="en">probability bands</span></h3>
+  <div class="donut">
+  <svg viewBox="0 0 148 148" role="img" aria-label="선택된 후보의 확률 구간 분포" class="donut-svg">
+    <g transform="rotate(-90 74.0 74.0)"><circle class="donut-track" cx="74.0" cy="74.0" r="56" stroke-width="22"></circle><circle class="donut-seg" cx="74.0" cy="74.0" r="56" stroke-width="22" style="stroke:var(--high)" stroke-dasharray="351.858 0.000" stroke-dashoffset="-0.000"></circle></g>
+    <text class="donut-total" x="74.0" y="74.0" text-anchor="middle">10</text>
+  </svg>
+  <ul class="legend"><li><span class="swatch" style="background:var(--high)"></span>높음<b>10</b></li><li><span class="swatch" style="background:var(--medium)"></span>중간<b>0</b></li><li><span class="swatch" style="background:var(--low)"></span>낮음<b>0</b></li></ul>
+  <div class="chart-caption">선택된 후보의 확률 구간 분포</div>
+</div>
+  <div class="chart-note">취약할 확률이 70% 이상이면 높음, 40% 이상이면 중간입니다. 구간은 표시용이며 선택 자체는 이미 끝났습니다.</div>
+</section><section class="chart-card">
+  <h3>유형별 선택 건수<span class="en">selected by family</span></h3>
+  <div class="bars"><div class="bar-row"><div class="bar-label">SQL Injection</div><div class="bar-track"><i style="width:100.0%;background:var(--sqli)"></i></div><div class="bar-value">10건</div></div></div>
+  <div class="chart-note">건수가 많은 유형부터 표시했습니다. 확률은 유형과 무관하게 같은 척도이므로 유형 간에도 그대로 비교할 수 있습니다.</div>
+</section><section class="chart-card">
+  <h3>파이프라인 축소<span class="en">pipeline funnel</span></h3>
+  <div class="bars"><div class="bar-row"><div class="bar-label">발견된 엔드포인트</div><div class="bar-track"><i style="width:16.5%;background:var(--line)"></i></div><div class="bar-value">33</div></div><div class="bar-row"><div class="bar-label">입력점</div><div class="bar-track"><i style="width:50.0%;background:var(--line)"></i></div><div class="bar-value">100</div></div><div class="bar-row"><div class="bar-label">채점된 후보</div><div class="bar-track"><i style="width:100.0%;background:var(--accent)"></i></div><div class="bar-value">200</div></div><div class="bar-row"><div class="bar-label">최종 선택</div><div class="bar-track"><i style="width:5.0%;background:var(--high)"></i></div><div class="bar-value">10</div></div></div>
+  <div class="chart-note">크롤링으로 찾은 것에서 실제로 검증할 것까지 몇 단계로 줄었는지 보여줍니다. 이 축소가 이 프로젝트의 핵심 주장입니다.</div>
+</section><section class="chart-card wide">
+  <h3>선택된 후보 확률 비교<span class="en">selected candidates</span></h3>
+  <div class="bars"><div class="bar-row"><div class="bar-label">#1 SQL Injection</div><div class="bar-track"><i style="width:95.4%;background:var(--high)"></i></div><div class="bar-value">95.4%</div><div class="bar-caption">검증 전 88.4% → 최종 95.4%</div></div><div class="bar-row"><div class="bar-label">#2 SQL Injection</div><div class="bar-track"><i style="width:95.4%;background:var(--high)"></i></div><div class="bar-value">95.4%</div><div class="bar-caption">검증 전 88.3% → 최종 95.4%</div></div><div class="bar-row"><div class="bar-label">#3 SQL Injection</div><div class="bar-track"><i style="width:95.3%;background:var(--high)"></i></div><div class="bar-value">95.3%</div><div class="bar-caption">검증 전 88.3% → 최종 95.3%</div></div><div class="bar-row"><div class="bar-label">#4 SQL Injection</div><div class="bar-track"><i style="width:95.3%;background:var(--high)"></i></div><div class="bar-value">95.3%</div><div class="bar-caption">검증 전 88.3% → 최종 95.3%</div></div><div class="bar-row"><div class="bar-label">#5 SQL Injection</div><div class="bar-track"><i style="width:95.3%;background:var(--high)"></i></div><div class="bar-value">95.3%</div><div class="bar-caption">검증 전 88.3% → 최종 95.3%</div></div><div class="bar-row"><div class="bar-label">#6 SQL Injection</div><div class="bar-track"><i style="width:95.3%;background:var(--high)"></i></div><div class="bar-value">95.3%</div><div class="bar-caption">검증 전 88.2% → 최종 95.3%</div></div><div class="bar-row"><div class="bar-label">#7 SQL Injection</div><div class="bar-track"><i style="width:95.3%;background:var(--high)"></i></div><div class="bar-value">95.3%</div><div class="bar-caption">검증 전 88.2% → 최종 95.3%</div></div><div class="bar-row"><div class="bar-label">#8 SQL Injection</div><div class="bar-track"><i style="width:95.3%;background:var(--high)"></i></div><div class="bar-value">95.3%</div><div class="bar-caption">검증 전 88.2% → 최종 95.3%</div></div></div><details class="more"><summary>나머지 2개 더보기</summary><div class="bars"><div class="bar-row"><div class="bar-label">#9 SQL Injection</div><div class="bar-track"><i style="width:95.2%;background:var(--high)"></i></div><div class="bar-value">95.2%</div><div class="bar-caption">검증 전 88.1% → 최종 95.2%</div></div><div class="bar-row"><div class="bar-label">#10 SQL Injection</div><div class="bar-track"><i style="width:95.2%;background:var(--high)"></i></div><div class="bar-value">95.2%</div><div class="bar-caption">검증 전 88% → 최종 95.2%</div></div></div></details>
+  <div class="chart-note">막대 길이가 곧 취약할 확률입니다. 검증은 위에서부터 순서대로 수행하면 됩니다.</div>
+</section>
+</div>
+
+<div class="notice"><div class="lab">Recall 보장</div>요청하지 않았습니다. 선택 개수는 Top-K로만 정해집니다.</div>
+
+<div class="notice"><div class="lab">Warnings (3 distinct, 21 total)</div><ul><li>discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context (&times;12)</li><li>discovery DUPLICATE_URL: duplicate canonical URL was not queued again (&times;8)</li><li>discovery FORM_CONTROL_NON_DATA: button control is not an injectable successful control</li></ul></div>
+
+<h2 class="section">검증 후 최종 신뢰도 순서 <span class="ko-en">final confidence order</span></h2>
+
+<div class="notice small">검증할 <b>후보(Top-K)는 검증 이전 우선순위</b>로 선택했고, 아래 <b>표시 순서와 점수는 검증 이후 최종 신뢰도</b> 기준으로 다시 정렬했습니다. <b>검증 결과</b>는 변형 페이로드 재전송으로 확인한 내용(뒷받침/약화/판정 보류)과 검증 전후 점수 변화를, <b>순위 근거</b>는 검증 이전 확률을 어떤 신호가 올리거나 내렸는지를 보여줍니다.</div>
+
+<section class="findings">
+<article class="finding high">
+    <div class="fhead">
+      <div>
+        <div class="rank">#1</div>
+        <div class="vtype">SQL Injection</div>
+        <div class="ep">GET http://127.0.0.1:8899/compare &mdash; <span class="param">query.ids</span></div>
+      </div>
+      <div class="meterwrap">
+        <div class="prio high">95.4%</div>
+        <div class="meter"><i class="high" style="width:95.4%"></i></div>
+        <div class="pcaption">검증 후 최종 신뢰도 &middot; 검증 전 88.4%</div>
+      </div>
+    </div>
+
+    <div class="why vpanel">
+  <div class="lab">검증 결과 <span class="ko-en">focused verification</span></div>
+  <div class="vhead"><span class="vbadge high">검증으로 뒷받침됨</span><span class="vscore">검증 전 88.4% <b>▲</b> 최종 95.4%</span></div>
+  <ul class="vreason"><li>The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed.</li></ul>
+  <div class="chart-note">검증 페이로드 3개(승인 3, 거부 0). 최종 신뢰도는 검증 이전 확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">순위 근거 <span class="ko-en">why it ranks here</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">response_length_diff_ratio</div><div class="bar-track"><i style="width:3.2%;background:var(--high)"></i></div><div class="bar-value">+0.11</div><div class="bar-caption">관측값 0.06</div></div><div class="bar-row"><div class="bar-label">sql_error_pattern</div><div class="bar-track"><i style="width:100.0%;background:var(--high)"></i></div><div class="bar-value">+3.50</div><div class="bar-caption">관측값 1</div></div><div class="bar-row"><div class="bar-label">status_code_changed</div><div class="bar-track"><i style="width:57.1%;background:var(--high)"></i></div><div class="bar-value">+2.00</div><div class="bar-caption">관측값 1</div></div></div>
+  <div class="chart-note">막대는 각 신호가 log-odds를 움직인 크기입니다. 빨강은 확률을 올린 신호, 회색은 내린 신호입니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">실행된 요청 <span class="ko-en">baseline + probe actually sent</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">baseline</div><div class="bar-track"><i style="width:100.0%;background:var(--line)"></i></div><div class="bar-value">7044 B</div><div class="bar-caption">HTTP 200</div></div><div class="bar-row"><div class="bar-label">probe</div><div class="bar-track"><i style="width:94.4%;background:var(--accent)"></i></div><div class="bar-value">6651 B</div><div class="bar-caption">HTTP 500</div></div></div>
+  <table class="rec">
+    <tr><th>역할</th><th>요청</th><th>상태</th><th>본문 크기</th></tr>
+    <tr><td class="role">baseline</td><td class="pl">GET http://127.0.0.1:8899/compare?ids=101%2C104&amp;sort=price</td><td class="status">200</td><td>7044 B</td></tr><tr><td class="role">probe</td><td class="pl">GET http://127.0.0.1:8899/compare?ids=VULNSPIDER_20DA2FFA3B1B4EC6Z%3C%3E%22%27Z&amp;sort=price &mdash; 주입값: VULNSPIDER_20DA2FFA3B1B4EC6Z&lt;&gt;&quot;&#x27;Z</td><td class="status">500</td><td>6651 B</td></tr>
+  </table>
+  <div class="chart-note">probe 응답이 baseline과 크게 다를수록 그 입력점이 서버 동작을 바꿨다는 신호입니다.</div>
+</div>
+
+    <div class="fix">
+    <div class="fixhead"><b>방어 지침</b><span class="ko-en">countermeasures</span><span class="fixchip">에러 기반 (DB 오류 노출)</span></div>
+    <div class="fixlead">DB 오류 메시지가 응답에 그대로 드러나, 공격자가 스키마와 쿼리 구조를 역추적할 수 있는 상태입니다.</div>
+    <div class="fixgrid">
+      <div class="fixcol"><div class="fixsub">핵심 대응</div>
+        <ul><li>쿼리를 파라미터화(prepared statement)해 사용자 입력을 코드가 아닌 데이터로 처리하세요. 문자열을 이어붙여 SQL을 만들지 않습니다.</li><li>ORM·쿼리빌더를 쓰더라도 raw SQL 조각에 입력을 직접 결합하지 말고 바인딩 파라미터를 사용하세요.</li><li>DB 계정에는 최소 권한만 부여하고(필요한 테이블·작업으로 한정), 애플리케이션 계정에 관리·DDL 권한을 주지 마세요.</li></ul></div>
+      <div class="fixcol"><div class="fixsub">추가 방어</div>
+        <ul><li>입력을 허용 목록 기준(타입·길이·형식)으로 검증하되, 이는 보조 방어이며 파라미터화를 대체하지 않습니다.</li><li>저장 프로시저도 내부에서 동적 SQL을 문자열로 조립하면 똑같이 취약합니다.</li></ul></div>
+    </div>
+    <div class="fixnote">확인 포인트 &middot; 운영 환경에서는 상세 오류를 감추고 일반화된 오류 페이지를 반환하세요. 단, 오류 은닉은 정보 노출만 줄일 뿐 주입 자체는 파라미터화로 막아야 합니다.</div>
+    <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 뜻은 아닙니다.</i>
+  </div>
+    <div class="ids">candidate cand_3ec1d5a6baf6625d &middot; feature vector fv_35760395ef2704b6</div>
+  </article>
+<article class="finding high">
+    <div class="fhead">
+      <div>
+        <div class="rank">#2</div>
+        <div class="vtype">SQL Injection</div>
+        <div class="ep">GET http://127.0.0.1:8899/seller/dashboard &mdash; <span class="param">query.seller_id</span></div>
+      </div>
+      <div class="meterwrap">
+        <div class="prio high">95.4%</div>
+        <div class="meter"><i class="high" style="width:95.4%"></i></div>
+        <div class="pcaption">검증 후 최종 신뢰도 &middot; 검증 전 88.3%</div>
+      </div>
+    </div>
+
+    <div class="why vpanel">
+  <div class="lab">검증 결과 <span class="ko-en">focused verification</span></div>
+  <div class="vhead"><span class="vbadge high">검증으로 뒷받침됨</span><span class="vscore">검증 전 88.3% <b>▲</b> 최종 95.4%</span></div>
+  <ul class="vreason"><li>The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed.</li></ul>
+  <div class="chart-note">검증 페이로드 3개(승인 3, 거부 0). 최종 신뢰도는 검증 이전 확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">순위 근거 <span class="ko-en">why it ranks here</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">response_length_diff_ratio</div><div class="bar-track"><i style="width:3.0%;background:var(--high)"></i></div><div class="bar-value">+0.10</div><div class="bar-caption">관측값 0.05</div></div><div class="bar-row"><div class="bar-label">sql_error_pattern</div><div class="bar-track"><i style="width:100.0%;background:var(--high)"></i></div><div class="bar-value">+3.50</div><div class="bar-caption">관측값 1</div></div><div class="bar-row"><div class="bar-label">status_code_changed</div><div class="bar-track"><i style="width:57.1%;background:var(--high)"></i></div><div class="bar-value">+2.00</div><div class="bar-caption">관측값 1</div></div></div>
+  <div class="chart-note">막대는 각 신호가 log-odds를 움직인 크기입니다. 빨강은 확률을 올린 신호, 회색은 내린 신호입니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">실행된 요청 <span class="ko-en">baseline + probe actually sent</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">baseline</div><div class="bar-track"><i style="width:100.0%;background:var(--line)"></i></div><div class="bar-value">7221 B</div><div class="bar-caption">HTTP 200</div></div><div class="bar-row"><div class="bar-label">probe</div><div class="bar-track"><i style="width:94.8%;background:var(--accent)"></i></div><div class="bar-value">6842 B</div><div class="bar-caption">HTTP 500</div></div></div>
+  <table class="rec">
+    <tr><th>역할</th><th>요청</th><th>상태</th><th>본문 크기</th></tr>
+    <tr><td class="role">baseline</td><td class="pl">GET http://127.0.0.1:8899/seller/dashboard?seller_id=northpeak&amp;range=7d&amp;metric=sales</td><td class="status">200</td><td>7221 B</td></tr><tr><td class="role">probe</td><td class="pl">GET http://127.0.0.1:8899/seller/dashboard?seller_id=VULNSPIDER_BF396BBC269E407DZ%3C%3E%22%27Z&amp;range=7d&amp;metric=sales &mdash; 주입값: VULNSPIDER_BF396BBC269E407DZ&lt;&gt;&quot;&#x27;Z</td><td class="status">500</td><td>6842 B</td></tr>
+  </table>
+  <div class="chart-note">probe 응답이 baseline과 크게 다를수록 그 입력점이 서버 동작을 바꿨다는 신호입니다.</div>
+</div>
+
+    <div class="fix">
+    <div class="fixhead"><b>방어 지침</b><span class="ko-en">countermeasures</span><span class="fixchip">에러 기반 (DB 오류 노출)</span></div>
+    <div class="fixlead">DB 오류 메시지가 응답에 그대로 드러나, 공격자가 스키마와 쿼리 구조를 역추적할 수 있는 상태입니다.</div>
+    <div class="fixgrid">
+      <div class="fixcol"><div class="fixsub">핵심 대응</div>
+        <ul><li>쿼리를 파라미터화(prepared statement)해 사용자 입력을 코드가 아닌 데이터로 처리하세요. 문자열을 이어붙여 SQL을 만들지 않습니다.</li><li>ORM·쿼리빌더를 쓰더라도 raw SQL 조각에 입력을 직접 결합하지 말고 바인딩 파라미터를 사용하세요.</li><li>DB 계정에는 최소 권한만 부여하고(필요한 테이블·작업으로 한정), 애플리케이션 계정에 관리·DDL 권한을 주지 마세요.</li></ul></div>
+      <div class="fixcol"><div class="fixsub">추가 방어</div>
+        <ul><li>입력을 허용 목록 기준(타입·길이·형식)으로 검증하되, 이는 보조 방어이며 파라미터화를 대체하지 않습니다.</li><li>저장 프로시저도 내부에서 동적 SQL을 문자열로 조립하면 똑같이 취약합니다.</li></ul></div>
+    </div>
+    <div class="fixnote">확인 포인트 &middot; 운영 환경에서는 상세 오류를 감추고 일반화된 오류 페이지를 반환하세요. 단, 오류 은닉은 정보 노출만 줄일 뿐 주입 자체는 파라미터화로 막아야 합니다.</div>
+    <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 뜻은 아닙니다.</i>
+  </div>
+    <div class="ids">candidate cand_2c6a11c1f4f4b552 &middot; feature vector fv_aecfb75be8d1f54b</div>
+  </article>
+<article class="finding high">
+    <div class="fhead">
+      <div>
+        <div class="rank">#3</div>
+        <div class="vtype">SQL Injection</div>
+        <div class="ep">GET http://127.0.0.1:8899/cart &mdash; <span class="param">query.coupon</span></div>
+      </div>
+      <div class="meterwrap">
+        <div class="prio high">95.3%</div>
+        <div class="meter"><i class="high" style="width:95.3%"></i></div>
+        <div class="pcaption">검증 후 최종 신뢰도 &middot; 검증 전 88.3%</div>
+      </div>
+    </div>
+
+    <div class="why vpanel">
+  <div class="lab">검증 결과 <span class="ko-en">focused verification</span></div>
+  <div class="vhead"><span class="vbadge high">검증으로 뒷받침됨</span><span class="vscore">검증 전 88.3% <b>▲</b> 최종 95.3%</span></div>
+  <ul class="vreason"><li>The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed.</li></ul>
+  <div class="chart-note">검증 페이로드 3개(승인 3, 거부 0). 최종 신뢰도는 검증 이전 확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">순위 근거 <span class="ko-en">why it ranks here</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">response_length_diff_ratio</div><div class="bar-track"><i style="width:2.7%;background:var(--high)"></i></div><div class="bar-value">+0.10</div><div class="bar-caption">관측값 0.05</div></div><div class="bar-row"><div class="bar-label">sql_error_pattern</div><div class="bar-track"><i style="width:100.0%;background:var(--high)"></i></div><div class="bar-value">+3.50</div><div class="bar-caption">관측값 1</div></div><div class="bar-row"><div class="bar-label">status_code_changed</div><div class="bar-track"><i style="width:57.1%;background:var(--high)"></i></div><div class="bar-value">+2.00</div><div class="bar-caption">관측값 1</div></div></div>
+  <div class="chart-note">막대는 각 신호가 log-odds를 움직인 크기입니다. 빨강은 확률을 올린 신호, 회색은 내린 신호입니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">실행된 요청 <span class="ko-en">baseline + probe actually sent</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">baseline</div><div class="bar-track"><i style="width:100.0%;background:var(--line)"></i></div><div class="bar-value">7463 B</div><div class="bar-caption">HTTP 200</div></div><div class="bar-row"><div class="bar-label">probe</div><div class="bar-track"><i style="width:95.2%;background:var(--accent)"></i></div><div class="bar-value">7107 B</div><div class="bar-caption">HTTP 500</div></div></div>
+  <table class="rec">
+    <tr><th>역할</th><th>요청</th><th>상태</th><th>본문 크기</th></tr>
+    <tr><td class="role">baseline</td><td class="pl">GET http://127.0.0.1:8899/cart?item_id=5521&amp;qty=2&amp;coupon=WELCOME10&amp;note=%EB%B6%80%EC%9E%AC%EC%8B%9C+%EA%B2%BD%EB%B9%84%EC%8B%A4</td><td class="status">200</td><td>7463 B</td></tr><tr><td class="role">probe</td><td class="pl">GET http://127.0.0.1:8899/cart?item_id=5521&amp;qty=2&amp;coupon=VULNSPIDER_2535DB665E32B08BZ%3C%3E%22%27Z&amp;note=%EB%B6%80%EC%9E%AC%EC%8B%9C+%EA%B2%BD%EB%B9%84%EC%8B%A4 &mdash; 주입값: VULNSPIDER_2535DB665E32B08BZ&lt;&gt;&quot;&#x27;Z</td><td class="status">500</td><td>7107 B</td></tr>
+  </table>
+  <div class="chart-note">probe 응답이 baseline과 크게 다를수록 그 입력점이 서버 동작을 바꿨다는 신호입니다.</div>
+</div>
+
+    <div class="fix">
+    <div class="fixhead"><b>방어 지침</b><span class="ko-en">countermeasures</span><span class="fixchip">에러 기반 (DB 오류 노출)</span></div>
+    <div class="fixlead">DB 오류 메시지가 응답에 그대로 드러나, 공격자가 스키마와 쿼리 구조를 역추적할 수 있는 상태입니다.</div>
+    <div class="fixgrid">
+      <div class="fixcol"><div class="fixsub">핵심 대응</div>
+        <ul><li>쿼리를 파라미터화(prepared statement)해 사용자 입력을 코드가 아닌 데이터로 처리하세요. 문자열을 이어붙여 SQL을 만들지 않습니다.</li><li>ORM·쿼리빌더를 쓰더라도 raw SQL 조각에 입력을 직접 결합하지 말고 바인딩 파라미터를 사용하세요.</li><li>DB 계정에는 최소 권한만 부여하고(필요한 테이블·작업으로 한정), 애플리케이션 계정에 관리·DDL 권한을 주지 마세요.</li></ul></div>
+      <div class="fixcol"><div class="fixsub">추가 방어</div>
+        <ul><li>입력을 허용 목록 기준(타입·길이·형식)으로 검증하되, 이는 보조 방어이며 파라미터화를 대체하지 않습니다.</li><li>저장 프로시저도 내부에서 동적 SQL을 문자열로 조립하면 똑같이 취약합니다.</li></ul></div>
+    </div>
+    <div class="fixnote">확인 포인트 &middot; 운영 환경에서는 상세 오류를 감추고 일반화된 오류 페이지를 반환하세요. 단, 오류 은닉은 정보 노출만 줄일 뿐 주입 자체는 파라미터화로 막아야 합니다.</div>
+    <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 뜻은 아닙니다.</i>
+  </div>
+    <div class="ids">candidate cand_cfbe65aebebc7fd2 &middot; feature vector fv_2190aff27ecb2b0a</div>
+  </article>
+<article class="finding high">
+    <div class="fhead">
+      <div>
+        <div class="rank">#4</div>
+        <div class="vtype">SQL Injection</div>
+        <div class="ep">GET http://127.0.0.1:8899/orders &mdash; <span class="param">query.order_id</span></div>
+      </div>
+      <div class="meterwrap">
+        <div class="prio high">95.3%</div>
+        <div class="meter"><i class="high" style="width:95.3%"></i></div>
+        <div class="pcaption">검증 후 최종 신뢰도 &middot; 검증 전 88.3%</div>
+      </div>
+    </div>
+
+    <div class="why vpanel">
+  <div class="lab">검증 결과 <span class="ko-en">focused verification</span></div>
+  <div class="vhead"><span class="vbadge high">검증으로 뒷받침됨</span><span class="vscore">검증 전 88.3% <b>▲</b> 최종 95.3%</span></div>
+  <ul class="vreason"><li>The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed.</li><li>The baseline SQL error did not reproduce under the metacharacter payload; confidence is lowered.</li></ul>
+  <div class="chart-note">검증 페이로드 4개(승인 4, 거부 0). 최종 신뢰도는 검증 이전 확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">순위 근거 <span class="ko-en">why it ranks here</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">response_length_diff_ratio</div><div class="bar-track"><i style="width:2.6%;background:var(--high)"></i></div><div class="bar-value">+0.09</div><div class="bar-caption">관측값 0.05</div></div><div class="bar-row"><div class="bar-label">sql_error_pattern</div><div class="bar-track"><i style="width:100.0%;background:var(--high)"></i></div><div class="bar-value">+3.50</div><div class="bar-caption">관측값 1</div></div><div class="bar-row"><div class="bar-label">status_code_changed</div><div class="bar-track"><i style="width:57.1%;background:var(--high)"></i></div><div class="bar-value">+2.00</div><div class="bar-caption">관측값 1</div></div></div>
+  <div class="chart-note">막대는 각 신호가 log-odds를 움직인 크기입니다. 빨강은 확률을 올린 신호, 회색은 내린 신호입니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">실행된 요청 <span class="ko-en">baseline + probe actually sent</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">baseline</div><div class="bar-track"><i style="width:100.0%;background:var(--line)"></i></div><div class="bar-value">7322 B</div><div class="bar-caption">HTTP 200</div></div><div class="bar-row"><div class="bar-label">probe</div><div class="bar-track"><i style="width:95.4%;background:var(--accent)"></i></div><div class="bar-value">6988 B</div><div class="bar-caption">HTTP 500</div></div></div>
+  <table class="rec">
+    <tr><th>역할</th><th>요청</th><th>상태</th><th>본문 크기</th></tr>
+    <tr><td class="role">baseline</td><td class="pl">GET http://127.0.0.1:8899/orders?order_id=20240517&amp;status=all&amp;from_date=2024-01-01&amp;to_date=2024-12-31</td><td class="status">200</td><td>7322 B</td></tr><tr><td class="role">probe</td><td class="pl">GET http://127.0.0.1:8899/orders?order_id=VULNSPIDER_64158938F430E345Z%3C%3E%22%27Z&amp;status=all&amp;from_date=2024-01-01&amp;to_date=2024-12-31 &mdash; 주입값: VULNSPIDER_64158938F430E345Z&lt;&gt;&quot;&#x27;Z</td><td class="status">500</td><td>6988 B</td></tr>
+  </table>
+  <div class="chart-note">probe 응답이 baseline과 크게 다를수록 그 입력점이 서버 동작을 바꿨다는 신호입니다.</div>
+</div>
+
+    <div class="fix">
+    <div class="fixhead"><b>방어 지침</b><span class="ko-en">countermeasures</span><span class="fixchip">에러 기반 (DB 오류 노출)</span></div>
+    <div class="fixlead">DB 오류 메시지가 응답에 그대로 드러나, 공격자가 스키마와 쿼리 구조를 역추적할 수 있는 상태입니다.</div>
+    <div class="fixgrid">
+      <div class="fixcol"><div class="fixsub">핵심 대응</div>
+        <ul><li>쿼리를 파라미터화(prepared statement)해 사용자 입력을 코드가 아닌 데이터로 처리하세요. 문자열을 이어붙여 SQL을 만들지 않습니다.</li><li>ORM·쿼리빌더를 쓰더라도 raw SQL 조각에 입력을 직접 결합하지 말고 바인딩 파라미터를 사용하세요.</li><li>DB 계정에는 최소 권한만 부여하고(필요한 테이블·작업으로 한정), 애플리케이션 계정에 관리·DDL 권한을 주지 마세요.</li></ul></div>
+      <div class="fixcol"><div class="fixsub">추가 방어</div>
+        <ul><li>입력을 허용 목록 기준(타입·길이·형식)으로 검증하되, 이는 보조 방어이며 파라미터화를 대체하지 않습니다.</li><li>저장 프로시저도 내부에서 동적 SQL을 문자열로 조립하면 똑같이 취약합니다.</li></ul></div>
+    </div>
+    <div class="fixnote">확인 포인트 &middot; 운영 환경에서는 상세 오류를 감추고 일반화된 오류 페이지를 반환하세요. 단, 오류 은닉은 정보 노출만 줄일 뿐 주입 자체는 파라미터화로 막아야 합니다.</div>
+    <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 뜻은 아닙니다.</i>
+  </div>
+    <div class="ids">candidate cand_0d2c376ca3b699ac &middot; feature vector fv_6571a06bafdda94c</div>
+  </article>
+<article class="finding high">
+    <div class="fhead">
+      <div>
+        <div class="rank">#5</div>
+        <div class="vtype">SQL Injection</div>
+        <div class="ep">GET http://127.0.0.1:8899/admin/users &mdash; <span class="param">query.q</span></div>
+      </div>
+      <div class="meterwrap">
+        <div class="prio high">95.3%</div>
+        <div class="meter"><i class="high" style="width:95.3%"></i></div>
+        <div class="pcaption">검증 후 최종 신뢰도 &middot; 검증 전 88.3%</div>
+      </div>
+    </div>
+
+    <div class="why vpanel">
+  <div class="lab">검증 결과 <span class="ko-en">focused verification</span></div>
+  <div class="vhead"><span class="vbadge high">검증으로 뒷받침됨</span><span class="vscore">검증 전 88.3% <b>▲</b> 최종 95.3%</span></div>
+  <ul class="vreason"><li>The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed.</li></ul>
+  <div class="chart-note">검증 페이로드 3개(승인 3, 거부 0). 최종 신뢰도는 검증 이전 확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">순위 근거 <span class="ko-en">why it ranks here</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">response_length_diff_ratio</div><div class="bar-track"><i style="width:2.6%;background:var(--high)"></i></div><div class="bar-value">+0.09</div><div class="bar-caption">관측값 0.04</div></div><div class="bar-row"><div class="bar-label">sql_error_pattern</div><div class="bar-track"><i style="width:100.0%;background:var(--high)"></i></div><div class="bar-value">+3.50</div><div class="bar-caption">관측값 1</div></div><div class="bar-row"><div class="bar-label">status_code_changed</div><div class="bar-track"><i style="width:57.1%;background:var(--high)"></i></div><div class="bar-value">+2.00</div><div class="bar-caption">관측값 1</div></div></div>
+  <div class="chart-note">막대는 각 신호가 log-odds를 움직인 크기입니다. 빨강은 확률을 올린 신호, 회색은 내린 신호입니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">실행된 요청 <span class="ko-en">baseline + probe actually sent</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">baseline</div><div class="bar-track"><i style="width:100.0%;background:var(--line)"></i></div><div class="bar-value">7189 B</div><div class="bar-caption">HTTP 200</div></div><div class="bar-row"><div class="bar-label">probe</div><div class="bar-track"><i style="width:95.5%;background:var(--accent)"></i></div><div class="bar-value">6866 B</div><div class="bar-caption">HTTP 500</div></div></div>
+  <table class="rec">
+    <tr><th>역할</th><th>요청</th><th>상태</th><th>본문 크기</th></tr>
+    <tr><td class="role">baseline</td><td class="pl">GET http://127.0.0.1:8899/admin/users?id=1042&amp;role=member&amp;q=hyunseo</td><td class="status">200</td><td>7189 B</td></tr><tr><td class="role">probe</td><td class="pl">GET http://127.0.0.1:8899/admin/users?id=1042&amp;role=member&amp;q=VULNSPIDER_0AB867C25BB96349Z%3C%3E%22%27Z &mdash; 주입값: VULNSPIDER_0AB867C25BB96349Z&lt;&gt;&quot;&#x27;Z</td><td class="status">500</td><td>6866 B</td></tr>
+  </table>
+  <div class="chart-note">probe 응답이 baseline과 크게 다를수록 그 입력점이 서버 동작을 바꿨다는 신호입니다.</div>
+</div>
+
+    <div class="fix">
+    <div class="fixhead"><b>방어 지침</b><span class="ko-en">countermeasures</span><span class="fixchip">에러 기반 (DB 오류 노출)</span></div>
+    <div class="fixlead">DB 오류 메시지가 응답에 그대로 드러나, 공격자가 스키마와 쿼리 구조를 역추적할 수 있는 상태입니다.</div>
+    <div class="fixgrid">
+      <div class="fixcol"><div class="fixsub">핵심 대응</div>
+        <ul><li>쿼리를 파라미터화(prepared statement)해 사용자 입력을 코드가 아닌 데이터로 처리하세요. 문자열을 이어붙여 SQL을 만들지 않습니다.</li><li>ORM·쿼리빌더를 쓰더라도 raw SQL 조각에 입력을 직접 결합하지 말고 바인딩 파라미터를 사용하세요.</li><li>DB 계정에는 최소 권한만 부여하고(필요한 테이블·작업으로 한정), 애플리케이션 계정에 관리·DDL 권한을 주지 마세요.</li></ul></div>
+      <div class="fixcol"><div class="fixsub">추가 방어</div>
+        <ul><li>입력을 허용 목록 기준(타입·길이·형식)으로 검증하되, 이는 보조 방어이며 파라미터화를 대체하지 않습니다.</li><li>저장 프로시저도 내부에서 동적 SQL을 문자열로 조립하면 똑같이 취약합니다.</li></ul></div>
+    </div>
+    <div class="fixnote">확인 포인트 &middot; 운영 환경에서는 상세 오류를 감추고 일반화된 오류 페이지를 반환하세요. 단, 오류 은닉은 정보 노출만 줄일 뿐 주입 자체는 파라미터화로 막아야 합니다.</div>
+    <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 뜻은 아닙니다.</i>
+  </div>
+    <div class="ids">candidate cand_04543ba56a754e9e &middot; feature vector fv_5f4c1cf6ddd4e7f9</div>
+  </article>
+<article class="finding high">
+    <div class="fhead">
+      <div>
+        <div class="rank">#6</div>
+        <div class="vtype">SQL Injection</div>
+        <div class="ep">GET http://127.0.0.1:8899/product &mdash; <span class="param">query.id</span></div>
+      </div>
+      <div class="meterwrap">
+        <div class="prio high">95.3%</div>
+        <div class="meter"><i class="high" style="width:95.3%"></i></div>
+        <div class="pcaption">검증 후 최종 신뢰도 &middot; 검증 전 88.2%</div>
+      </div>
+    </div>
+
+    <div class="why vpanel">
+  <div class="lab">검증 결과 <span class="ko-en">focused verification</span></div>
+  <div class="vhead"><span class="vbadge high">검증으로 뒷받침됨</span><span class="vscore">검증 전 88.2% <b>▲</b> 최종 95.3%</span></div>
+  <ul class="vreason"><li>The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed.</li><li>The baseline SQL error did not reproduce under the metacharacter payload; confidence is lowered.</li></ul>
+  <div class="chart-note">검증 페이로드 4개(승인 4, 거부 0). 최종 신뢰도는 검증 이전 확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">순위 근거 <span class="ko-en">why it ranks here</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">response_length_diff_ratio</div><div class="bar-track"><i style="width:2.4%;background:var(--high)"></i></div><div class="bar-value">+0.09</div><div class="bar-caption">관측값 0.04</div></div><div class="bar-row"><div class="bar-label">sql_error_pattern</div><div class="bar-track"><i style="width:100.0%;background:var(--high)"></i></div><div class="bar-value">+3.50</div><div class="bar-caption">관측값 1</div></div><div class="bar-row"><div class="bar-label">status_code_changed</div><div class="bar-track"><i style="width:57.1%;background:var(--high)"></i></div><div class="bar-value">+2.00</div><div class="bar-caption">관측값 1</div></div></div>
+  <div class="chart-note">막대는 각 신호가 log-odds를 움직인 크기입니다. 빨강은 확률을 올린 신호, 회색은 내린 신호입니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">실행된 요청 <span class="ko-en">baseline + probe actually sent</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">baseline</div><div class="bar-track"><i style="width:100.0%;background:var(--line)"></i></div><div class="bar-value">7475 B</div><div class="bar-caption">HTTP 200</div></div><div class="bar-row"><div class="bar-label">probe</div><div class="bar-track"><i style="width:95.7%;background:var(--accent)"></i></div><div class="bar-value">7156 B</div><div class="bar-caption">HTTP 500</div></div></div>
+  <table class="rec">
+    <tr><th>역할</th><th>요청</th><th>상태</th><th>본문 크기</th></tr>
+    <tr><td class="role">baseline</td><td class="pl">GET http://127.0.0.1:8899/product?id=101&amp;variant=black-270&amp;tab=detail&amp;qty=1</td><td class="status">200</td><td>7475 B</td></tr><tr><td class="role">probe</td><td class="pl">GET http://127.0.0.1:8899/product?id=VULNSPIDER_C99272AEAD1F1AEAZ%3C%3E%22%27Z&amp;variant=black-270&amp;tab=detail&amp;qty=1 &mdash; 주입값: VULNSPIDER_C99272AEAD1F1AEAZ&lt;&gt;&quot;&#x27;Z</td><td class="status">500</td><td>7156 B</td></tr>
+  </table>
+  <div class="chart-note">probe 응답이 baseline과 크게 다를수록 그 입력점이 서버 동작을 바꿨다는 신호입니다.</div>
+</div>
+
+    <div class="fix">
+    <div class="fixhead"><b>방어 지침</b><span class="ko-en">countermeasures</span><span class="fixchip">에러 기반 (DB 오류 노출)</span></div>
+    <div class="fixlead">DB 오류 메시지가 응답에 그대로 드러나, 공격자가 스키마와 쿼리 구조를 역추적할 수 있는 상태입니다.</div>
+    <div class="fixgrid">
+      <div class="fixcol"><div class="fixsub">핵심 대응</div>
+        <ul><li>쿼리를 파라미터화(prepared statement)해 사용자 입력을 코드가 아닌 데이터로 처리하세요. 문자열을 이어붙여 SQL을 만들지 않습니다.</li><li>ORM·쿼리빌더를 쓰더라도 raw SQL 조각에 입력을 직접 결합하지 말고 바인딩 파라미터를 사용하세요.</li><li>DB 계정에는 최소 권한만 부여하고(필요한 테이블·작업으로 한정), 애플리케이션 계정에 관리·DDL 권한을 주지 마세요.</li></ul></div>
+      <div class="fixcol"><div class="fixsub">추가 방어</div>
+        <ul><li>입력을 허용 목록 기준(타입·길이·형식)으로 검증하되, 이는 보조 방어이며 파라미터화를 대체하지 않습니다.</li><li>저장 프로시저도 내부에서 동적 SQL을 문자열로 조립하면 똑같이 취약합니다.</li></ul></div>
+    </div>
+    <div class="fixnote">확인 포인트 &middot; 운영 환경에서는 상세 오류를 감추고 일반화된 오류 페이지를 반환하세요. 단, 오류 은닉은 정보 노출만 줄일 뿐 주입 자체는 파라미터화로 막아야 합니다.</div>
+    <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 뜻은 아닙니다.</i>
+  </div>
+    <div class="ids">candidate cand_404bdc9da19de1ee &middot; feature vector fv_1895f74015fa3588</div>
+  </article>
+<article class="finding high">
+    <div class="fhead">
+      <div>
+        <div class="rank">#7</div>
+        <div class="vtype">SQL Injection</div>
+        <div class="ep">GET http://127.0.0.1:8899/seller/product/edit &mdash; <span class="param">query.product_id</span></div>
+      </div>
+      <div class="meterwrap">
+        <div class="prio high">95.3%</div>
+        <div class="meter"><i class="high" style="width:95.3%"></i></div>
+        <div class="pcaption">검증 후 최종 신뢰도 &middot; 검증 전 88.2%</div>
+      </div>
+    </div>
+
+    <div class="why vpanel">
+  <div class="lab">검증 결과 <span class="ko-en">focused verification</span></div>
+  <div class="vhead"><span class="vbadge high">검증으로 뒷받침됨</span><span class="vscore">검증 전 88.2% <b>▲</b> 최종 95.3%</span></div>
+  <ul class="vreason"><li>The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed.</li><li>The baseline SQL error did not reproduce under the metacharacter payload; confidence is lowered.</li></ul>
+  <div class="chart-note">검증 페이로드 4개(승인 4, 거부 0). 최종 신뢰도는 검증 이전 확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">순위 근거 <span class="ko-en">why it ranks here</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">response_length_diff_ratio</div><div class="bar-track"><i style="width:2.4%;background:var(--high)"></i></div><div class="bar-value">+0.08</div><div class="bar-caption">관측값 0.04</div></div><div class="bar-row"><div class="bar-label">sql_error_pattern</div><div class="bar-track"><i style="width:100.0%;background:var(--high)"></i></div><div class="bar-value">+3.50</div><div class="bar-caption">관측값 1</div></div><div class="bar-row"><div class="bar-label">status_code_changed</div><div class="bar-track"><i style="width:57.1%;background:var(--high)"></i></div><div class="bar-value">+2.00</div><div class="bar-caption">관측값 1</div></div></div>
+  <div class="chart-note">막대는 각 신호가 log-odds를 움직인 크기입니다. 빨강은 확률을 올린 신호, 회색은 내린 신호입니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">실행된 요청 <span class="ko-en">baseline + probe actually sent</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">baseline</div><div class="bar-track"><i style="width:100.0%;background:var(--line)"></i></div><div class="bar-value">7395 B</div><div class="bar-caption">HTTP 200</div></div><div class="bar-row"><div class="bar-label">probe</div><div class="bar-track"><i style="width:95.8%;background:var(--accent)"></i></div><div class="bar-value">7084 B</div><div class="bar-caption">HTTP 500</div></div></div>
+  <table class="rec">
+    <tr><th>역할</th><th>요청</th><th>상태</th><th>본문 크기</th></tr>
+    <tr><td class="role">baseline</td><td class="pl">GET http://127.0.0.1:8899/seller/product/edit?product_id=101&amp;title=%EB%85%B8%EC%8A%A4%ED%94%BC%ED%81%AC+%EB%9F%AC%EB%8B%9D%ED%99%94&amp;price=39000&amp;stock=12</td><td class="status">200</td><td>7395 B</td></tr><tr><td class="role">probe</td><td class="pl">GET http://127.0.0.1:8899/seller/product/edit?product_id=VULNSPIDER_B8D6BE8554026A8AZ%3C%3E%22%27Z&amp;title=%EB%85%B8%EC%8A%A4%ED%94%BC%ED%81%AC+%EB%9F%AC%EB%8B%9D%ED%99%94&amp;price=39000&amp;stock=12 &mdash; 주입값: VULNSPIDER_B8D6BE8554026A8AZ&lt;&gt;&quot;&#x27;Z</td><td class="status">500</td><td>7084 B</td></tr>
+  </table>
+  <div class="chart-note">probe 응답이 baseline과 크게 다를수록 그 입력점이 서버 동작을 바꿨다는 신호입니다.</div>
+</div>
+
+    <div class="fix">
+    <div class="fixhead"><b>방어 지침</b><span class="ko-en">countermeasures</span><span class="fixchip">에러 기반 (DB 오류 노출)</span></div>
+    <div class="fixlead">DB 오류 메시지가 응답에 그대로 드러나, 공격자가 스키마와 쿼리 구조를 역추적할 수 있는 상태입니다.</div>
+    <div class="fixgrid">
+      <div class="fixcol"><div class="fixsub">핵심 대응</div>
+        <ul><li>쿼리를 파라미터화(prepared statement)해 사용자 입력을 코드가 아닌 데이터로 처리하세요. 문자열을 이어붙여 SQL을 만들지 않습니다.</li><li>ORM·쿼리빌더를 쓰더라도 raw SQL 조각에 입력을 직접 결합하지 말고 바인딩 파라미터를 사용하세요.</li><li>DB 계정에는 최소 권한만 부여하고(필요한 테이블·작업으로 한정), 애플리케이션 계정에 관리·DDL 권한을 주지 마세요.</li></ul></div>
+      <div class="fixcol"><div class="fixsub">추가 방어</div>
+        <ul><li>입력을 허용 목록 기준(타입·길이·형식)으로 검증하되, 이는 보조 방어이며 파라미터화를 대체하지 않습니다.</li><li>저장 프로시저도 내부에서 동적 SQL을 문자열로 조립하면 똑같이 취약합니다.</li></ul></div>
+    </div>
+    <div class="fixnote">확인 포인트 &middot; 운영 환경에서는 상세 오류를 감추고 일반화된 오류 페이지를 반환하세요. 단, 오류 은닉은 정보 노출만 줄일 뿐 주입 자체는 파라미터화로 막아야 합니다.</div>
+    <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 뜻은 아닙니다.</i>
+  </div>
+    <div class="ids">candidate cand_b4b67f3287ae4ebc &middot; feature vector fv_fb9ccebb142207d0</div>
+  </article>
+<article class="finding high">
+    <div class="fhead">
+      <div>
+        <div class="rank">#8</div>
+        <div class="vtype">SQL Injection</div>
+        <div class="ep">GET http://127.0.0.1:8899/catalog &mdash; <span class="param">query.brand</span></div>
+      </div>
+      <div class="meterwrap">
+        <div class="prio high">95.3%</div>
+        <div class="meter"><i class="high" style="width:95.3%"></i></div>
+        <div class="pcaption">검증 후 최종 신뢰도 &middot; 검증 전 88.2%</div>
+      </div>
+    </div>
+
+    <div class="why vpanel">
+  <div class="lab">검증 결과 <span class="ko-en">focused verification</span></div>
+  <div class="vhead"><span class="vbadge high">검증으로 뒷받침됨</span><span class="vscore">검증 전 88.2% <b>▲</b> 최종 95.3%</span></div>
+  <ul class="vreason"><li>The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed.</li></ul>
+  <div class="chart-note">검증 페이로드 3개(승인 3, 거부 0). 최종 신뢰도는 검증 이전 확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">순위 근거 <span class="ko-en">why it ranks here</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">response_length_diff_ratio</div><div class="bar-track"><i style="width:2.1%;background:var(--high)"></i></div><div class="bar-value">+0.07</div><div class="bar-caption">관측값 0.04</div></div><div class="bar-row"><div class="bar-label">sql_error_pattern</div><div class="bar-track"><i style="width:100.0%;background:var(--high)"></i></div><div class="bar-value">+3.50</div><div class="bar-caption">관측값 1</div></div><div class="bar-row"><div class="bar-label">status_code_changed</div><div class="bar-track"><i style="width:57.1%;background:var(--high)"></i></div><div class="bar-value">+2.00</div><div class="bar-caption">관측값 1</div></div></div>
+  <div class="chart-note">막대는 각 신호가 log-odds를 움직인 크기입니다. 빨강은 확률을 올린 신호, 회색은 내린 신호입니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">실행된 요청 <span class="ko-en">baseline + probe actually sent</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">baseline</div><div class="bar-track"><i style="width:100.0%;background:var(--line)"></i></div><div class="bar-value">9028 B</div><div class="bar-caption">HTTP 200</div></div><div class="bar-row"><div class="bar-label">probe</div><div class="bar-track"><i style="width:96.3%;background:var(--accent)"></i></div><div class="bar-value">8693 B</div><div class="bar-caption">HTTP 500</div></div></div>
+  <table class="rec">
+    <tr><th>역할</th><th>요청</th><th>상태</th><th>본문 크기</th></tr>
+    <tr><td class="role">baseline</td><td class="pl">GET http://127.0.0.1:8899/catalog?category=shoes&amp;brand=northpeak&amp;color=black&amp;size=all&amp;sort=newest&amp;page=1</td><td class="status">200</td><td>9028 B</td></tr><tr><td class="role">probe</td><td class="pl">GET http://127.0.0.1:8899/catalog?category=shoes&amp;brand=VULNSPIDER_9E21CA37FAABF9BAZ%3C%3E%22%27Z&amp;color=black&amp;size=all&amp;sort=newest&amp;page=1 &mdash; 주입값: VULNSPIDER_9E21CA37FAABF9BAZ&lt;&gt;&quot;&#x27;Z</td><td class="status">500</td><td>8693 B</td></tr>
+  </table>
+  <div class="chart-note">probe 응답이 baseline과 크게 다를수록 그 입력점이 서버 동작을 바꿨다는 신호입니다.</div>
+</div>
+
+    <div class="fix">
+    <div class="fixhead"><b>방어 지침</b><span class="ko-en">countermeasures</span><span class="fixchip">에러 기반 (DB 오류 노출)</span></div>
+    <div class="fixlead">DB 오류 메시지가 응답에 그대로 드러나, 공격자가 스키마와 쿼리 구조를 역추적할 수 있는 상태입니다.</div>
+    <div class="fixgrid">
+      <div class="fixcol"><div class="fixsub">핵심 대응</div>
+        <ul><li>쿼리를 파라미터화(prepared statement)해 사용자 입력을 코드가 아닌 데이터로 처리하세요. 문자열을 이어붙여 SQL을 만들지 않습니다.</li><li>ORM·쿼리빌더를 쓰더라도 raw SQL 조각에 입력을 직접 결합하지 말고 바인딩 파라미터를 사용하세요.</li><li>DB 계정에는 최소 권한만 부여하고(필요한 테이블·작업으로 한정), 애플리케이션 계정에 관리·DDL 권한을 주지 마세요.</li></ul></div>
+      <div class="fixcol"><div class="fixsub">추가 방어</div>
+        <ul><li>입력을 허용 목록 기준(타입·길이·형식)으로 검증하되, 이는 보조 방어이며 파라미터화를 대체하지 않습니다.</li><li>저장 프로시저도 내부에서 동적 SQL을 문자열로 조립하면 똑같이 취약합니다.</li></ul></div>
+    </div>
+    <div class="fixnote">확인 포인트 &middot; 운영 환경에서는 상세 오류를 감추고 일반화된 오류 페이지를 반환하세요. 단, 오류 은닉은 정보 노출만 줄일 뿐 주입 자체는 파라미터화로 막아야 합니다.</div>
+    <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 뜻은 아닙니다.</i>
+  </div>
+    <div class="ids">candidate cand_c2ce92807bb94ffb &middot; feature vector fv_90e1bc38883ea841</div>
+  </article>
+<article class="finding high">
+    <div class="fhead">
+      <div>
+        <div class="rank">#9</div>
+        <div class="vtype">SQL Injection</div>
+        <div class="ep">GET http://127.0.0.1:8899/seller/product/edit &mdash; <span class="param">query.stock</span></div>
+      </div>
+      <div class="meterwrap">
+        <div class="prio high">95.2%</div>
+        <div class="meter"><i class="high" style="width:95.2%"></i></div>
+        <div class="pcaption">검증 후 최종 신뢰도 &middot; 검증 전 88.1%</div>
+      </div>
+    </div>
+
+    <div class="why vpanel">
+  <div class="lab">검증 결과 <span class="ko-en">focused verification</span></div>
+  <div class="vhead"><span class="vbadge high">검증으로 뒷받침됨</span><span class="vscore">검증 전 88.1% <b>▲</b> 최종 95.2%</span></div>
+  <ul class="vreason"><li>The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed.</li></ul>
+  <div class="chart-note">검증 페이로드 4개(승인 4, 거부 0). 최종 신뢰도는 검증 이전 확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">순위 근거 <span class="ko-en">why it ranks here</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">response_length_diff_ratio</div><div class="bar-track"><i style="width:1.5%;background:var(--high)"></i></div><div class="bar-value">+0.05</div><div class="bar-caption">관측값 0.03</div></div><div class="bar-row"><div class="bar-label">sql_error_pattern</div><div class="bar-track"><i style="width:100.0%;background:var(--high)"></i></div><div class="bar-value">+3.50</div><div class="bar-caption">관측값 1</div></div><div class="bar-row"><div class="bar-label">status_code_changed</div><div class="bar-track"><i style="width:57.1%;background:var(--high)"></i></div><div class="bar-value">+2.00</div><div class="bar-caption">관측값 1</div></div></div>
+  <div class="chart-note">막대는 각 신호가 log-odds를 움직인 크기입니다. 빨강은 확률을 올린 신호, 회색은 내린 신호입니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">실행된 요청 <span class="ko-en">baseline + probe actually sent</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">baseline</div><div class="bar-track"><i style="width:100.0%;background:var(--line)"></i></div><div class="bar-value">7395 B</div><div class="bar-caption">HTTP 200</div></div><div class="bar-row"><div class="bar-label">probe</div><div class="bar-track"><i style="width:97.4%;background:var(--accent)"></i></div><div class="bar-value">7205 B</div><div class="bar-caption">HTTP 500</div></div></div>
+  <table class="rec">
+    <tr><th>역할</th><th>요청</th><th>상태</th><th>본문 크기</th></tr>
+    <tr><td class="role">baseline</td><td class="pl">GET http://127.0.0.1:8899/seller/product/edit?product_id=101&amp;title=%EB%85%B8%EC%8A%A4%ED%94%BC%ED%81%AC+%EB%9F%AC%EB%8B%9D%ED%99%94&amp;price=39000&amp;stock=12</td><td class="status">200</td><td>7395 B</td></tr><tr><td class="role">probe</td><td class="pl">GET http://127.0.0.1:8899/seller/product/edit?product_id=101&amp;title=%EB%85%B8%EC%8A%A4%ED%94%BC%ED%81%AC+%EB%9F%AC%EB%8B%9D%ED%99%94&amp;price=39000&amp;stock=VULNSPIDER_503308FCF763589AZ%3C%3E%22%27Z &mdash; 주입값: VULNSPIDER_503308FCF763589AZ&lt;&gt;&quot;&#x27;Z</td><td class="status">500</td><td>7205 B</td></tr>
+  </table>
+  <div class="chart-note">probe 응답이 baseline과 크게 다를수록 그 입력점이 서버 동작을 바꿨다는 신호입니다.</div>
+</div>
+
+    <div class="fix">
+    <div class="fixhead"><b>방어 지침</b><span class="ko-en">countermeasures</span><span class="fixchip">에러 기반 (DB 오류 노출)</span></div>
+    <div class="fixlead">DB 오류 메시지가 응답에 그대로 드러나, 공격자가 스키마와 쿼리 구조를 역추적할 수 있는 상태입니다.</div>
+    <div class="fixgrid">
+      <div class="fixcol"><div class="fixsub">핵심 대응</div>
+        <ul><li>쿼리를 파라미터화(prepared statement)해 사용자 입력을 코드가 아닌 데이터로 처리하세요. 문자열을 이어붙여 SQL을 만들지 않습니다.</li><li>ORM·쿼리빌더를 쓰더라도 raw SQL 조각에 입력을 직접 결합하지 말고 바인딩 파라미터를 사용하세요.</li><li>DB 계정에는 최소 권한만 부여하고(필요한 테이블·작업으로 한정), 애플리케이션 계정에 관리·DDL 권한을 주지 마세요.</li></ul></div>
+      <div class="fixcol"><div class="fixsub">추가 방어</div>
+        <ul><li>입력을 허용 목록 기준(타입·길이·형식)으로 검증하되, 이는 보조 방어이며 파라미터화를 대체하지 않습니다.</li><li>저장 프로시저도 내부에서 동적 SQL을 문자열로 조립하면 똑같이 취약합니다.</li></ul></div>
+    </div>
+    <div class="fixnote">확인 포인트 &middot; 운영 환경에서는 상세 오류를 감추고 일반화된 오류 페이지를 반환하세요. 단, 오류 은닉은 정보 노출만 줄일 뿐 주입 자체는 파라미터화로 막아야 합니다.</div>
+    <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 뜻은 아닙니다.</i>
+  </div>
+    <div class="ids">candidate cand_bb56f316e6fd3f02 &middot; feature vector fv_ecde4d44d3bf9756</div>
+  </article>
+<article class="finding high">
+    <div class="fhead">
+      <div>
+        <div class="rank">#10</div>
+        <div class="vtype">SQL Injection</div>
+        <div class="ep">GET http://127.0.0.1:8899/product &mdash; <span class="param">query.qty</span></div>
+      </div>
+      <div class="meterwrap">
+        <div class="prio high">95.2%</div>
+        <div class="meter"><i class="high" style="width:95.2%"></i></div>
+        <div class="pcaption">검증 후 최종 신뢰도 &middot; 검증 전 88%</div>
+      </div>
+    </div>
+
+    <div class="why vpanel">
+  <div class="lab">검증 결과 <span class="ko-en">focused verification</span></div>
+  <div class="vhead"><span class="vbadge high">검증으로 뒷받침됨</span><span class="vscore">검증 전 88% <b>▲</b> 최종 95.2%</span></div>
+  <ul class="vreason"><li>The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed.</li></ul>
+  <div class="chart-note">검증 페이로드 4개(승인 4, 거부 0). 최종 신뢰도는 검증 이전 확률(prior)에 검증 신호의 보정된 로그우도비를 더해 산출합니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">순위 근거 <span class="ko-en">why it ranks here</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">response_length_diff_ratio</div><div class="bar-track"><i style="width:1.4%;background:var(--high)"></i></div><div class="bar-value">+0.05</div><div class="bar-caption">관측값 0.03</div></div><div class="bar-row"><div class="bar-label">sql_error_pattern</div><div class="bar-track"><i style="width:100.0%;background:var(--high)"></i></div><div class="bar-value">+3.50</div><div class="bar-caption">관측값 1</div></div><div class="bar-row"><div class="bar-label">status_code_changed</div><div class="bar-track"><i style="width:57.1%;background:var(--high)"></i></div><div class="bar-value">+2.00</div><div class="bar-caption">관측값 1</div></div></div>
+  <div class="chart-note">막대는 각 신호가 log-odds를 움직인 크기입니다. 빨강은 확률을 올린 신호, 회색은 내린 신호입니다.</div>
+</div>
+
+    <div class="why">
+  <div class="lab">실행된 요청 <span class="ko-en">baseline + probe actually sent</span></div>
+  <div class="bars"><div class="bar-row"><div class="bar-label">baseline</div><div class="bar-track"><i style="width:100.0%;background:var(--line)"></i></div><div class="bar-value">7475 B</div><div class="bar-caption">HTTP 200</div></div><div class="bar-row"><div class="bar-label">probe</div><div class="bar-track"><i style="width:97.5%;background:var(--accent)"></i></div><div class="bar-value">7286 B</div><div class="bar-caption">HTTP 500</div></div></div>
+  <table class="rec">
+    <tr><th>역할</th><th>요청</th><th>상태</th><th>본문 크기</th></tr>
+    <tr><td class="role">baseline</td><td class="pl">GET http://127.0.0.1:8899/product?id=101&amp;variant=black-270&amp;tab=detail&amp;qty=1</td><td class="status">200</td><td>7475 B</td></tr><tr><td class="role">probe</td><td class="pl">GET http://127.0.0.1:8899/product?id=101&amp;variant=black-270&amp;tab=detail&amp;qty=VULNSPIDER_A63A74854D98B1D1Z%3C%3E%22%27Z &mdash; 주입값: VULNSPIDER_A63A74854D98B1D1Z&lt;&gt;&quot;&#x27;Z</td><td class="status">500</td><td>7286 B</td></tr>
+  </table>
+  <div class="chart-note">probe 응답이 baseline과 크게 다를수록 그 입력점이 서버 동작을 바꿨다는 신호입니다.</div>
+</div>
+
+    <div class="fix">
+    <div class="fixhead"><b>방어 지침</b><span class="ko-en">countermeasures</span><span class="fixchip">에러 기반 (DB 오류 노출)</span></div>
+    <div class="fixlead">DB 오류 메시지가 응답에 그대로 드러나, 공격자가 스키마와 쿼리 구조를 역추적할 수 있는 상태입니다.</div>
+    <div class="fixgrid">
+      <div class="fixcol"><div class="fixsub">핵심 대응</div>
+        <ul><li>쿼리를 파라미터화(prepared statement)해 사용자 입력을 코드가 아닌 데이터로 처리하세요. 문자열을 이어붙여 SQL을 만들지 않습니다.</li><li>ORM·쿼리빌더를 쓰더라도 raw SQL 조각에 입력을 직접 결합하지 말고 바인딩 파라미터를 사용하세요.</li><li>DB 계정에는 최소 권한만 부여하고(필요한 테이블·작업으로 한정), 애플리케이션 계정에 관리·DDL 권한을 주지 마세요.</li></ul></div>
+      <div class="fixcol"><div class="fixsub">추가 방어</div>
+        <ul><li>입력을 허용 목록 기준(타입·길이·형식)으로 검증하되, 이는 보조 방어이며 파라미터화를 대체하지 않습니다.</li><li>저장 프로시저도 내부에서 동적 SQL을 문자열로 조립하면 똑같이 취약합니다.</li></ul></div>
+    </div>
+    <div class="fixnote">확인 포인트 &middot; 운영 환경에서는 상세 오류를 감추고 일반화된 오류 페이지를 반환하세요. 단, 오류 은닉은 정보 노출만 줄일 뿐 주입 자체는 파라미터화로 막아야 합니다.</div>
+    <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 뜻은 아닙니다.</i>
+  </div>
+    <div class="ids">candidate cand_44c909712de3b896 &middot; feature vector fv_ed1c4582fdd2a111</div>
+  </article>
+</section>
+
+<h2 class="section">선택되지 않은 후보 (190)<span class="ko-en">not selected</span></h2>
+<div class="notice"><table class="rec">
+  <tr><th>위치</th><th>유형</th><th>확률</th><th>사유</th></tr>
+<tr><td class="pl">GET /search query.min_price</td><td class="role">SQL Injection</td><td class="status">0.8803</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/chat query.nickname</td><td class="role">Reflected XSS</td><td class="status">0.8110</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/address query.city</td><td class="role">Reflected XSS</td><td class="status">0.8109</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /api/suggest query.term</td><td class="role">Reflected XSS</td><td class="status">0.8108</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/profile query.nickname</td><td class="role">Reflected XSS</td><td class="status">0.8108</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /promo/event query.banner</td><td class="role">Reflected XSS</td><td class="status">0.8108</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/login query.next</td><td class="role">Reflected XSS</td><td class="status">0.8108</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /promo/coupon query.campaign</td><td class="role">Reflected XSS</td><td class="status">0.8108</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /search query.q</td><td class="role">Reflected XSS</td><td class="status">0.8107</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/qna query.q</td><td class="role">Reflected XSS</td><td class="status">0.8107</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /store/locator query.city</td><td class="role">Reflected XSS</td><td class="status">0.8107</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/points query.uid</td><td class="role">Reflected XSS</td><td class="status">0.8107</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/qna query.product_id</td><td class="role">Reflected XSS</td><td class="status">0.8106</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/login query.username</td><td class="role">Reflected XSS</td><td class="status">0.8106</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /catalog query.color</td><td class="role">Reflected XSS</td><td class="status">0.8106</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /promo/event query.utm_source</td><td class="role">Reflected XSS</td><td class="status">0.8104</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /blog/post query.comment</td><td class="role">Reflected XSS</td><td class="status">0.8103</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/product/edit query.title</td><td class="role">Reflected XSS</td><td class="status">0.8102</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /review/new query.title</td><td class="role">Reflected XSS</td><td class="status">0.8102</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /cart query.note</td><td class="role">Reflected XSS</td><td class="status">0.8100</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/ticket query.message</td><td class="role">Reflected XSS</td><td class="status">0.8100</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /checkout query.message</td><td class="role">Reflected XSS</td><td class="status">0.8099</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /review/new query.nickname</td><td class="role">Reflected XSS</td><td class="status">0.7979</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product query.variant</td><td class="role">Reflected XSS</td><td class="status">0.7979</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /checkout query.order_ref</td><td class="role">Reflected XSS</td><td class="status">0.7978</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /cart query.item_id</td><td class="role">Reflected XSS</td><td class="status">0.7978</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/ticket query.subject</td><td class="role">Reflected XSS</td><td class="status">0.7978</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/login query.return_to</td><td class="role">Reflected XSS</td><td class="status">0.7977</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /blog/post query.slug</td><td class="role">Reflected XSS</td><td class="status">0.7976</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /api/suggest query.limit</td><td class="role">SQL Injection</td><td class="status">0.5454</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/settlement query.month</td><td class="role">SQL Injection</td><td class="status">0.5454</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /store/locator query.zip</td><td class="role">SQL Injection</td><td class="status">0.5453</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /checkout query.zipcode</td><td class="role">SQL Injection</td><td class="status">0.5450</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/address query.zipcode</td><td class="role">SQL Injection</td><td class="status">0.5450</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /cart query.qty</td><td class="role">SQL Injection</td><td class="status">0.5450</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/reviews query.rating</td><td class="role">SQL Injection</td><td class="status">0.5448</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /review/new query.rating</td><td class="role">SQL Injection</td><td class="status">0.5448</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/product/edit query.price</td><td class="role">SQL Injection</td><td class="status">0.5448</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /orders query.from_date</td><td class="role">SQL Injection</td><td class="status">0.5444</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /orders query.to_date</td><td class="role">SQL Injection</td><td class="status">0.5444</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /search query.max_price</td><td class="role">SQL Injection</td><td class="status">0.5444</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /newsletter query.email</td><td class="role">SQL Injection</td><td class="status">0.5441</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/faq query.q</td><td class="role">Reflected XSS</td><td class="status">0.4756</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /review/new query.body</td><td class="role">Reflected XSS</td><td class="status">0.4743</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/address query.street</td><td class="role">Reflected XSS</td><td class="status">0.4741</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /compare query.ids</td><td class="role">Reflected XSS</td><td class="status">0.4367</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/dashboard query.seller_id</td><td class="role">Reflected XSS</td><td class="status">0.4363</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /cart query.coupon</td><td class="role">Reflected XSS</td><td class="status">0.4357</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /orders query.order_id</td><td class="role">Reflected XSS</td><td class="status">0.4354</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /admin/users query.q</td><td class="role">Reflected XSS</td><td class="status">0.4354</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product query.id</td><td class="role">Reflected XSS</td><td class="status">0.4351</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/product/edit query.product_id</td><td class="role">Reflected XSS</td><td class="status">0.4350</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /catalog query.brand</td><td class="role">Reflected XSS</td><td class="status">0.4344</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/product/edit query.stock</td><td class="role">Reflected XSS</td><td class="status">0.4330</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product query.qty</td><td class="role">Reflected XSS</td><td class="status">0.4329</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /search query.min_price</td><td class="role">Reflected XSS</td><td class="status">0.4327</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/settlement query.seller_id</td><td class="role">Reflected XSS</td><td class="status">0.4316</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /newsletter query.source</td><td class="role">Reflected XSS</td><td class="status">0.4315</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/address query.address_id</td><td class="role">Reflected XSS</td><td class="status">0.4314</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /order/invoice query.order_id</td><td class="role">Reflected XSS</td><td class="status">0.4314</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/wishlist query.uid</td><td class="role">Reflected XSS</td><td class="status">0.4314</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /admin/users query.id</td><td class="role">Reflected XSS</td><td class="status">0.4314</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /admin/orders query.id</td><td class="role">Reflected XSS</td><td class="status">0.4314</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/ticket query.ticket_id</td><td class="role">Reflected XSS</td><td class="status">0.4313</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/profile query.uid</td><td class="role">Reflected XSS</td><td class="status">0.4313</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /blog/search query.q</td><td class="role">Reflected XSS</td><td class="status">0.3951</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /order/track query.tracking_no</td><td class="role">Reflected XSS</td><td class="status">0.3946</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /promo/coupon query.code</td><td class="role">Reflected XSS</td><td class="status">0.3938</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/reviews query.product_id</td><td class="role">Reflected XSS</td><td class="status">0.3933</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /catalog query.sort</td><td class="role">Reflected XSS</td><td class="status">0.3925</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/reviews query.page</td><td class="role">Reflected XSS</td><td class="status">0.3918</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/wishlist query.page</td><td class="role">Reflected XSS</td><td class="status">0.3911</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /store/locator query.radius</td><td class="role">Reflected XSS</td><td class="status">0.3881</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /api/suggest query.limit</td><td class="role">Reflected XSS</td><td class="status">0.3880</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/settlement query.month</td><td class="role">Reflected XSS</td><td class="status">0.3880</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /store/locator query.zip</td><td class="role">Reflected XSS</td><td class="status">0.3879</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /checkout query.zipcode</td><td class="role">Reflected XSS</td><td class="status">0.3878</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/address query.zipcode</td><td class="role">Reflected XSS</td><td class="status">0.3878</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /cart query.qty</td><td class="role">Reflected XSS</td><td class="status">0.3878</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/reviews query.rating</td><td class="role">Reflected XSS</td><td class="status">0.3878</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /review/new query.rating</td><td class="role">Reflected XSS</td><td class="status">0.3878</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/product/edit query.price</td><td class="role">Reflected XSS</td><td class="status">0.3877</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /orders query.from_date</td><td class="role">Reflected XSS</td><td class="status">0.3876</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /orders query.to_date</td><td class="role">Reflected XSS</td><td class="status">0.3876</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /search query.max_price</td><td class="role">Reflected XSS</td><td class="status">0.3876</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /newsletter query.email</td><td class="role">Reflected XSS</td><td class="status">0.3875</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /promo/event query.event_id</td><td class="role">Reflected XSS</td><td class="status">0.3865</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/chat query.room</td><td class="role">Reflected XSS</td><td class="status">0.3865</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /review/new query.product_id</td><td class="role">Reflected XSS</td><td class="status">0.3864</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /catalog query.page</td><td class="role">Reflected XSS</td><td class="status">0.3863</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/profile query.bio</td><td class="role">Reflected XSS</td><td class="status">0.3861</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /blog/search query.q</td><td class="role">SQL Injection</td><td class="status">0.2402</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /order/track query.tracking_no</td><td class="role">SQL Injection</td><td class="status">0.2391</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /promo/coupon query.code</td><td class="role">SQL Injection</td><td class="status">0.2373</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/reviews query.product_id</td><td class="role">SQL Injection</td><td class="status">0.2362</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /catalog query.sort</td><td class="role">SQL Injection</td><td class="status">0.2345</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/reviews query.page</td><td class="role">SQL Injection</td><td class="status">0.2332</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/wishlist query.page</td><td class="role">SQL Injection</td><td class="status">0.2315</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/faq query.q</td><td class="role">SQL Injection</td><td class="status">0.2270</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /store/locator query.radius</td><td class="role">SQL Injection</td><td class="status">0.2253</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/chat query.nickname</td><td class="role">SQL Injection</td><td class="status">0.2248</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/address query.city</td><td class="role">SQL Injection</td><td class="status">0.2246</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /api/suggest query.term</td><td class="role">SQL Injection</td><td class="status">0.2243</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/profile query.nickname</td><td class="role">SQL Injection</td><td class="status">0.2243</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /promo/event query.banner</td><td class="role">SQL Injection</td><td class="status">0.2242</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/login query.next</td><td class="role">SQL Injection</td><td class="status">0.2242</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /review/new query.body</td><td class="role">SQL Injection</td><td class="status">0.2241</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /promo/coupon query.campaign</td><td class="role">SQL Injection</td><td class="status">0.2240</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/settlement query.seller_id</td><td class="role">SQL Injection</td><td class="status">0.2240</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /search query.q</td><td class="role">SQL Injection</td><td class="status">0.2239</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/qna query.q</td><td class="role">SQL Injection</td><td class="status">0.2239</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /store/locator query.city</td><td class="role">SQL Injection</td><td class="status">0.2238</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/points query.uid</td><td class="role">SQL Injection</td><td class="status">0.2238</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /newsletter query.source</td><td class="role">SQL Injection</td><td class="status">0.2237</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/address query.street</td><td class="role">SQL Injection</td><td class="status">0.2237</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/qna query.product_id</td><td class="role">SQL Injection</td><td class="status">0.2236</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/login query.username</td><td class="role">SQL Injection</td><td class="status">0.2235</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/address query.address_id</td><td class="role">SQL Injection</td><td class="status">0.2235</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /order/invoice query.order_id</td><td class="role">SQL Injection</td><td class="status">0.2235</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/wishlist query.uid</td><td class="role">SQL Injection</td><td class="status">0.2235</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /admin/users query.id</td><td class="role">SQL Injection</td><td class="status">0.2235</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /catalog query.color</td><td class="role">SQL Injection</td><td class="status">0.2234</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /admin/orders query.id</td><td class="role">SQL Injection</td><td class="status">0.2234</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/ticket query.ticket_id</td><td class="role">SQL Injection</td><td class="status">0.2233</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/profile query.uid</td><td class="role">SQL Injection</td><td class="status">0.2233</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /promo/event query.utm_source</td><td class="role">SQL Injection</td><td class="status">0.2229</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /review/new query.nickname</td><td class="role">SQL Injection</td><td class="status">0.2225</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product query.variant</td><td class="role">SQL Injection</td><td class="status">0.2225</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /blog/post query.comment</td><td class="role">SQL Injection</td><td class="status">0.2224</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/product/edit query.title</td><td class="role">SQL Injection</td><td class="status">0.2223</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /checkout query.order_ref</td><td class="role">SQL Injection</td><td class="status">0.2223</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /cart query.item_id</td><td class="role">SQL Injection</td><td class="status">0.2223</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /review/new query.title</td><td class="role">SQL Injection</td><td class="status">0.2222</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/ticket query.subject</td><td class="role">SQL Injection</td><td class="status">0.2222</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /promo/event query.event_id</td><td class="role">SQL Injection</td><td class="status">0.2220</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/login query.return_to</td><td class="role">SQL Injection</td><td class="status">0.2220</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/chat query.room</td><td class="role">SQL Injection</td><td class="status">0.2219</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /review/new query.product_id</td><td class="role">SQL Injection</td><td class="status">0.2218</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /cart query.note</td><td class="role">SQL Injection</td><td class="status">0.2217</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /blog/post query.slug</td><td class="role">SQL Injection</td><td class="status">0.2217</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/ticket query.message</td><td class="role">SQL Injection</td><td class="status">0.2216</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /catalog query.page</td><td class="role">SQL Injection</td><td class="status">0.2215</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /checkout query.message</td><td class="role">SQL Injection</td><td class="status">0.2213</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/profile query.bio</td><td class="role">SQL Injection</td><td class="status">0.2211</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/points query.period</td><td class="role">SQL Injection</td><td class="status">0.2207</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /order/invoice query.format</td><td class="role">SQL Injection</td><td class="status">0.2207</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/faq query.topic</td><td class="role">SQL Injection</td><td class="status">0.2207</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /admin/orders query.status</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/qna query.answered</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /blog/post query.sort</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /order/track query.carrier</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /compare query.sort</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/wishlist query.sort</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /admin/users query.role</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/dashboard query.metric</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/dashboard query.range</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /checkout query.payment</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /checkout query.shipping</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /orders query.status</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product query.tab</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/ticket query.category</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/profile query.view</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/reviews query.sort</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /search query.category</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /search query.sort</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /catalog query.category</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /catalog query.size</td><td class="role">SQL Injection</td><td class="status">0.2206</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/points query.period</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /order/invoice query.format</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/faq query.topic</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /admin/orders query.status</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/qna query.answered</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /blog/post query.sort</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /order/track query.carrier</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /compare query.sort</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/wishlist query.sort</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /admin/users query.role</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/dashboard query.metric</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /seller/dashboard query.range</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /checkout query.payment</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /checkout query.shipping</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /orders query.status</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product query.tab</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /support/ticket query.category</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /account/profile query.view</td><td class="role">Reflected XSS</td><td class="status">0.2205</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /product/reviews query.sort</td><td class="role">Reflected XSS</td><td class="status">0.2204</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /search query.category</td><td class="role">Reflected XSS</td><td class="status">0.2204</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /search query.sort</td><td class="role">Reflected XSS</td><td class="status">0.2204</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /catalog query.category</td><td class="role">Reflected XSS</td><td class="status">0.2204</td><td>순위가 Top-K 아래</td></tr><tr><td class="pl">GET /catalog query.size</td><td class="role">Reflected XSS</td><td class="status">0.2204</td><td>순위가 Top-K 아래</td></tr>
+</table>
+<i>컷 아래라는 뜻이며, 안전하다고 판정한 것이 아닙니다.</i></div>
+
+<footer>decision-html-v3 &middot; top-k-argmax-v1 &middot; 2.56s<br><span class="warn">여기의 점수는 검증 이후의 최종 신뢰도입니다. 규칙 기반 검증 근거이며 여전히 확정된 취약점이 아닙니다.</span></footer>
+
+</div>
+</body>
+</html>
