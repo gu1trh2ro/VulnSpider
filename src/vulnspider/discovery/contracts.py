@@ -1357,7 +1357,7 @@ class CanonicalDiscoveryResult:
                 )
             if not template.json_body:
                 raise DiscoveryContractError(
-                    "probe-ready JSON body requires retained member values"
+                    "probe-ready JSON body requires structural member bindings"
                 )
             return
         if provenance.get("form_method") not in {"explicit", "html_default_get"}:

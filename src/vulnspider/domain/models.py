@@ -10,7 +10,7 @@ from hashlib import sha256
 from math import isfinite
 from types import MappingProxyType
 from typing import Any, TypeAlias
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 JsonScalar: TypeAlias = float | bool | str | None
 ParamPairs: TypeAlias = tuple[tuple[str, str], ...]
@@ -287,6 +287,21 @@ def input_point_fingerprint(
     return stable_fingerprint(*parts)
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class EphemeralRequestMaterial:
+    """Exact replay-only values excluded from canonical identity and artifacts."""
+
+    url: str
+    query: ParamInput = field(default_factory=tuple)
+    json_body: ParamInput = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if type(self.url) is not str or not self.url:
+            raise ValueError("ephemeral request URL must not be empty")
+        object.__setattr__(self, "query", canonical_param_pairs(self.query))
+        object.__setattr__(self, "json_body", canonical_param_pairs(self.json_body))
+
+
 @dataclass(frozen=True, slots=True)
 class RequestTemplate:
     endpoint_id: str
@@ -303,6 +318,11 @@ class RequestTemplate:
     metadata: Mapping[str, Any] = field(default_factory=dict)
     id: str | None = None
     json_body: ParamInput = field(default_factory=tuple)
+    ephemeral_material: EphemeralRequestMaterial | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
     fingerprint: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -315,6 +335,65 @@ class RequestTemplate:
         completeness = RequestContextCompleteness(self.completeness)
         provenance = canonical_param_pairs(self.provenance)
         metadata = _freeze_json_mapping(self.metadata)
+        ephemeral_material = self.ephemeral_material
+        if ephemeral_material is not None and type(ephemeral_material) is not (
+            EphemeralRequestMaterial
+        ):
+            raise TypeError(
+                "RequestTemplate.ephemeral_material must be replay-only material"
+            )
+        if ephemeral_material is not None:
+            if method != HttpMethod.POST:
+                raise ValueError("ephemeral request material requires POST")
+            structural_url = urlsplit(self.url)
+            replay_url = urlsplit(ephemeral_material.url)
+            structural_owner = (
+                structural_url.scheme.lower(),
+                structural_url.netloc.lower(),
+                structural_url.path or "/",
+            )
+            replay_owner = (
+                replay_url.scheme.lower(),
+                replay_url.netloc.lower(),
+                replay_url.path or "/",
+            )
+            if replay_owner != structural_owner or replay_url.fragment:
+                raise ValueError(
+                    "ephemeral request material escaped its structural URL owner"
+                )
+            replay_url_query = canonical_param_pairs(
+                parse_qsl(replay_url.query, keep_blank_values=True)
+            )
+            if replay_url_query != ephemeral_material.query:
+                raise ValueError(
+                    "ephemeral request URL and query material do not align"
+                )
+            structural_query_names = tuple(
+                sorted(normalize_parameter_name(name) for name, _ in query)
+            )
+            replay_query_names = tuple(
+                sorted(
+                    normalize_parameter_name(name)
+                    for name, _ in ephemeral_material.query
+                )
+            )
+            if replay_query_names != structural_query_names:
+                raise ValueError(
+                    "ephemeral request query does not match structural names"
+                )
+            structural_json_names = tuple(
+                sorted(normalize_parameter_name(name) for name, _ in json_body)
+            )
+            replay_json_names = tuple(
+                sorted(
+                    normalize_parameter_name(name)
+                    for name, _ in ephemeral_material.json_body
+                )
+            )
+            if replay_json_names != structural_json_names:
+                raise ValueError(
+                    "ephemeral request JSON body does not match structural names"
+                )
         fingerprint = stable_fingerprint(
             "request-template",
             self.endpoint_id,
@@ -339,9 +418,25 @@ class RequestTemplate:
         object.__setattr__(self, "completeness", completeness)
         object.__setattr__(self, "provenance", provenance)
         object.__setattr__(self, "metadata", metadata)
+        object.__setattr__(self, "ephemeral_material", ephemeral_material)
         object.__setattr__(self, "fingerprint", fingerprint)
         if not self.id:
             object.__setattr__(self, "id", f"rt_{fingerprint[:16]}")
+
+    @property
+    def execution_url(self) -> str:
+        material = self.ephemeral_material
+        return self.url if material is None else material.url
+
+    @property
+    def execution_query(self) -> ParamPairs:
+        material = self.ephemeral_material
+        return self.query if material is None else material.query
+
+    @property
+    def execution_json_body(self) -> ParamPairs:
+        material = self.ephemeral_material
+        return self.json_body if material is None else material.json_body
 
 
 @dataclass(frozen=True, slots=True)

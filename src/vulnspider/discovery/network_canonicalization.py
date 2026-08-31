@@ -39,6 +39,7 @@ def canonicalize_network_discovery(
             raise ValueError("network discovery endpoint escaped canonical scope")
         by_source.setdefault(candidate.source_url, []).append(candidate)
     post_by_source: dict[str, list[BlockedPostJsonCandidate]] = {}
+    post_replay_materials = dict(collection.post_json_replay_materials)
     for candidate in collection.post_json_candidates:
         if not same_origin_crawl_url(scope_metadata.root_url, candidate.source_url):
             raise ValueError("POST JSON source escaped canonical scope")
@@ -116,7 +117,7 @@ def canonicalize_network_discovery(
             builder.add_structural_json_body_surface(
                 candidate.canonical_url,
                 member_names=candidate.member_names,
-                member_pairs=candidate.member_pairs,
+                ephemeral_material=post_replay_materials.get(candidate.id),
                 observation_key=(
                     f"network:{candidate.resource_type}:{candidate.id}"
                 ),

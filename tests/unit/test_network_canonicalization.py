@@ -6,8 +6,12 @@ import unittest
 from vulnspider.discovery import (
     BlockedPostJsonCandidate,
     CollectorKind,
+    CombinedDiscoveryResult,
     DiscoveryMergePolicy,
     DiscoveryMetadata,
+    DynamicCrawlCompletion,
+    DynamicCrawlResult,
+    DynamicCrawlTerminationReason,
     NetworkDiscoveryCandidate,
     NetworkDiscoveryCollection,
     NetworkDiscoveryDisposition,
@@ -27,7 +31,9 @@ from vulnspider.domain import (
     InputLocation,
     validate_input_point_request_context,
 )
+from vulnspider.observation import ProbePlanner, TransportResponse
 from vulnspider.pipeline import analyze_discovery_result
+from vulnspider.reporting import build_crawl_report
 
 
 ROOT = "http://127.0.0.1:8080/"
@@ -93,15 +99,17 @@ def _post_candidate(
     content_type: str = "application/json; charset=UTF-8",
     credential_header_present: bool = False,
 ) -> BlockedPostJsonCandidate:
-    candidate, reason = browser_module._safe_blocked_post_json_candidate(
-        method="POST",
-        url=url,
-        resource_type=resource_type,
-        source_url=ROOT,
-        root_origin=ORIGIN,
-        content_type=content_type,
-        credential_header_present=credential_header_present,
-        body=body,
+    candidate, _replay_material, reason = (
+        browser_module._safe_blocked_post_json_candidate(
+            method="POST",
+            url=url,
+            resource_type=resource_type,
+            source_url=ROOT,
+            root_origin=ORIGIN,
+            content_type=content_type,
+            credential_header_present=credential_header_present,
+            body=body,
+        )
     )
     if reason is not None:
         raise AssertionError(reason)
@@ -110,10 +118,37 @@ def _post_candidate(
     return candidate
 
 
-def _canonical_post(*candidates, skipped_counts=()):
+def _post_capture(
+    body: bytes,
+    *,
+    url: str = "http://127.0.0.1:8080/api/search",
+    resource_type: str = "fetch",
+    content_type: str = "application/json; charset=UTF-8",
+):
+    candidate, replay_material, reason = (
+        browser_module._safe_blocked_post_json_candidate(
+            method="POST",
+            url=url,
+            resource_type=resource_type,
+            source_url=ROOT,
+            root_origin=ORIGIN,
+            content_type=content_type,
+            credential_header_present=False,
+            body=body,
+        )
+    )
+    if reason is not None:
+        raise AssertionError(reason)
+    if candidate is None or replay_material is None:
+        raise AssertionError("expected POST structure and replay material")
+    return candidate, replay_material
+
+
+def _canonical_post(*candidates, replay_materials=(), skipped_counts=()):
     components = canonicalize_network_discovery(
         NetworkDiscoveryCollection(
             post_json_candidates=tuple(candidates),
+            post_json_replay_materials=tuple(replay_materials),
             post_json_skipped_counts=tuple(skipped_counts),
         ),
         discovery_metadata=_metadata(CollectorKind.NATIVE_DYNAMIC),
@@ -565,6 +600,233 @@ class NetworkCanonicalizationTests(unittest.TestCase):
 
 
 class PostJsonCanonicalizationTests(unittest.TestCase):
+    def test_gate_1c_a_structural_id_ignores_member_values(self) -> None:
+        first = _post_candidate(b'{"keyword":"phone","page":1}')
+        second = _post_candidate(b'{"page":999,"keyword":"different"}')
+
+        self.assertEqual(first.id, second.id)
+
+    def test_gate_1c_a_structural_id_ignores_json_key_order(self) -> None:
+        first = _post_candidate(b'{"keyword":"phone","page":1}')
+        reordered = _post_candidate(b'{"page":1,"keyword":"phone"}')
+
+        self.assertEqual(first.id, reordered.id)
+
+    def test_gate_1c_a_structural_id_ignores_query_values(self) -> None:
+        first = _post_candidate(
+            b'{"keyword":"phone"}',
+            url="http://127.0.0.1:8080/api/search?category=book",
+        )
+        second = _post_candidate(
+            b'{"keyword":"phone"}',
+            url="http://127.0.0.1:8080/api/search?category=different",
+        )
+
+        self.assertEqual(first.id, second.id)
+
+    def test_gate_1c_a_persistent_candidate_repr_is_value_free(self) -> None:
+        sentinel = "POST_SECRET_SENTINEL_1C_A"
+        candidate = _post_candidate(
+            ('{"keyword":"' + sentinel + '","page":1}').encode()
+        )
+
+        self.assertNotIn(sentinel, repr(candidate))
+        self.assertNotIn(sentinel.encode(), pickle.dumps(candidate, protocol=5))
+
+    def test_gate_1c_a_canonical_artifact_is_value_free_and_keeps_discovery(
+        self,
+    ) -> None:
+        sentinel = "POST_SECRET_SENTINEL_1C_A"
+        result = _canonical_post(
+            _post_candidate(
+                ('{"keyword":"' + sentinel + '","page":1}').encode()
+            )
+        )
+        serialized = repr(result.to_dict())
+
+        self.assertNotIn(sentinel, serialized)
+        self.assertEqual(len(result.endpoints), 1)
+        self.assertEqual(
+            {(item.name, item.location) for item in result.input_points},
+            {
+                ("keyword", InputLocation.JSON_BODY),
+                ("page", InputLocation.JSON_BODY),
+            },
+        )
+
+    def test_gate_1c_a_input_point_ids_ignore_member_values(self) -> None:
+        first = _canonical_post(
+            _post_candidate(b'{"keyword":"phone","page":1}')
+        )
+        second = _canonical_post(
+            _post_candidate(b'{"page":999,"keyword":"different"}')
+        )
+
+        self.assertEqual(
+            {(item.name, item.id) for item in first.input_points},
+            {(item.name, item.id) for item in second.input_points},
+        )
+
+    def test_gate_1c_a_discovery_snapshot_ignores_transient_values(self) -> None:
+        first_candidate, first_material = _post_capture(
+            b'{"keyword":"phone","page":1}'
+        )
+        second_candidate, second_material = _post_capture(
+            b'{"page":999,"keyword":"different"}'
+        )
+        first = _canonical_post(
+            first_candidate,
+            replay_materials=((first_candidate.id, first_material),),
+        )
+        second = _canonical_post(
+            second_candidate,
+            replay_materials=((second_candidate.id, second_material),),
+        )
+
+        self.assertEqual(first.to_dict(), second.to_dict())
+        self.assertEqual(
+            discovery_snapshot_id_for(first.to_dict()),
+            discovery_snapshot_id_for(second.to_dict()),
+        )
+
+    def test_gate_1c_a_transient_material_is_explicit_and_not_artifact_data(
+        self,
+    ) -> None:
+        sentinel = "POST_SAFE_BASELINE_SENTINEL_1C_A"
+        candidate, replay_material = _post_capture(
+            ('{"keyword":"' + sentinel + '","page":1}').encode()
+        )
+        result = _canonical_post(
+            candidate,
+            replay_materials=((candidate.id, replay_material),),
+        )
+        template = result.request_templates[0]
+
+        self.assertNotIn(sentinel, repr(result))
+        self.assertNotIn(sentinel, repr(result.to_dict()))
+        self.assertNotIn(sentinel, repr(template))
+        self.assertEqual(
+            template.json_body,
+            (("keyword", "null"), ("page", "null")),
+        )
+        self.assertIn(sentinel, repr(template.execution_json_body))
+        worker_payload = pickle.dumps(result, protocol=5)
+        self.assertIn(sentinel.encode(), worker_payload)
+        restored = pickle.loads(worker_payload)
+        self.assertNotIn(sentinel, repr(restored.to_dict()))
+        self.assertIn(
+            sentinel,
+            repr(restored.request_templates[0].execution_json_body),
+        )
+        self.assertEqual(len(result.ready_contexts()), 2)
+        self.assertEqual(len(restored.ready_contexts()), 2)
+
+    def test_gate_1c_a_planner_uses_transient_values_without_persisting_them(
+        self,
+    ) -> None:
+        body_sentinel = "POST_BODY_BASELINE_SENTINEL_1C_A"
+        query_sentinel = "POST_QUERY_BASELINE_SENTINEL_1C_A"
+        candidate, replay_material = _post_capture(
+            ('{"keyword":"' + body_sentinel + '","page":1}').encode(),
+            url=(
+                "http://127.0.0.1:8080/api/search?category="
+                + query_sentinel
+            ),
+        )
+        result = _canonical_post(
+            candidate,
+            replay_materials=((candidate.id, replay_material),),
+        )
+        point, template, context = next(
+            item for item in result.ready_contexts() if item[0].name == "keyword"
+        )
+        plan = ProbePlanner().plan(point, template, context)
+
+        self.assertNotIn(query_sentinel, repr(candidate))
+        self.assertNotIn(body_sentinel, repr(result.to_dict()))
+        self.assertNotIn(query_sentinel, repr(result.to_dict()))
+        self.assertIn(query_sentinel, plan.baseline_request.url)
+        self.assertIn(
+            ("keyword", '"' + body_sentinel + '"'),
+            plan.baseline_request.json_body,
+        )
+        self.assertEqual(plan.baseline_request.query, replay_material.query)
+        self.assertEqual(
+            dict(plan.probe_request.json_body)["page"],
+            "1",
+        )
+        self.assertNotEqual(
+            dict(plan.probe_request.json_body)["keyword"],
+            dict(plan.baseline_request.json_body)["keyword"],
+        )
+
+    def test_gate_1c_a_pipeline_keeps_current_post_replay_handoff(self) -> None:
+        candidate, replay_material = _post_capture(
+            b'{"keyword":"phone","page":1}'
+        )
+        result = _canonical_post(
+            candidate,
+            replay_materials=((candidate.id, replay_material),),
+        )
+
+        class RecordingTransport:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def send(self, request, *, timeout_seconds):
+                self.calls.append(request)
+                return TransportResponse(status_code=200, body=b"ok")
+
+        transport = RecordingTransport()
+        analysis = analyze_discovery_result(
+            result,
+            top_k=2,
+            transport=transport,
+        )
+
+        self.assertEqual(len(transport.calls), 4)
+        self.assertTrue(all(item.method == HttpMethod.POST for item in transport.calls))
+        self.assertEqual(len(analysis.feature_vectors), 2)
+
+    def test_gate_1c_a_combined_crawl_report_excludes_transient_values(self) -> None:
+        from tests.unit.test_combined_discovery import _empty_audit, _static_result
+
+        sentinel = "POST_CRAWL_REPORT_SENTINEL_1C_A"
+        candidate, replay_material = _post_capture(
+            ('{"keyword":"' + sentinel + '","page":1}').encode()
+        )
+        dynamic_discovery = _canonical_post(
+            candidate,
+            replay_materials=((candidate.id, replay_material),),
+        )
+        static_crawl = _static_result(html="<html></html>")
+        dynamic_crawl = DynamicCrawlResult(
+            root_url=ROOT,
+            visited_urls=(),
+            pages=(),
+            completion=DynamicCrawlCompletion.COMPLETE,
+            termination_reason=DynamicCrawlTerminationReason.FRONTIER_EXHAUSTED,
+            navigation_attempts=0,
+            route_actions_attempted=0,
+            discovery=dynamic_discovery,
+            browser_audit=_empty_audit(),
+        )
+        combined = CombinedDiscoveryResult(
+            root_url=ROOT,
+            static_crawl=static_crawl,
+            dynamic_crawl=dynamic_crawl,
+            discovery=merge_discovery_results(
+                static_crawl.discovery,
+                dynamic_discovery,
+                DiscoveryMergePolicy(),
+            ),
+        )
+
+        report = build_crawl_report(combined)
+
+        self.assertNotIn(sentinel, repr(report))
+        self.assertEqual(len(combined.discovery.ready_contexts()), 2)
+
     def test_blocked_post_json_builds_only_not_ready_structure(self) -> None:
         raw_value = "POST_PHONE_VALUE_SENTINEL"
         candidate = _post_candidate(
@@ -737,7 +999,15 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
             "http://127.0.0.1:8080/api/search",
         )
         self.assertNotIn(secret, repr(collection))
-        self.assertNotIn(secret.encode(), pickle.dumps(collection, protocol=5))
+        self.assertNotIn(
+            secret.encode(),
+            pickle.dumps(collection.post_json_candidates[0], protocol=5),
+        )
+        self.assertEqual(len(collection.post_json_replay_materials), 1)
+        self.assertIn(
+            secret,
+            repr(collection.post_json_replay_materials[0][1].json_body),
+        )
         self.assertNotIn(header_secret, repr(collection))
         self.assertNotIn(
             header_secret.encode(),
@@ -772,6 +1042,10 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
                 PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
             ),
             (
+                b'{"csrf":"POST_CSRF_VALUE_SENTINEL"}',
+                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+            ),
+            (
                 b'{"sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAA":null}',
                 PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
             ),
@@ -786,7 +1060,7 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
         )
         for body, expected in cases:
             with self.subTest(expected=expected):
-                candidate, reason = (
+                candidate, replay_material, reason = (
                     browser_module._safe_blocked_post_json_candidate(
                         method="POST",
                         url="http://127.0.0.1:8080/api/search",
@@ -799,9 +1073,10 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
                     )
                 )
                 self.assertIsNone(candidate)
+                self.assertIsNone(replay_material)
                 self.assertEqual(reason, expected)
 
-        credential_candidate, credential_reason = (
+        credential_candidate, credential_material, credential_reason = (
             browser_module._safe_blocked_post_json_candidate(
                 method="POST",
                 url="http://127.0.0.1:8080/api/search",
@@ -814,8 +1089,48 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
             )
         )
         self.assertIsNone(credential_candidate)
+        self.assertIsNone(credential_material)
         self.assertEqual(
             credential_reason,
+            PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+        )
+        query_candidate, query_material, query_reason = (
+            browser_module._safe_blocked_post_json_candidate(
+                method="POST",
+                url=(
+                    "http://127.0.0.1:8080/api/search?x-csrf-token="
+                    "POST_QUERY_CSRF_SENTINEL"
+                ),
+                resource_type="fetch",
+                source_url=ROOT,
+                root_origin=ORIGIN,
+                content_type="application/json",
+                credential_header_present=False,
+                body=b'{"keyword":"phone"}',
+            )
+        )
+        self.assertIsNone(query_candidate)
+        self.assertIsNone(query_material)
+        self.assertEqual(
+            query_reason,
+            PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+        )
+        empty_query_candidate, empty_query_material, empty_query_reason = (
+            browser_module._safe_blocked_post_json_candidate(
+                method="POST",
+                url="http://127.0.0.1:8080/api/search?x-csrf-token=",
+                resource_type="fetch",
+                source_url=ROOT,
+                root_origin=ORIGIN,
+                content_type="application/json",
+                credential_header_present=False,
+                body=b'{"keyword":"phone"}',
+            )
+        )
+        self.assertIsNone(empty_query_candidate)
+        self.assertIsNone(empty_query_material)
+        self.assertEqual(
+            empty_query_reason,
             PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
         )
         collection = NetworkDiscoveryCollection(
@@ -846,7 +1161,7 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
         )
         for method, url, resource_type in ineligible:
             with self.subTest(method=method, url=url, resource_type=resource_type):
-                candidate, reason = (
+                candidate, replay_material, reason = (
                     browser_module._safe_blocked_post_json_candidate(
                         method=method,
                         url=url,
@@ -859,11 +1174,12 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
                     )
                 )
                 self.assertIsNone(candidate)
+                self.assertIsNone(replay_material)
                 self.assertIsNone(reason)
 
         for content_type in ("text/json", "application/problem+json", ""):
             with self.subTest(content_type=content_type):
-                candidate, reason = (
+                candidate, replay_material, reason = (
                     browser_module._safe_blocked_post_json_candidate(
                         method="POST",
                         url="http://127.0.0.1:8080/api",
@@ -876,6 +1192,7 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
                     )
                 )
                 self.assertIsNone(candidate)
+                self.assertIsNone(replay_material)
                 self.assertEqual(
                     reason,
                     PostJsonSkipReason.CONTENT_TYPE_UNSUPPORTED,
@@ -884,17 +1201,20 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
         too_many_body = (
             "{" + ",".join(f'"field_{index}":{index}' for index in range(65)) + "}"
         ).encode()
-        candidate, reason = browser_module._safe_blocked_post_json_candidate(
-            method="POST",
-            url="http://127.0.0.1:8080/api",
-            resource_type="fetch",
-            source_url=ROOT,
-            root_origin=ORIGIN,
-            content_type="application/json; charset=utf-8",
-            credential_header_present=False,
-            body=too_many_body,
+        candidate, replay_material, reason = (
+            browser_module._safe_blocked_post_json_candidate(
+                method="POST",
+                url="http://127.0.0.1:8080/api",
+                resource_type="fetch",
+                source_url=ROOT,
+                root_origin=ORIGIN,
+                content_type="application/json; charset=utf-8",
+                credential_header_present=False,
+                body=too_many_body,
+            )
         )
         self.assertIsNone(candidate)
+        self.assertIsNone(replay_material)
         self.assertEqual(reason, PostJsonSkipReason.JSON_MEMBER_LIMIT_EXCEEDED)
 
         first = _post_candidate(b'{"page":1,"keyword":"phone"}')

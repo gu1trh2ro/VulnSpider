@@ -31,6 +31,8 @@ _CREDENTIAL_FIELD_NAMES = frozenset(
         "cookies",
         "credential",
         "credentials",
+        "csrf",
+        "csrf_token",
         "id_token",
         "jsessionid",
         "jwt",
@@ -53,6 +55,10 @@ _CREDENTIAL_FIELD_NAMES = frozenset(
         "sid",
         "token",
         "x_api_key",
+        "x_csrf_token",
+        "x_xsrf_token",
+        "xsrf",
+        "xsrf_token",
     }
 )
 _NESTED_CREDENTIAL_FIELD_SUFFIXES = _CREDENTIAL_FIELD_NAMES.difference(

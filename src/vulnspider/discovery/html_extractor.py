@@ -31,6 +31,7 @@ from vulnspider.discovery.navigation_safety import (
 )
 from vulnspider.domain import (
     Endpoint,
+    EphemeralRequestMaterial,
     HttpMethod,
     InputLocation,
     InputPoint,
@@ -812,38 +813,38 @@ class CanonicalDiscoveryBuilder:
         observation_key: str,
         not_ready_reasons: Sequence[NonProbeReadyReason],
         origin_kind: str,
-        member_pairs: Sequence[tuple[str, str]] = (),
+        ephemeral_material: EphemeralRequestMaterial | None = None,
     ) -> None:
-        """Add top-level JSON members, binding a complete request when values exist."""
+        """Add persistent JSON structure and an optional replay-only sidecar."""
 
         endpoint = self._add_endpoint(
             url,
             method=HttpMethod.POST,
             observation_key=observation_key,
         )
-        canonical_pairs = tuple(
-            (canonical_name, str(value))
-            for name, value in member_pairs
+        canonical_names = tuple(
+            canonical_name
+            for name in member_names
             if (canonical_name := _canonical_input_name(name))
         )
-        if canonical_pairs:
-            if tuple(sorted(name for name, _ in canonical_pairs)) != tuple(
+        if ephemeral_material is not None:
+            if tuple(
                 sorted(
-                    canonical_name
-                    for name in member_names
-                    if (canonical_name := _canonical_input_name(name))
+                    _canonical_input_name(name)
+                    for name, _ in ephemeral_material.json_body
                 )
-            ):
+            ) != tuple(sorted(canonical_names)):
                 raise DiscoveryContractError(
-                    "JSON member names and retained values do not align"
+                    "JSON replay material does not align with structural names"
                 )
+            structural_pairs = tuple((name, "null") for name in canonical_names)
             template = RequestTemplate(
                 endpoint_id=endpoint.id or "",
                 endpoint_fingerprint=endpoint.fingerprint,
                 method=HttpMethod.POST,
                 url=url,
                 query=tuple(parse_qsl(urlsplit(url).query, keep_blank_values=True)),
-                json_body=canonical_pairs,
+                json_body=structural_pairs,
                 completeness=RequestContextCompleteness.COMPLETE,
                 context_key=f"json:{observation_key}",
                 provenance=(("json_body", "browser-request-body"),),
@@ -853,7 +854,9 @@ class CanonicalDiscoveryBuilder:
                     "source_page": self.source_url,
                     "reconstruction_status": "complete",
                     "json_value_encoding": "canonical-json-text",
+                    "replay_material_state": "ephemeral",
                 },
+                ephemeral_material=ephemeral_material,
             )
             stored_template = self.templates.setdefault(template.id or "", template)
             self._observe(
@@ -861,22 +864,21 @@ class CanonicalDiscoveryBuilder:
                 stored_template.id or "",
                 f"template:{observation_key}",
             )
-            for member_index, (canonical_name, value) in enumerate(canonical_pairs):
+            for member_index, canonical_name in enumerate(canonical_names):
                 point = InputPoint(
                     endpoint_id=endpoint.id or "",
                     endpoint_fingerprint=endpoint.fingerprint,
                     location=InputLocation.JSON_BODY,
                     name=canonical_name,
                     occurrence_index=None,
-                    baseline_value=value,
+                    baseline_value=None,
                     type_hint="json",
                     source_page=self.source_url,
                     metadata={
                         self.native_metadata_key: True,
                         "hidden": False,
                         "visibility": "network_observed",
-                        "value_state": "retained_safe",
-                        "json_value_encoding": "canonical-json-text",
+                        "value_state": "ephemeral",
                     },
                 )
                 self._remember_point(
@@ -896,9 +898,7 @@ class CanonicalDiscoveryBuilder:
                 )
             return
 
-        for member_index, canonical_name in enumerate(
-            _canonical_input_name(name) for name in member_names
-        ):
+        for member_index, canonical_name in enumerate(canonical_names):
             if not canonical_name:
                 self.add_warning(
                     "JSON_MEMBER_NAME_MISSING",

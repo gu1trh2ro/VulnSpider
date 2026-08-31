@@ -91,13 +91,13 @@ def plan_probe_request(
         marker_strategy=marker_strategy,
         baseline_value=baseline_value,
     )
-    probe_query = request_template.query
+    probe_query = request_template.execution_query
     probe_form = request_template.form
-    probe_json_body = request_template.json_body
+    probe_json_body = request_template.execution_json_body
 
     if input_point.location == InputLocation.QUERY:
         probe_query = _replace_pair_value(
-            request_template.query,
+            request_template.execution_query,
             pair_index,
             marker,
         )
@@ -116,7 +116,7 @@ def plan_probe_request(
             separators=(",", ":"),
         )
         probe_json_body = _replace_pair_value(
-            request_template.json_body,
+            request_template.execution_json_body,
             pair_index,
             encoded_marker,
         )
@@ -265,11 +265,11 @@ def _pairs_for_location(
     request_template: RequestTemplate,
 ) -> ParamPairs:
     if location == InputLocation.QUERY:
-        return request_template.query
+        return request_template.execution_query
     if location == InputLocation.FORM:
         return request_template.form
     if location in {InputLocation.JSON, InputLocation.JSON_BODY}:
-        return request_template.json_body
+        return request_template.execution_json_body
     raise ProbePlanningError(f"unsupported InputPoint location: {location.value}")
 
 
@@ -307,11 +307,11 @@ def _replace_pair_value(pairs: ParamPairs, pair_index: int, value: str) -> Param
 def _request_instance_from_template(request_template: RequestTemplate) -> RequestInstance:
     return RequestInstance(
         method=request_template.method,
-        url=request_template.url,
+        url=request_template.execution_url,
         headers=request_template.headers,
-        query=request_template.query,
+        query=request_template.execution_query,
         form=request_template.form,
-        json_body=request_template.json_body,
+        json_body=request_template.execution_json_body,
         cookies=request_template.cookies,
     )
 
@@ -323,13 +323,13 @@ def _probe_url(
     changed_query_index: int | None = None,
     marker: str | None = None,
 ) -> str:
-    if request_template.query == probe_query:
-        return request_template.url
-    parts = urlsplit(request_template.url)
+    if request_template.execution_query == probe_query:
+        return request_template.execution_url
+    parts = urlsplit(request_template.execution_url)
     if changed_query_index is not None and marker is not None:
         raw_query = _replace_raw_query_value(
             raw_query=parts.query,
-            original_query=request_template.query,
+            original_query=request_template.execution_query,
             changed_query_index=changed_query_index,
             marker=marker,
         )
