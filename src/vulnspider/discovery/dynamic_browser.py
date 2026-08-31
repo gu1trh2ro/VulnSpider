@@ -31,6 +31,13 @@ from vulnspider.discovery.rendered_dom import (
     RenderedDomSnapshot,
     snapshot_from_browser_payload,
 )
+from vulnspider.discovery.post_replay_policy import (
+    PostReplayDisposition,
+    PostReplayPolicyDecision,
+    PostReplayPolicyFeatures,
+    PostReplayReasonCode,
+    classify_post_replay,
+)
 from vulnspider.domain import (
     EphemeralRequestMaterial,
     normalize_parameter_name,
@@ -64,6 +71,9 @@ _MAX_NETWORK_QUERY_VALUE_CHARACTERS = 2048
 _MAX_NETWORK_JSON_BODY_BYTES = 16384
 _MAX_NETWORK_JSON_MEMBER_NAMES = 64
 _REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
+_GRAPHQL_IGNORED_PREFIX = re.compile(
+    r"(?:(?:[\s,\ufeff]+)|(?:#[^\r\n]*(?:\r\n?|\n|$)))*"
+)
 
 T = TypeVar("T")
 
@@ -489,13 +499,20 @@ class BlockedPostJsonCandidate:
     source_url: str
     base_url: str
     member_names: tuple[str, ...]
+    replay_policy: PostReplayPolicyDecision
     query_parameter_names: tuple[str, ...] = ()
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
         resource_type = self.resource_type.strip().lower()
+        if type(self.replay_policy) is not PostReplayPolicyDecision:
+            raise TypeError("POST JSON candidate requires a replay policy decision")
         if resource_type not in {"fetch", "xhr"}:
             raise ValueError("POST JSON resource type must be fetch or xhr")
+        if contains_credential_material(
+            self.member_names
+        ) or contains_credential_material(self.query_parameter_names):
+            raise ValueError("POST JSON structure contains credential material")
         canonical_names = tuple(
             sorted(normalize_parameter_name(name) for name in self.member_names)
         )
@@ -505,6 +522,10 @@ class BlockedPostJsonCandidate:
                 for name in self.query_parameter_names
             )
         )
+        if contains_credential_material(
+            canonical_names
+        ) or contains_credential_material(query_parameter_names):
+            raise ValueError("POST JSON structure contains credential material")
         if len(canonical_names) > _MAX_NETWORK_JSON_MEMBER_NAMES:
             raise ValueError("POST JSON has too many member names")
         if any(
@@ -521,13 +542,6 @@ class BlockedPostJsonCandidate:
             raise ValueError("POST JSON query name is invalid")
         if len(query_parameter_names) > _MAX_PASSIVE_QUERY_PARAMETER_NAMES:
             raise ValueError("POST JSON has too many query names")
-        if contains_credential_material(
-            (*canonical_names, *query_parameter_names)
-        ) or any(
-            credential_field_name(name)
-            for name in (*canonical_names, *query_parameter_names)
-        ):
-            raise ValueError("POST JSON candidate contains a credential name")
         canonical_urls: dict[str, str] = {}
         for label, url in (("source", self.source_url), ("base", self.base_url)):
             try:
@@ -558,6 +572,7 @@ class BlockedPostJsonCandidate:
         object.__setattr__(self, "resource_type", resource_type)
         object.__setattr__(self, "member_names", canonical_names)
         object.__setattr__(self, "query_parameter_names", query_parameter_names)
+        object.__setattr__(self, "replay_policy", self.replay_policy)
         object.__setattr__(self, "id", f"postjson_{fingerprint[:24]}")
 
     @property
@@ -639,6 +654,11 @@ class NetworkDiscoveryCollection:
             candidate = post_candidates_by_id.get(candidate_id)
             if candidate is None:
                 raise ValueError("POST JSON replay material has no structural owner")
+            if (
+                candidate.replay_policy.disposition
+                != PostReplayDisposition.SAFE_FOR_PROBE
+            ):
+                raise ValueError("non-safe POST JSON candidate cannot retain replay material")
             if tuple(
                 sorted(normalize_parameter_name(name) for name, _ in material.json_body)
             ) != candidate.member_names:
@@ -1678,6 +1698,23 @@ def _application_json_content_type(value: str) -> bool:
     )
 
 
+def _graphql_semantics_present(parsed: _JsonObjectPairs) -> bool:
+    """Project only whether a top-level GraphQL document was observed."""
+
+    for name, value in parsed:
+        if normalize_parameter_name(name) != "query" or type(value) is not str:
+            continue
+        ignored_prefix = _GRAPHQL_IGNORED_PREFIX.match(value)
+        document = value[ignored_prefix.end() :] if ignored_prefix else value
+        if document.startswith("{") or re.match(
+            r"(?:query|mutation|subscription|fragment)\b",
+            document,
+            flags=re.IGNORECASE,
+        ):
+            return True
+    return False
+
+
 def _safe_blocked_post_json_candidate(
     *,
     method: str,
@@ -1736,12 +1773,6 @@ def _safe_blocked_post_json_candidate(
         content_type
     ):
         return None, None, PostJsonSkipReason.CONTENT_TYPE_UNSUPPORTED
-    if (
-        credential_header_present
-        or contains_credential_material(query_pairs)
-        or any(credential_field_name(name) for name, _ in query_pairs)
-    ):
-        return None, None, PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED
     if type(body) is not bytes:
         return None, None, PostJsonSkipReason.BODY_UNAVAILABLE
     if len(body) > _MAX_NETWORK_JSON_BODY_BYTES:
@@ -1762,12 +1793,13 @@ def _safe_blocked_post_json_candidate(
         return None, None, PostJsonSkipReason.JSON_MALFORMED
     if type(parsed) is not _JsonObjectPairs:
         return None, None, PostJsonSkipReason.JSON_TOP_LEVEL_NOT_OBJECT
-    if contains_credential_material(parsed):
-        return None, None, PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED
     if len(parsed) > _MAX_NETWORK_JSON_MEMBER_NAMES:
         return None, None, PostJsonSkipReason.JSON_MEMBER_LIMIT_EXCEEDED
     raw_member_names = tuple(name for name, _ in parsed)
-    member_names = tuple(sorted(normalize_parameter_name(name) for name in raw_member_names))
+    member_names = _redact_secret_shaped_parameter_names(
+        raw_member_names,
+        placeholder_kind="json_member",
+    )
     if any(
         not name or len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
         for name in member_names
@@ -1775,10 +1807,6 @@ def _safe_blocked_post_json_candidate(
         return None, None, PostJsonSkipReason.JSON_MEMBER_NAME_INVALID
     if len(set(member_names)) != len(member_names):
         return None, None, PostJsonSkipReason.JSON_DUPLICATE_KEY
-    if contains_credential_material(raw_member_names) or any(
-        credential_field_name(name) for name in member_names
-    ):
-        return None, None, PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED
     try:
         member_pairs = tuple(
             sorted(
@@ -1792,25 +1820,87 @@ def _safe_blocked_post_json_candidate(
     except (TypeError, ValueError, RecursionError):
         return None, None, PostJsonSkipReason.JSON_MALFORMED
     base_url = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+    try:
+        replay_policy = classify_post_replay(
+            PostReplayPolicyFeatures(
+                method="POST",
+                path=path,
+                member_names=raw_member_names,
+                query_parameter_names=tuple(name for name, _ in query_pairs),
+                resource_type=resource_type,
+                exact_authorized_loopback_origin=True,
+                content_type="application/json",
+                charset="utf-8",
+                top_level_json_object=True,
+                scalar_top_level_values=all(
+                    value is None or type(value) in {str, int, float, bool}
+                    for _, value in parsed
+                ),
+                reconstruction_complete=True,
+                graphql_semantics_present=_graphql_semantics_present(parsed),
+                credential_material_present=(
+                    contains_credential_material(parsed)
+                    or contains_credential_material(raw_member_names)
+                    or contains_credential_material(query_pairs)
+                ),
+                credential_header_present=credential_header_present,
+            )
+        )
+    except Exception:  # noqa: BLE001 - fail closed with a stable policy reason.
+        replay_policy = PostReplayPolicyDecision(
+            disposition=PostReplayDisposition.STRUCTURAL_ONLY,
+            reason_code=PostReplayReasonCode.POLICY_ASSESSMENT_FAILED,
+        )
     candidate = BlockedPostJsonCandidate(
         resource_type=resource_type,
         source_url=canonical_source,
         base_url=base_url,
         member_names=member_names,
-        query_parameter_names=tuple(name for name, _ in query_pairs),
+        query_parameter_names=_redact_secret_shaped_parameter_names(
+            tuple(name for name, _ in query_pairs),
+            placeholder_kind="query_parameter",
+        ),
+        replay_policy=replay_policy,
     )
     replay_url = urlunsplit(
         (parts.scheme, parts.netloc, path, urlencode(query_pairs), "")
     )
-    return (
-        candidate,
-        EphemeralRequestMaterial(
+    replay_material = None
+    if replay_policy.disposition == PostReplayDisposition.SAFE_FOR_PROBE:
+        replay_material = EphemeralRequestMaterial(
             url=replay_url,
             query=query_pairs,
             json_body=member_pairs,
-        ),
-        None,
-    )
+        )
+    return candidate, replay_material, None
+
+
+def _redact_secret_shaped_parameter_names(
+    names: tuple[str, ...],
+    *,
+    placeholder_kind: str,
+) -> tuple[str, ...]:
+    """Keep bounded structure without persisting a credential used as a name."""
+
+    retained = [
+        normalize_parameter_name(name)
+        for name in names
+        if not contains_credential_material(name)
+    ]
+    used = set(retained)
+    redacted_count = sum(contains_credential_material(name) for name in names)
+    placeholder_index = 1
+    while redacted_count:
+        placeholder = (
+            f"__vulnspider_redacted_{placeholder_kind}_{placeholder_index:04d}__"
+        )
+        placeholder_index += 1
+        if placeholder in used:
+            continue
+        used.add(placeholder)
+        retained.append(placeholder)
+        redacted_count -= 1
+    return tuple(sorted(retained))
 
 
 def _invalid_percent_encoding(value: str) -> bool:
@@ -1892,6 +1982,17 @@ def _request_post_data_buffer(request: Any) -> bytes | None:
     if type(value) is not bytes:
         return None
     return value
+
+
+def _post_policy_precedence(
+    decision: PostReplayPolicyDecision,
+) -> tuple[int, str]:
+    rank = {
+        PostReplayDisposition.SAFE_FOR_PROBE: 0,
+        PostReplayDisposition.STRUCTURAL_ONLY: 1,
+        PostReplayDisposition.BLOCKED_SENSITIVE: 2,
+    }
+    return rank[decision.disposition], decision.reason_code.value
 
 
 class _NetworkDiscoveryRecorder:
@@ -1984,7 +2085,20 @@ class _NetworkDiscoveryRecorder:
                 return
             if candidate is None:
                 return
-            if candidate.id in self._post_json_candidates:
+            current = self._post_json_candidates.get(candidate.id)
+            if current is not None:
+                chosen = max(
+                    (current, candidate),
+                    key=lambda item: _post_policy_precedence(item.replay_policy),
+                )
+                self._post_json_candidates[candidate.id] = chosen
+                if (
+                    chosen.replay_policy.disposition
+                    != PostReplayDisposition.SAFE_FOR_PROBE
+                ):
+                    self._post_json_replay_materials.pop(candidate.id, None)
+                elif candidate is chosen and replay_material is not None:
+                    self._post_json_replay_materials[candidate.id] = replay_material
                 return
             if len(self._post_json_candidates) >= self._candidate_limit:
                 overflow_reason = PostJsonSkipReason.CANDIDATE_LIMIT_EXCEEDED
@@ -2501,11 +2615,7 @@ class _RouteGuard:
                 and type(content_type) is str
                 and _application_json_content_type(content_type)
             ):
-                body = (
-                    None
-                    if credential_header_present
-                    else _request_post_data_buffer(request)
-                )
+                body = _request_post_data_buffer(request)
                 self.network_discovery.record_blocked_post_json(
                     method=method,
                     url=url,

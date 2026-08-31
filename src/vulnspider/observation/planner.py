@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from urllib.parse import quote, unquote_plus, urlencode, urlsplit, urlunsplit
 
 from vulnspider.domain import (
+    HttpMethod,
     InputLocation,
     InputPoint,
     InputPointRequestContext,
@@ -234,6 +235,14 @@ def _reject_non_probe_ready(request_template: RequestTemplate) -> None:
         reasons.append(f"completeness={request_template.completeness.value}")
 
     metadata = request_template.metadata
+    if (
+        request_template.method == HttpMethod.POST
+        and metadata.get("context_kind") == "json_body"
+    ):
+        if metadata.get("post_replay_disposition") != "SAFE_FOR_PROBE":
+            reasons.append("POST_REPLAY_POLICY_NOT_SAFE")
+        if request_template.ephemeral_material is None:
+            reasons.append("POST_REPLAY_MATERIAL_MISSING")
     structured_reasons = metadata.get("non_probe_ready_reasons")
     if isinstance(structured_reasons, tuple | list):
         reasons.extend(str(reason) for reason in structured_reasons)

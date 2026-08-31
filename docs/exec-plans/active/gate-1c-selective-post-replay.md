@@ -190,12 +190,36 @@ Gate 1C 기간에는 다음 파일을 coordination 대상으로 취급한다.
   없음과 `APPROVE`를 판정했다. production feature builder가 raw observation에서
   GraphQL/credential/action flags를 생성하는 wiring 회귀는 Gate 1C-C의
   non-blocking test gap으로 남겼다.
+- 2026-08-31: Gate 1C-C 제품 수정 전 handoff matrix 7개를 추가해 10 failure와
+  5 error를 재현했다. policy가 observation에서 호출되지 않고, disposition/reason이
+  candidate/readiness에 없으며, structural/sensitive POST가 삭제되거나 기존 READY
+  sidecar를 유지하는 RED였다.
+- 2026-08-31: dynamic POST projection에서 classifier를 호출하고 value-free
+  candidate에 판정을 결속했다. canonical builder는 SAFE와 complete sidecar가 함께
+  있을 때만 READY로 bind하며, 나머지는 structural template/context를 보존한 채
+  policy reason이 있는 NOT_READY로 bind한다. 동일 structural owner의 중복 관측은
+  가장 제한적인 disposition을 택하고 non-safe sidecar를 폐기한다.
+- 2026-08-31: 첫 independent Gate 1C-C review는 alias path의 GraphQL mutation이
+  production feature projection에서 explicit GraphQL flag를 잃어 SAFE가 되는 우회와,
+  READY template에서 sidecar만 제거하면 planner가 persistent `null` binding을
+  baseline으로 사용하는 우회를 BLOCKER로 재현했다. top-level GraphQL document를
+  raw value 없이 boolean으로 projection하고, planner와 canonical READY validation
+  모두 SAFE disposition + ephemeral material을 요구하도록 보강했다. 두 bypass
+  재현과 관련 contract 회귀를 포함한 132개 표적 테스트 및 pipeline 대조군 1개가
+  PASS했다.
+- 2026-08-31: fresh re-review는 GraphQL ignored token인 leading BOM/comma 조합이
+  alias-path mutation 판정을 우회하는 추가 BLOCKER를 발견했다. GraphQL boolean
+  projection이 whitespace/comment뿐 아니라 BOM/comma prefix도 제거하도록 수정하고
+  unprefixed, BOM-only, comma-only, BOM+comma+comment 혼합 회귀를 추가했다. 최종
+  independent re-review는 네 변형 모두 STRUCTURAL_ONLY, sidecar-free, NOT_READY,
+  planner-rejected이고 stripped-sidecar bypass도 닫힌 상태임을 확인해
+  `APPROVE — 0 blockers, 0 majors`를 판정했다.
 
 ## Gate 1C-A 후속 경계
 
 - Gate 1C-B 전에는 POST replay classifier나 최종 disposition을 구현하지 않는다.
-- Gate 1C-C에서 sidecar가 없는 persisted/reloaded template의 `READY` 의미와
-  execution handoff를 확정한다.
+- Gate 1C-C는 sidecar가 없는 persisted/reloaded template을
+  `RECONSTRUCTION_INCOMPLETE` NOT_READY로 확정했다.
 - Gate 1C-D에서 현재 active POST 횟수를 별도 budget으로 제한하고 sidecar
   lifetime을 더 좁힐 수 있는지 재검토한다.
 
@@ -242,6 +266,64 @@ POST execution budget에 연결하지 않는다. 해당 wiring은 Gate 1C-C/D �
 - [x] classifier는 기존 readiness와 active replay handoff를 변경하지 않는다.
 - [x] GraphQL path/explicit semantics는 non-goal로 `STRUCTURAL_ONLY`다.
 
+## Gate 1C-C readiness handoff contract
+
+Gate 1C-C는 별도 readiness 계층을 만들지 않는다. 기존 경계를 다음 순서로
+연결한다.
+
+1. `_safe_blocked_post_json_candidate()`가 transient request body/header/query
+   projection으로 `PostReplayPolicyFeatures`를 만들고 classifier를 호출한다.
+   `query` member의 GraphQL document는 raw text 대신 explicit boolean만 투영한다.
+2. `BlockedPostJsonCandidate.replay_policy`가 value-free structural observation과
+   disposition/reason을 결속한다. `EphemeralRequestMaterial`은
+   `SAFE_FOR_PROBE`에서만 collection sidecar에 들어간다.
+3. `canonicalize_network_discovery()`가 candidate policy와 optional sidecar를
+   기존 `CanonicalDiscoveryBuilder.add_structural_json_body_surface()`에 넘긴다.
+4. builder의 기존 `_bind()`가 `ProbeReadiness`를 만든다.
+   `CanonicalDiscoveryResult.ready_contexts()`가 READY만 반환하고,
+   `analyze_discovery_result()`가 그 결과만 planner/executor에 넘긴다.
+
+Disposition mapping은 다음과 같다.
+
+| POST policy | Reconstruction | Readiness | Persistent structure | Planner handoff |
+| --- | --- | --- | --- | --- |
+| `SAFE_FOR_PROBE` | complete sidecar + owner match | `READY` | 유지 | 허용 |
+| `SAFE_FOR_PROBE` | sidecar 누락/불완전 | `NOT_READY` + `POST_POLICY_STRUCTURAL_ONLY` (`RECONSTRUCTION_INCOMPLETE`) | 유지 | 금지 |
+| `STRUCTURAL_ONLY` | 무관 | `NOT_READY` + `POST_POLICY_STRUCTURAL_ONLY` | 유지 | 금지 |
+| `BLOCKED_SENSITIVE` | 무관 | `NOT_READY` + `POST_POLICY_BLOCKED_SENSITIVE` | value-free로 유지 | 금지 |
+| assessment failure | 무관 | `NOT_READY` + `POST_POLICY_ASSESSMENT_FAILED` | value-free로 유지 | 금지 |
+
+Discovery preservation invariant는 "발견했지만 실행하지 않는다"다. non-safe POST도
+Endpoint, JSON InputPoint, structural `RequestTemplate`,
+`InputPointRequestContext`, provenance와 readiness record를 유지한다. raw JSON/query
+value는 persistent artifact에 넣지 않으며, credential 자체가 member name으로
+관측되면 stable redacted placeholder로 대체한다. policy metadata에는 enum
+disposition/reason만 기록한다.
+
+Planner 우회 방지는 세 겹이다. collection은 non-safe owner에 sidecar 결속을
+거부하고, canonical builder는 non-safe sidecar를 제거하며, template metadata의
+`non_probe_ready_reasons`와 UNKNOWN completeness가 direct planner 호출도
+fail-closed시킨다. 동일 구조의 SAFE/blocked 중복 관측은 관측 순서와 무관하게
+`BLOCKED_SENSITIVE`가 이기며 기존 sidecar를 제거한다. owner mismatch는 기존
+`EphemeralRequestMaterial` structural binding 검증에서 거부한다.
+
+## Gate 1C-C acceptance criteria
+
+- [x] search/filter safe JSON POST는 complete sidecar가 있을 때 READY이고 planner가
+  exact transient baseline을 사용한다.
+- [x] update/cart/ambiguous/nested/GraphQL POST는 structural discovery를 유지한
+  NOT_READY다.
+- [x] password/token/session/CSRF/JWT/header credential은 value-free structural
+  discovery를 유지한 `BLOCKED_SENSITIVE`이며 sidecar가 없다.
+- [x] classifier exception과 missing sidecar는 deterministic reason으로
+  fail-closed한다.
+- [x] structural owner mismatch와 duplicate-observation downgrade bypass를
+  차단한다.
+- [x] GET/HEAD authority, simple SPA discovery, submit gate와 BAC live-cookie/
+  artifact-redaction 표적 회귀를 유지한다.
+- [x] POST request budget, nested replay, multipart, GraphQL replay와 focused
+  verification은 Gate 1C-D 이후 non-goal로 남긴다.
+
 ## Decision Log
 
 - Decision: structural candidate와 exact replay value는 structural owner ID로
@@ -260,9 +342,16 @@ POST execution budget에 연결하지 않는다. 해당 wiring은 Gate 1C-C/D �
   서로 다른 signal source 두 개 이상을 요구한다.
 - Reason: 단일 약한 keyword로 SAFE를 승인하지 않으면서 search/filter JSON API의
   실용적 positive coverage를 유지한다.
+- Decision: Gate 1C-C READY는 `SAFE_FOR_PROBE`와 owner-bound complete sidecar를
+  모두 요구한다. disposition 또는 reconstruction 중 하나라도 불충분하면
+  NOT_READY다.
+- Reason: classifier 의미만으로 transient request reconstruction을 추정하거나,
+  sidecar 존재만으로 policy를 우회하지 못하게 한다.
+- Decision: non-safe POST도 structural template/context를 만들고 policy reason을
+  기존 readiness/template metadata에 기록한다.
+- Reason: 관측 coverage와 active replay 권한을 분리하며 direct planner 호출도
+  fail-closed시킨다.
 
 ## Open Questions
 
-- persisted artifact를 다시 읽을 때 transient material이 없는 template의
-  readiness/execution disposition은 Gate 1C-C에서 결정한다.
 - sidecar lifetime 단축과 독립 POST replay budget은 Gate 1C-D에서 결정한다.

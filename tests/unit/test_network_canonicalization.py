@@ -16,6 +16,7 @@ from vulnspider.discovery import (
     NetworkDiscoveryCollection,
     NetworkDiscoveryDisposition,
     NetworkDiscoveryElisionReason,
+    NonProbeReadyReason,
     PostJsonSkipReason,
     ProbeReadyStatus,
     ScopeMetadata,
@@ -26,6 +27,7 @@ from vulnspider.discovery import (
     scope_id_for_root,
 )
 from vulnspider.discovery import dynamic_browser as browser_module
+from vulnspider.discovery.post_replay_policy import PostReplayDisposition
 from vulnspider.domain import (
     HttpMethod,
     InputLocation,
@@ -856,13 +858,20 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
                 for item in result.input_points
             )
         )
-        self.assertEqual(result.request_templates, ())
-        self.assertEqual(result.input_point_request_contexts, ())
+        self.assertEqual(len(result.request_templates), 1)
+        self.assertEqual(
+            result.request_templates[0].json_body,
+            (("keyword", "null"), ("page", "null")),
+        )
+        self.assertIsNone(result.request_templates[0].ephemeral_material)
+        self.assertEqual(len(result.input_point_request_contexts), 2)
         self.assertEqual(result.ready_contexts(), ())
         self.assertTrue(
             all(
                 item.status == ProbeReadyStatus.NOT_READY
-                and item.request_context_id is None
+                and item.request_context_id is not None
+                and item.reasons
+                == (NonProbeReadyReason.POST_POLICY_STRUCTURAL_ONLY,)
                 for item in result.probe_readiness
             )
         )
@@ -989,14 +998,22 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
         collection = recorder.snapshot()
         self.assertEqual(route.abort_count, 1)
         self.assertEqual(route.fetch_count, 0)
-        self.assertEqual(len(collection.post_json_candidates), 1)
+        self.assertEqual(len(collection.post_json_candidates), 2)
+        self.assertEqual(collection.post_json_skipped_counts, ())
+        candidates_by_url = {
+            item.base_url: item for item in collection.post_json_candidates
+        }
         self.assertEqual(
-            collection.post_json_skipped_counts,
-            ((ROOT, PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED, 1),),
+            candidates_by_url[
+                "http://127.0.0.1:8080/api/search"
+            ].replay_policy.disposition,
+            PostReplayDisposition.SAFE_FOR_PROBE,
         )
         self.assertEqual(
-            collection.post_json_candidates[0].base_url,
-            "http://127.0.0.1:8080/api/search",
+            candidates_by_url[
+                "http://127.0.0.1:8080/api/header-secret"
+            ].replay_policy.disposition,
+            PostReplayDisposition.BLOCKED_SENSITIVE,
         )
         self.assertNotIn(secret, repr(collection))
         self.assertNotIn(
@@ -1014,10 +1031,10 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
             pickle.dumps(collection, protocol=5),
         )
 
-    def test_post_json_rejections_fail_closed_without_secret_retention(self) -> None:
+    def test_post_json_rejections_and_sensitive_policy_fail_closed(self) -> None:
         oversized = b'{"field":"' + b"x" * 17000 + b'"}'
         jwt = "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0."
-        cases = (
+        rejection_cases = (
             (b'{"keyword":', PostJsonSkipReason.JSON_MALFORMED),
             (b'["keyword"]', PostJsonSkipReason.JSON_TOP_LEVEL_NOT_OBJECT),
             (
@@ -1025,40 +1042,8 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
                 PostJsonSkipReason.JSON_DUPLICATE_KEY,
             ),
             (oversized, PostJsonSkipReason.BODY_TOO_LARGE),
-            (
-                b'{"password":"PASSWORD_VALUE_SENTINEL"}',
-                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
-            ),
-            (
-                b'{"password":null}',
-                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
-            ),
-            (
-                b'{"api_key":"sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAA"}',
-                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
-            ),
-            (
-                b'{"token":"POST_TOKEN_VALUE_SENTINEL"}',
-                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
-            ),
-            (
-                b'{"csrf":"POST_CSRF_VALUE_SENTINEL"}',
-                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
-            ),
-            (
-                b'{"sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAA":null}',
-                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
-            ),
-            (
-                b'{"eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.":null}',
-                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
-            ),
-            (
-                ('{"note":"' + jwt + '"}').encode(),
-                PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
-            ),
         )
-        for body, expected in cases:
+        for body, expected in rejection_cases:
             with self.subTest(expected=expected):
                 candidate, replay_material, reason = (
                     browser_module._safe_blocked_post_json_candidate(
@@ -1076,6 +1061,48 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
                 self.assertIsNone(replay_material)
                 self.assertEqual(reason, expected)
 
+        sensitive_bodies = (
+            b'{"password":"PASSWORD_VALUE_SENTINEL"}',
+            b'{"password":null}',
+            b'{"api_key":"sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAA"}',
+            b'{"token":"POST_TOKEN_VALUE_SENTINEL"}',
+            b'{"csrf":"POST_CSRF_VALUE_SENTINEL"}',
+            b'{"sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAA":null}',
+            b'{"eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.":null}',
+            ('{"note":"' + jwt + '"}').encode(),
+        )
+        for body in sensitive_bodies:
+            with self.subTest(body=body[:32]):
+                candidate, replay_material, reason = (
+                    browser_module._safe_blocked_post_json_candidate(
+                        method="POST",
+                        url="http://127.0.0.1:8080/api/search",
+                        resource_type="fetch",
+                        source_url=ROOT,
+                        root_origin=ORIGIN,
+                        content_type="application/json",
+                        credential_header_present=False,
+                        body=body,
+                    )
+                )
+                self.assertIsNotNone(candidate)
+                self.assertIsNone(replay_material)
+                self.assertIsNone(reason)
+                assert candidate is not None
+                self.assertEqual(
+                    candidate.replay_policy.disposition,
+                    PostReplayDisposition.BLOCKED_SENSITIVE,
+                )
+                serialized = pickle.dumps(candidate, protocol=5)
+                for secret in (
+                    b"PASSWORD_VALUE_SENTINEL",
+                    b"POST_TOKEN_VALUE_SENTINEL",
+                    b"POST_CSRF_VALUE_SENTINEL",
+                    b"sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    jwt.lower().encode(),
+                ):
+                    self.assertNotIn(secret, serialized)
+
         credential_candidate, credential_material, credential_reason = (
             browser_module._safe_blocked_post_json_candidate(
                 method="POST",
@@ -1085,14 +1112,16 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
                 root_origin=ORIGIN,
                 content_type="application/json",
                 credential_header_present=True,
-                body=None,
+                body=b'{"keyword":"phone"}',
             )
         )
-        self.assertIsNone(credential_candidate)
+        self.assertIsNotNone(credential_candidate)
         self.assertIsNone(credential_material)
+        self.assertIsNone(credential_reason)
+        assert credential_candidate is not None
         self.assertEqual(
-            credential_reason,
-            PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+            credential_candidate.replay_policy.disposition,
+            PostReplayDisposition.BLOCKED_SENSITIVE,
         )
         query_candidate, query_material, query_reason = (
             browser_module._safe_blocked_post_json_candidate(
@@ -1109,11 +1138,13 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
                 body=b'{"keyword":"phone"}',
             )
         )
-        self.assertIsNone(query_candidate)
+        self.assertIsNotNone(query_candidate)
         self.assertIsNone(query_material)
+        self.assertIsNone(query_reason)
+        assert query_candidate is not None
         self.assertEqual(
-            query_reason,
-            PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+            query_candidate.replay_policy.disposition,
+            PostReplayDisposition.BLOCKED_SENSITIVE,
         )
         empty_query_candidate, empty_query_material, empty_query_reason = (
             browser_module._safe_blocked_post_json_candidate(
@@ -1127,11 +1158,13 @@ class PostJsonCanonicalizationTests(unittest.TestCase):
                 body=b'{"keyword":"phone"}',
             )
         )
-        self.assertIsNone(empty_query_candidate)
+        self.assertIsNotNone(empty_query_candidate)
         self.assertIsNone(empty_query_material)
+        self.assertIsNone(empty_query_reason)
+        assert empty_query_candidate is not None
         self.assertEqual(
-            empty_query_reason,
-            PostJsonSkipReason.SENSITIVE_REQUEST_ELIDED,
+            empty_query_candidate.replay_policy.disposition,
+            PostReplayDisposition.BLOCKED_SENSITIVE,
         )
         collection = NetworkDiscoveryCollection(
             post_json_skipped_counts=(

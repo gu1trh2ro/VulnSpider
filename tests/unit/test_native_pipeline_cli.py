@@ -127,7 +127,7 @@ class PartiallyFailingMarkerTransport(MarkerTransport):
 
 
 class NativePipelineTests(unittest.TestCase):
-    def test_canonical_analysis_executes_only_ready_get_contexts(self) -> None:
+    def test_canonical_analysis_executes_ready_get_and_post_contexts(self) -> None:
         discovery = extract_static_html(
             """
             <form method="get" action="/search">
@@ -153,26 +153,25 @@ class NativePipelineTests(unittest.TestCase):
 
         self.assertIsNone(analysis.adapter_result)
         self.assertIs(analysis.discovery_result, discovery)
-        self.assertEqual(len(transport.requests), 2)
+        self.assertEqual(len(transport.requests), 4)
         self.assertEqual(
             {request.method for request in transport.requests},
-            {HttpMethod.GET},
+            {HttpMethod.GET, HttpMethod.POST},
         )
-        self.assertTrue(
-            all("/search?" in request.url for request in transport.requests)
+        self.assertEqual(
+            sum("/search?" in request.url for request in transport.requests),
+            2,
         )
-        self.assertTrue(
-            any("executes GET request contexts only" in item for item in analysis.warnings)
+        self.assertEqual(
+            sum("/submit" in request.url for request in transport.requests),
+            2,
         )
-        self.assertTrue(
-            any(
-                "NATIVE_STATIC analysis executes GET request contexts only" in item
-                for item in analysis.warnings
-            )
+        self.assertFalse(
+            any("does not support HTTP method" in item for item in analysis.warnings)
         )
         self.assertEqual(
             analysis.selection.summary.total_scoring_results,
-            2,
+            4,
         )
 
     def test_repeated_contexts_produce_one_feature_vector_per_input_point(
