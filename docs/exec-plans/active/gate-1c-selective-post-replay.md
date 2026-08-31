@@ -214,6 +214,38 @@ Gate 1C 기간에는 다음 파일을 coordination 대상으로 취급한다.
   independent re-review는 네 변형 모두 STRUCTURAL_ONLY, sidecar-free, NOT_READY,
   planner-rejected이고 stripped-sidecar bypass도 닫힌 상태임을 확인해
   `APPROVE — 0 blockers, 0 majors`를 판정했다.
+- 2026-08-31: Gate 1C-D-1 제품 수정 전 exact baseline/single-member/exclusion/
+  value-isolation/budget/determinism matrix 8개를 추가했다. 기존 exact baseline,
+  one-at-a-time, owner/material과 non-safe exclusion 6개는 PASS했고, 8-member SAFE
+  fixture가 8 plans/16 requests를 생성해 cap 4 기대를 위반하는 2 failure를
+  재현했다. 후속 adversarial owner test는 forged sidecar의 URL/query 불일치가
+  planner에서 거부되지 않는 추가 RED 1개를 재현했다.
+- 2026-08-31: 기존 `ProbePlanner`에 per-invocation
+  `PostProbePlanningBudget(max_plans=4)`를 결속했다. selective JSON POST는 exact
+  sidecar owner, URL/query alignment, structural member set, sensitive member 부재,
+  single-target diff를 preflight한 뒤 RequestInstance 생성 전에 budget을 예약한다.
+  cap 뒤 context는 deterministic reason으로 skip하며 GET/form/BAC planner는 이
+  budget을 소비하지 않는다.
+- 2026-08-31: independent Gate Review는 함수형 `plan_probe_request()`가 POST에서
+  매 호출 implicit budget을 새로 만들던 cap 우회, JSON POST template을 QUERY
+  InputPoint로 rebind해 persistent `null` baseline과 budget을 우회하는 location
+  confusion, 동시 reservation check/increment race, public counter assignment로 cap을
+  reset하는 네 finding을 재현했다. 각 우회를 별도 RED로 고정한 뒤 functional POST는
+  explicit shared budget을 요구하고, JSON template policy는 target location과 무관하게
+  적용하며 non-JSON target을 거부했다. budget은 frozen cap/private counter/read-only
+  property와 lock-protected reservation을 사용한다.
+- 2026-08-31: 최종 코드 snapshot에서 새 Gate tests와 planner/pairing/readiness/
+  classifier/ephemeral 회귀 122개, submit-gate/BAC live-cookie/simple SPA/GET 대조군
+  39개, combined handoff 1개로 총 162개가 PASS했다. combined test는 기존
+  undeclared `tqdm` import 때문에 최초 collection이 중단되어 테스트 프로세스 안의
+  in-memory stub으로 재실행했다. format/lint와 `git diff --check`가 PASS했고 전체
+  suite와 real-target E2E는 요청대로 실행하지 않았다.
+- 2026-08-31: final fresh independent re-review는 앞서 발견한 functional budget,
+  QUERY rebinding/persistent-null, concurrent reservation, public reset과 mutable-hash
+  우회가 모두 닫혔음을 확인했다. exact baseline/single-member/method-origin-path-
+  query-member invariants, deterministic cap/order, GET/pairing/provenance와 artifact
+  secret 경계를 다시 검토하고 `APPROVE — 0 blockers, 0 majors, 0 minors`를
+  판정했다.
 
 ## Gate 1C-A 후속 경계
 
@@ -324,6 +356,95 @@ fail-closed시킨다. 동일 구조의 SAFE/blocked 중복 관측은 관측 순�
 - [x] POST request budget, nested replay, multipart, GraphQL replay와 focused
   verification은 Gate 1C-D 이후 non-goal로 남긴다.
 
+## Gate 1C-D-1 current POST planner seam
+
+현재 selective JSON POST는 별도 planner architecture를 만들지 않고 기존
+injection observation 경로를 그대로 사용한다.
+
+```text
+CanonicalDiscoveryResult.ready_contexts()
+  -> pipeline._analyze_contexts()의 context-id 정렬
+  -> 하나의 공유 ProbePlanner 인스턴스
+  -> ProbePlanner.plan()
+       readiness/policy/material preflight
+       exact EphemeralRequestMaterial baseline
+       target JSON member 하나만 marker로 교체
+       per-planner POST budget 예약
+       ProbePlan(baseline_request, probe_request)
+  -> RequestExecutor.execute_plan()
+       baseline 1회 + probe 1회
+  -> plan/role/request-id가 결속된 ResponseSnapshot/ResponsePair
+  -> extract_minimal_features()
+  -> InputPoint별 feature aggregation/scoring
+```
+
+GET/query와 HTML form은 기존 marker, plan identity, execution, pairing 경로를
+유지한다. Gate 1C-D-1의 새 budget과 material preflight는
+`POST + JSON/JSON_BODY` selective replay에만 적용된다. BAC는 별도 GET-only
+access planner/executor이며 이 budget을 소비하지 않는다.
+
+현재 pairing contract에서는 같은 JSON body의 서로 다른 InputPoint라도 각
+`ProbePlan`이 자신의 baseline/probe response ownership을 가져야 한다. 따라서
+동일 baseline request bytes와 request ID가 여러 plan에 나타날 수 있지만,
+`(probe_plan_id, request_role, request_id)` provenance는 서로 다르다. 이번 Gate는
+baseline cache/dedup을 추가하지 않고 plan마다 baseline 1회를 유지한다.
+
+## Gate 1C-D-1 bounded planning contract
+
+Selective JSON POST plan은 다음 조건을 모두 만족할 때만 생성한다.
+
+- method가 POST이고 target이 top-level `JSON/JSON_BODY` InputPoint다.
+- template metadata disposition이 `SAFE_FOR_PROBE`다.
+- context completeness가 `COMPLETE`이고 기존 non-ready reason이 없다.
+- `EphemeralRequestMaterial`이 존재한다.
+- sidecar scheme/authority/path와 fragment 부재가 structural URL owner에 맞는다.
+- sidecar URL query와 query material이 정확히 정렬된다.
+- sidecar query/JSON member names가 persistent structural names와 일치한다.
+- JSON member name 중 credential/sensitive name이 없다.
+- baseline은 sidecar의 exact execution URL/query/JSON scalar values를 사용한다.
+- probe는 target member 하나만 기존 deterministic Light Probe marker의 canonical
+  JSON string으로 교체한다.
+- method, URL, query, form, JSON member order/set과 다른 member value는 유지한다.
+
+Budget은 `PostProbePlanningBudget`이 `ProbePlanner` invocation마다 소유한다.
+default cap은 **4 plans**이며 plan 하나는 기존 pairing 계약대로 baseline/probe
+두 요청을 소유하므로 최대 **8 selective POST transport requests**다. context는
+기존 deterministic context-id 정렬 순서로 planner에 들어가며, cap 이후 context는
+동일한 `POST_PROBE_PLAN_BUDGET_EXHAUSTED` reason으로 skip된다. 예약은 모든
+preflight와 mutation tuple 생성 후, baseline/probe `RequestInstance` 생성 전에
+수행한다. public 함수형 `plan_probe_request()`는 selective POST에서 implicit
+budget을 만들지 않고 caller가 하나의 shared budget을 명시해야 한다. cap과 private
+counter는 외부 assignment로 reset할 수 없고 reservation/count read는 같은 lock으로
+보호한다.
+
+Cap 4의 근거는 graduation prototype의 현재 positive fixture가 보통 search/filter
+1~2 scalar member이고 이를 그대로 수용하면서, discovery가 허용하는 최대 64 JSON
+member가 128 active requests로 증폭되는 것을 8 requests로 제한하기 위해서다.
+global scheduler나 endpoint별 adaptive policy를 새로 만들지 않는 가장 작은
+deterministic bound이기도 하다.
+
+Type-aware mutation은 Gate 1C-D-2로 남긴다. D-1에서는 string/integer/number/
+boolean baseline scalar를 모두 exact sidecar value로 보존하지만, probe value는
+기존 GET Light Probe의 deterministic reflection marker를 canonical JSON string으로
+사용한다. nested object/array, GraphQL, multipart는 계속 plan을 만들지 않는다.
+
+## Gate 1C-D-1 acceptance criteria
+
+- [x] exact sidecar baseline이 persistent `null` binding 대신 사용된다.
+- [x] plan 하나가 top-level target scalar member 하나만 변경한다.
+- [x] second scalar plan은 다른 InputPoint의 value를 섞지 않는다.
+- [x] method/origin/path/query/member set과 unrelated value가 유지된다.
+- [x] missing/mismatched/forged sidecar는 RequestInstance 생성 전에 거부된다.
+- [x] STRUCTURAL_ONLY/BLOCKED_SENSITIVE/GraphQL/nested JSON은 plan/execution 0이다.
+- [x] planner invocation당 selective POST plan이 4를 넘지 않는다.
+- [x] 함수형 planner entrypoint도 explicit shared budget 없이는 POST plan을 만들지
+  않는다.
+- [x] JSON POST template의 QUERY rebinding과 concurrent/public counter reset budget
+  우회를 차단한다.
+- [x] 같은 discovery input의 plan count/order/identity가 deterministic하다.
+- [x] baseline dedup 없이 기존 ProbePlan/ResponsePair provenance를 유지한다.
+- [x] GET, submit-gate, BAC live-cookie와 simple SPA 표적 회귀를 유지한다.
+
 ## Decision Log
 
 - Decision: structural candidate와 exact replay value는 structural owner ID로
@@ -351,7 +472,23 @@ fail-closed시킨다. 동일 구조의 SAFE/blocked 중복 관측은 관측 순�
   기존 readiness/template metadata에 기록한다.
 - Reason: 관측 coverage와 active replay 권한을 분리하며 direct planner 호출도
   fail-closed시킨다.
+- Decision: Gate 1C-D-1 selective JSON POST cap은 per-`ProbePlanner` 4 plans로
+  고정하고, cap reservation을 RequestInstance construction 전에 수행한다.
+- Reason: common 1~2 member search/filter coverage는 유지하면서 최대 active POST를
+  8 requests로 제한하고, 기존 pipeline의 단일 planner instance와 deterministic
+  context ordering을 그대로 재사용할 수 있다.
+- Decision: baseline cache를 추가하지 않고 각 ProbePlan이 exact baseline request와
+  response provenance를 계속 소유한다.
+- Reason: 같은 request bytes라도 observation ownership은 plan/role/request tuple이며,
+  request 수 최적화가 이 reviewed pairing contract보다 우선할 수 없다.
+- Decision: D-1의 number/boolean target도 기존 reflection marker JSON string을
+  사용하고 type-aware bounded values는 D-2로 분리한다.
+- Reason: 이번 Gate의 핵심은 exact baseline, single-member isolation과 budget이며,
+  새로운 payload family/type semantics를 동시에 도입하지 않는다.
 
 ## Open Questions
 
-- sidecar lifetime 단축과 독립 POST replay budget은 Gate 1C-D에서 결정한다.
+- Gate 1C-D-2에서 number/boolean type-aware mutation이 feature extraction에 주는
+  영향과 scalar별 bounded value를 결정한다.
+- sidecar lifetime을 planning 직후 더 단축할 수 있는지는 Gate 1C-D-2/E에서
+  검토한다.
