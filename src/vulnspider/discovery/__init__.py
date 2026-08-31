@@ -88,6 +88,13 @@ from vulnspider.discovery.merge import (
 from vulnspider.discovery.network_canonicalization import (
     canonicalize_network_discovery,
 )
+from vulnspider.discovery.post_replay_policy import (
+    PostReplayDisposition,
+    PostReplayPolicyDecision,
+    PostReplayPolicyFeatures,
+    PostReplayReasonCode,
+    classify_post_replay,
+)
 from vulnspider.discovery.rendered_dom import (
     RENDERED_DOM_VERSION,
     RenderedDomError,
@@ -166,6 +173,10 @@ __all__ = [
     "NetworkDiscoveryElisionReason",
     "NetworkDiscoverySkipReason",
     "PostJsonSkipReason",
+    "PostReplayDisposition",
+    "PostReplayPolicyDecision",
+    "PostReplayPolicyFeatures",
+    "PostReplayReasonCode",
     "NonProbeReadyReason",
     "PassiveNetworkObservation",
     "PassiveNetworkScope",
@@ -192,6 +203,7 @@ __all__ = [
     "UrlLibStaticCrawlerTransport",
     "canonicalize_crawl_url",
     "canonicalize_network_discovery",
+    "classify_post_replay",
     "discovery_run_id_for",
     "discovery_snapshot_id_for",
     "discover_native_combined",

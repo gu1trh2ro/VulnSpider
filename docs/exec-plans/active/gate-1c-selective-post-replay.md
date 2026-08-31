@@ -166,6 +166,30 @@ Gate 1C 기간에는 다음 파일을 coordination 대상으로 취급한다.
   scheme/authority/path, fragment 부재, URL/query pair, structural query/JSON name
   일치를 도메인 경계에서 검증하고 5개 fail-closed 회귀를 추가했다. 재리뷰는
   18개 표적 테스트와 이전 bypass 재현 차단을 확인하고 `PASS`를 판정했다.
+- 2026-08-31: Gate 1C-B 제품 코드 전 classifier matrix를 추가하고, policy
+  module 부재로 1개 import error를 재현했다. 빈 JSON object가 두 weak semantic
+  signal만으로 SAFE가 되는 추가 RED도 재현했다.
+- 2026-08-31: value-free `PostReplayPolicyFeatures`, 전용 disposition/reason
+  model과 pure classifier를 추가했다. classifier/sensitive, Gate 1C-A
+  identity/artifact/sidecar/planner/pipeline/worker, submit-gate, BAC live-cookie와
+  artifact-redaction 표적 회귀 36개가 PASS했다. format/lint와 새 policy module의
+  공개 type-hint 검증도 PASS했다. 저장소 전체 type-hint 검사는 기존 `cli.py`의
+  undeclared `tqdm` import에서 module 검사 전에 중단됐다. 전체 unittest suite는
+  실행하지 않았다.
+- 2026-08-31: independent review 중 percent-encoded path, camelCase
+  action/credential name, literal mutation, Gate 1C-A가 camel boundary를 제거한
+  `cartAdd` → `cartadd` state semantic 우회를 발견했다. 각 case를 RED로 재현한 뒤
+  UTF-8 percent-decoded path tokenization, camel boundary 보존, precomputed
+  credential-material flag, direct mutation token과 concatenated context/action
+  판정을 추가했다. 재리뷰에서는 GraphQL non-goal이 action/member positive
+  evidence로 SAFE가 되는 gap과 concatenated context substring 과잉 판정을
+  발견했다. explicit/path GraphQL fail-closed reason을 추가하고 concatenated
+  판정을 exact context/action compound로 좁혔다. 수정 후 위 36개 표적 회귀가
+  PASS했다.
+- 2026-08-31: fresh independent Gate Review는 최종 snapshot에서 BLOCKER/MAJOR
+  없음과 `APPROVE`를 판정했다. production feature builder가 raw observation에서
+  GraphQL/credential/action flags를 생성하는 wiring 회귀는 Gate 1C-C의
+  non-blocking test gap으로 남겼다.
 
 ## Gate 1C-A 후속 경계
 
@@ -174,6 +198,49 @@ Gate 1C 기간에는 다음 파일을 coordination 대상으로 취급한다.
   execution handoff를 확정한다.
 - Gate 1C-D에서 현재 active POST 횟수를 별도 budget으로 제한하고 sidecar
   lifetime을 더 좁힐 수 있는지 재검토한다.
+
+## Gate 1C-B classifier contract
+
+Gate 1C-B는 `discovery/post_replay_policy.py`의 순수 policy component로
+구현한다. 이 component는 현재 discovery readiness나 active transport를
+변경하지 않는다.
+
+입력은 다음 value-free structural feature로 제한한다.
+
+- method와 query-free path
+- normalized JSON member/query/header/cookie names
+- fetch/XHR resource provenance와 optional UI action intent
+- exact authorized loopback origin 여부
+- normalized content type/charset
+- top-level object/scalar shape와 reconstruction completeness
+- credential value/header/cookie presence flag
+- explicit GraphQL semantics flag
+
+결과는 `PostReplayDisposition`과 deterministic primary
+`PostReplayReasonCode`의 pair다. 민감 field/header/cookie가 가장 먼저
+`BLOCKED_SENSITIVE`를 결정한다. method/origin/provenance/JSON shape/reconstruction
+실패와 state-changing 또는 ambiguous semantics는 `STRUCTURAL_ONLY`다.
+`SAFE_FOR_PROBE`는 모든 structural prerequisite를 만족하고, 주입 가능한
+top-level member가 있으며, path/action/member 중 서로 다른 최소 두 signal
+source에서 positive read-only evidence가 있을 때만 승인한다.
+
+Gate 1C-B의 classifier result는 아직 `ProbeReadiness`, planner, pipeline 또는
+POST execution budget에 연결하지 않는다. 해당 wiring은 Gate 1C-C/D 범위다.
+
+## Gate 1C-B acceptance criteria
+
+- [x] `/api/search` + `keyword`, `/api/filter` + `category,page`가
+  `SAFE_FOR_PROBE`다.
+- [x] update/cart/checkout, nested JSON, ambiguous endpoint와 빈 JSON object가
+  `STRUCTURAL_ONLY`다.
+- [x] password/token/authorization/session/CSRF/XSRF semantics가
+  `BLOCKED_SENSITIVE`다.
+- [x] `product_id`, `category`, `page`, `key`, `license_key`는 secret로
+  과잉 차단되지 않는다.
+- [x] 동일 member/shape의 scalar value 변화는 feature, disposition과 reason을
+  바꾸지 않는다.
+- [x] classifier는 기존 readiness와 active replay handoff를 변경하지 않는다.
+- [x] GraphQL path/explicit semantics는 non-goal로 `STRUCTURAL_ONLY`다.
 
 ## Decision Log
 
@@ -185,6 +252,14 @@ Gate 1C 기간에는 다음 파일을 coordination 대상으로 취급한다.
   `None`으로 표현한다.
 - Reason: member 발견 구조와 기존 context ownership을 보존하면서 observed raw
   value를 canonical artifact에서 제거한다.
+- Decision: Gate 1C-B POST disposition은 GET value-elision enum을 재사용하지
+  않고 별도 `PostReplayDisposition`으로 표현한다.
+- Reason: 기존 enum은 이미 허용된 GET의 value 보존 여부를 뜻하며, POST active
+  replay 권한과 민감 차단을 함께 표현하지 못한다.
+- Decision: SAFE positive evidence는 keyword 개수가 아니라 path/action/member의
+  서로 다른 signal source 두 개 이상을 요구한다.
+- Reason: 단일 약한 keyword로 SAFE를 승인하지 않으면서 search/filter JSON API의
+  실용적 positive coverage를 유지한다.
 
 ## Open Questions
 
