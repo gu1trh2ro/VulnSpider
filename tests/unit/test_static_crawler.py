@@ -112,6 +112,38 @@ class SessionCookieTests(unittest.TestCase):
         self.assertIn("sid", rendered)
         self.assertIn("<redacted>", rendered)
 
+    def test_canonical_artifact_redacts_cookie_but_live_template_keeps_it(
+        self,
+    ) -> None:
+        secret = "BAC_COOKIE_PERSISTENCE_SENTINEL"
+        transport = FakeTransport(
+            {
+                ROOT_URL: html_response(
+                    '<form method="get" action="/search">'
+                    '<input name="q" value="x">'
+                    '<input type="submit"></form>'
+                ),
+                "http://example.test/search?q=x": html_response("<p>ok</p>"),
+            }
+        )
+        result = StaticCrawler(transport=transport, clock=lambda: 0.0).crawl(
+            ROOT_URL,
+            CrawlPolicy(session_cookies=(("sid", secret),)),
+        )
+
+        self.assertTrue(
+            all(template.cookies.get("sid") == secret for template in result.discovery.request_templates)
+        )
+        self.assertNotIn(secret, repr(result.discovery))
+        serialized = result.discovery.to_dict()
+        self.assertNotIn(secret, repr(serialized))
+        self.assertTrue(
+            all(
+                template["cookies"] == {"sid": "<redacted>"}
+                for template in serialized["request_templates"]
+            )
+        )
+
     def test_no_cookie_is_sent_when_none_are_configured(self) -> None:
         transport = FakeTransport({ROOT_URL: html_response("<p>ok</p>")})
         StaticCrawler(transport=transport, clock=lambda: 0.0).crawl(ROOT_URL)

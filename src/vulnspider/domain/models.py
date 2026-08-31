@@ -311,7 +311,7 @@ class RequestTemplate:
     headers: Mapping[str, str] = field(default_factory=dict)
     query: ParamInput = field(default_factory=tuple)
     form: ParamInput = field(default_factory=tuple)
-    cookies: Mapping[str, str] = field(default_factory=dict)
+    cookies: Mapping[str, str] = field(default_factory=dict, repr=False)
     completeness: RequestContextCompleteness = RequestContextCompleteness.UNKNOWN
     context_key: str | None = None
     provenance: ParamInput = field(default_factory=tuple)

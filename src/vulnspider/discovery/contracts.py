@@ -1629,7 +1629,9 @@ class CanonicalDiscoveryResult:
                     "query": [list(pair) for pair in item.query],
                     "form": [list(pair) for pair in item.form],
                     "json_body": [list(pair) for pair in item.json_body],
-                    "cookies": dict(sorted(item.cookies.items())),
+                    "cookies": {
+                        name: "<redacted>" for name in sorted(item.cookies)
+                    },
                     "completeness": item.completeness.value,
                     "context_key": item.context_key,
                     "provenance": [list(pair) for pair in item.provenance],

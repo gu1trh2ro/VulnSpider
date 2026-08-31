@@ -363,10 +363,28 @@ class CombinedPipelineTests(unittest.TestCase):
             analysis.warnings,
         )
         self.assertTrue(probe_transport.requests)
+        get_requests = [
+            request
+            for request in probe_transport.requests
+            if request.method == HttpMethod.GET
+        ]
+        post_requests = [
+            request
+            for request in probe_transport.requests
+            if request.method == HttpMethod.POST
+        ]
+        self.assertEqual(len(get_requests), 6)
+        self.assertEqual(len(post_requests), 2)
         self.assertEqual(
             {request.method for request in probe_transport.requests},
-            {HttpMethod.GET},
+            {HttpMethod.GET, HttpMethod.POST},
         )
+        self.assertTrue(
+            all(request.url == "http://127.0.0.1/submit" for request in post_requests)
+        )
+        self.assertEqual(post_requests[0].form, (("token", "one"),))
+        self.assertTrue(post_requests[1].form[0][1].startswith("VULNSPIDER_"))
+        self.assertNotIn(SENTINEL, repr(probe_transport.requests))
         serialized = json.dumps(combined.to_dict(), ensure_ascii=False)
         self.assertNotIn(SENTINEL, serialized)
         self.assertNotIn(SENTINEL, "\n".join(analysis.warnings))
