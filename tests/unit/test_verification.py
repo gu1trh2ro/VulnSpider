@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 import unittest
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 
 from vulnspider.domain import (
@@ -33,6 +33,7 @@ from vulnspider.selection import select_top_k
 from vulnspider.verification import (
     DeterministicMutationProposer,
     FeatureVectorDelta,
+    FocusedVerificationError,
     MutationFamily,
     MutationSubject,
     PayloadProposal,
@@ -511,6 +512,25 @@ class ConfidenceRuleTests(unittest.TestCase):
 
 
 class VerifyTargetTests(unittest.TestCase):
+    def test_external_target_is_rejected_before_transport(self) -> None:
+        target = _target("quote_error", "SQLI")
+        target = replace(
+            target,
+            baseline_request=replace(
+                target.baseline_request,
+                url="https://example.com/search?q=7",
+            ),
+        )
+        transport = ScriptedTransport("quote_error")
+
+        with self.assertRaises(FocusedVerificationError):
+            verify_target(
+                target,
+                config=VerificationConfig(transport=transport),
+            )
+
+        self.assertEqual(transport.calls, [])
+
     def test_reproduced_signal_keeps_confidence(self) -> None:
         target = _target("quote_error", "SQLI")
         outcome = verify_target(target, config=VerificationConfig(

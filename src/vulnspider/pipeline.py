@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from ipaddress import ip_address
 from time import monotonic
 from typing import Any
-from urllib.parse import urlsplit
 
 from vulnspider.discovery import (
     CanonicalDiscoveryResult,
@@ -65,6 +63,10 @@ from vulnspider.observation import (
 from vulnspider.observation.executor import RequestTransport
 from vulnspider.scoring import ScoringResult, generate_candidates
 from vulnspider.selection import SelectionOutcome, select_top_k
+from vulnspider.scope.loopback import (
+    LoopbackSafetyError,
+    require_loopback_http_url,
+)
 
 
 class PipelineError(ValueError):
@@ -292,6 +294,7 @@ def analyze_url(
         raise PipelineError(
             "dynamic policy and crawler require explicit dynamic authority"
         )
+    _require_loopback_request(root_url)
     if dynamic_authority is not None:
         try:
             combined = discover_native_combined(
@@ -614,19 +617,9 @@ def _run_access_plan(
 
 
 def _require_loopback_request(url: str) -> None:
-    return
-    hostname = urlsplit(url).hostname
-    if hostname is None:
-        raise PipelineError("request template URL must contain a host")
-    if hostname.lower() == "localhost":
-        return
     try:
-        address = ip_address(hostname)
-    except ValueError as exc:
+        require_loopback_http_url(url)
+    except LoopbackSafetyError as exc:
         raise PipelineError(
             "CLI analysis permits only localhost or loopback IP request templates"
         ) from exc
-    if not address.is_loopback:
-        raise PipelineError(
-            "CLI analysis permits only localhost or loopback IP request templates"
-        )

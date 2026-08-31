@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from ipaddress import ip_address
 from importlib import metadata
 import json
 from math import isfinite
@@ -33,6 +32,10 @@ from vulnspider.discovery.rendered_dom import (
     snapshot_from_browser_payload,
 )
 from vulnspider.domain import normalize_parameter_name, stable_fingerprint
+from vulnspider.scope.loopback import (
+    LoopbackSafetyError,
+    require_loopback_http_url,
+)
 from vulnspider.sensitive import contains_credential_material, credential_field_name
 
 
@@ -823,13 +826,13 @@ class DynamicRequestAuthority:
 
     def __post_init__(self) -> None:
         root_url = _canonical_authority_url(self.root_url)
-        """
-        if not _is_loopback_url(root_url):
+        try:
+            require_loopback_http_url(root_url)
+        except LoopbackSafetyError:
             raise DynamicBrowserError(
                 DynamicBrowserErrorCode.INVALID_AUTHORITY,
                 "Dynamic browser root must use an explicit loopback authority.",
-            )
-        """
+            ) from None
         try:
             navigation_inputs = tuple(self.navigation_urls)
             grant_inputs = tuple(self.resource_grants)
@@ -1372,18 +1375,6 @@ def _origin(url: str) -> tuple[str, str, int]:
     hostname = parts.hostname.lower() if parts.hostname else ""
     port = parts.port
     return scheme, hostname, _DEFAULT_PORTS[scheme] if port is None else port
-
-
-def _is_loopback_url(url: str) -> bool:
-    hostname = urlsplit(url).hostname
-    if hostname is None:
-        return False
-    if hostname.lower() == "localhost":
-        return True
-    try:
-        return ip_address(hostname).is_loopback
-    except ValueError:
-        return False
 
 
 def _safe_scheme(url: str) -> str:

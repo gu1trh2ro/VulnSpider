@@ -220,9 +220,10 @@ must refer to different destinations.
 
 ### 1.4 Package shells that are not implementations
 
-`scope/` and `surface/` currently contain package shells. Their presence does
-not mean that `ScopeGuard`, a native surface collector, or a separate
-`AttackSurfaceNormalizer` has been implemented.
+`scope/` contains the internal shared loopback HTTP URL validator used at
+active execution boundaries, while `surface/` remains a package shell. This
+does not mean that a general `ScopeGuard`, native surface collector, or
+separate `AttackSurfaceNormalizer` has been implemented.
 
 #### Native discovery
 
