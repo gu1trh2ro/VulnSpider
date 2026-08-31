@@ -72,6 +72,12 @@ from vulnspider.evaluation.random_predictor import (
 )
 from vulnspider.pipeline import AnalysisResult
 from vulnspider.reporting.decision_html_report import write_decision_html_report
+from vulnspider.reporting.report_tables import (
+    render_evaluation_html,
+    render_evaluation_markdown,
+    render_ground_truth_html,
+    render_ground_truth_markdown,
+)
 from vulnspider.scoring.calibration import (
     CalibratedProbability,
     CalibratedScorer,
@@ -765,7 +771,52 @@ def analyze_and_report(
         )
         write_json(report.as_mapping(), evaluation.output)
         print(render_live_evaluation_table(report))
+        _publish_report_tables(report, evaluation)
     return outcome
+
+
+def _publish_report_tables(
+    report: LiveEvaluationReport,
+    evaluation: EvaluationRequest,
+) -> None:
+    """Write paste-ready comparison and input-point tables next to the eval JSON.
+
+    Each run that has ground truth emits, alongside the evaluation JSON, a
+    Markdown and an HTML rendering of (a) the arm-by-metric comparison and
+    (b) the per-input-point vulnerability map, so the numbers drop straight into
+    the final report. Names are derived from ``--eval-output`` so one run's
+    artifacts stay grouped.
+    """
+
+    base = evaluation.output
+    store = read_ground_truth(evaluation.ground_truth_path)
+    application_id = report.application_id
+    outputs: list[tuple[Path, str]] = [
+        (base.with_name(f"{base.stem}-table.md"), render_evaluation_markdown(report)),
+        (base.with_name(f"{base.stem}-table.html"), render_evaluation_html(report)),
+        (
+            base.with_name(f"{base.stem}-inputs.md"),
+            render_ground_truth_markdown(store, application_id),
+        ),
+        (
+            base.with_name(f"{base.stem}-inputs.html"),
+            render_ground_truth_html(store, application_id),
+        ),
+    ]
+    for path, content in outputs:
+        path.write_text(content, encoding="utf-8")
+    print(
+        "vulnspider: comparison table -> "
+        f"{outputs[1][0].resolve(strict=False).as_uri()}"
+    )
+    print(
+        "vulnspider: input-point table -> "
+        f"{outputs[3][0].resolve(strict=False).as_uri()}"
+    )
+    print(
+        "vulnspider: (markdown copies alongside: "
+        f"{outputs[0][0].name}, {outputs[2][0].name})"
+    )
 
 
 def run_corpus_command(
