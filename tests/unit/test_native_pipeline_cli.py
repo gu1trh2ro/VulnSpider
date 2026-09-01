@@ -522,7 +522,7 @@ class NativeCliTests(unittest.TestCase):
                     crawler_transport=SinglePageCrawlerTransport(""),
                 )
             self.assertEqual(exit_code, 2)
-            self.assertIn("absolute HTTP", error_output.getvalue())
+            self.assertIn("loopback", error_output.getvalue())
             self.assertFalse(output.exists())
 
         for option in ("--max-pages", "--max-requests", "--timeout-seconds"):
