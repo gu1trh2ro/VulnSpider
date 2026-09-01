@@ -63,6 +63,7 @@ class VerificationCliTests(unittest.TestCase):
             records = self._write_records(directory)
             output = directory / "analysis.json"
             verify_output = directory / "verification.json"
+            detail_output = directory / "verification-detail.html"
             with redirect_stdout(stdout), redirect_stderr(stderr):
                 exit_code = cli.main(
                     [
@@ -76,12 +77,15 @@ class VerificationCliTests(unittest.TestCase):
                         "--verify",
                         "--verify-output",
                         str(verify_output),
+                        "--verify-detail-output",
+                        str(detail_output),
                     ],
                     transport=VulnerableTransport(),
                 )
             self.assertEqual(exit_code, 0, stderr.getvalue())
             self.assertTrue(output.exists())
             self.assertTrue(verify_output.exists())
+            self.assertTrue(detail_output.exists())
             report = json.loads(verify_output.read_text(encoding="utf-8"))
 
         self.assertEqual(report["report_version"], "verification-report-v1")
@@ -106,6 +110,7 @@ class VerificationCliTests(unittest.TestCase):
             directory = Path(workdir)
             records = self._write_records(directory)
             output = directory / "analysis.json"
+            detail_output = directory / "verification-detail.html"
             with redirect_stdout(stdout), redirect_stderr(stderr):
                 exit_code = cli.main(
                     [
@@ -119,10 +124,13 @@ class VerificationCliTests(unittest.TestCase):
                         "--verify",
                         "--verify-output",
                         str(directory / "v.json"),
+                        "--verify-detail-output",
+                        str(detail_output),
                     ],
                     transport=VulnerableTransport(),
                 )
             self.assertEqual(exit_code, 0, stderr.getvalue())
+            self.assertTrue(detail_output.exists())
             report = json.loads(output.read_text(encoding="utf-8"))
         # The decision JSON and the verification report now agree on the final
         # score (ADR-034): every selected candidate carries a final_confidence.

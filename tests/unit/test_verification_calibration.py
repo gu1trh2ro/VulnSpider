@@ -461,6 +461,7 @@ class VerificationCalibrationCliTests(unittest.TestCase):
             # The fitted model is loadable by analyze --verify.
             analysis_out = base / "analysis.json"
             verify_out = base / "verify.json"
+            detail_out = base / "verification-detail.html"
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 code = cli.main(
                     [
@@ -476,10 +477,13 @@ class VerificationCalibrationCliTests(unittest.TestCase):
                         str(verify_out),
                         "--verification-model",
                         str(model_path),
+                        "--verify-detail-output",
+                        str(detail_out),
                     ],
                     transport=VulnerableTransport(),
                 )
             self.assertEqual(code, 0)
+            self.assertTrue(detail_out.exists())
             report = json.loads(verify_out.read_text(encoding="utf-8"))
             used_versions = {
                 result["confidence"]["model_version"]
