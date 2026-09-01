@@ -114,7 +114,7 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertNotIn("LOOPBACK_CSRF_SECRET", crawl_text)
         self.assertNotIn("LOOPBACK_CSRF_SECRET", analysis_text)
 
-    def test_simple_cli_blocked_post_json_is_not_executed(self) -> None:
+    def test_simple_cli_executes_only_safe_bounded_post_json(self) -> None:
         stdout = StringIO()
         stderr = StringIO()
         captured: list[AnalysisResult] = []
@@ -159,7 +159,11 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertIn("vulnspider: [OK]", stderr.getvalue())
         self.assertNotIn("[ERROR]", stderr.getvalue())
         self.assertEqual(sentinel_requests, ())
-        self.assertFalse(any(item.method == "POST" for item in primary_requests))
+        post_paths = [
+            item.path for item in primary_requests if item.method == "POST"
+        ]
+        self.assertEqual(len(post_paths), 4)
+        self.assertEqual(set(post_paths), {"/api/search"})
         self.assertEqual(
             sum(
                 item.method == "GET" and item.path == "/observed-post-json"
@@ -189,7 +193,7 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
             for item in discovery["probe_readiness"]
         }
         self.assertTrue(
-            all(readiness[item["id"]]["status"] == "NOT_READY" for item in points)
+            all(readiness[item["id"]]["status"] == "READY" for item in points)
         )
         analysis = captured[0]
         analysis_discovery = analysis.discovery_result
@@ -201,15 +205,17 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
             discovery["discovery_snapshot_id"],
         )
         ready_contexts = analysis_discovery.ready_contexts()
-        self.assertEqual(ready_contexts, ())
-        self.assertEqual(analysis.feature_vectors, ())
-        self.assertEqual(analysis.probe_observations, ())
-        self.assertEqual(analysis.scoring_results, ())
-        structural_input_ids = {item["id"] for item in points}
-        self.assertTrue(
-            structural_input_ids.isdisjoint(
-                vector.input_point_id for vector in analysis.feature_vectors
-            )
+        self.assertEqual(
+            {point.name for point, _template, _context in ready_contexts},
+            {"keyword", "page"},
+        )
+        self.assertEqual(len(analysis.feature_vectors), 2)
+        self.assertEqual(len(analysis.probe_observations), 2)
+        self.assertEqual(len(analysis.scoring_results), 4)
+        safe_input_ids = {item["id"] for item in points}
+        self.assertEqual(
+            {vector.input_point_id for vector in analysis.feature_vectors},
+            safe_input_ids,
         )
         for removed_detail in (
             "crawl_reference",
@@ -282,9 +288,12 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertIn("vulnspider: [*]", stderr.getvalue())
         self.assertIn("vulnspider: [OK]", stderr.getvalue())
         self.assertNotIn("[ERROR]", stderr.getvalue())
-        # Simple mode now writes the HTML dashboard by default, so the summary
-        # prints a fourth line pointing at it (ADR-034).
-        self.assertEqual(len(stdout.getvalue().splitlines()), 4)
+        # Simple mode writes the HTML dashboard by default, so stdout is the
+        # four-line result summary while progress remains on stderr.
+        self.assertEqual(
+            len([line for line in stdout.getvalue().splitlines() if line]),
+            4,
+        )
         self.assertIn("mode=dynamic", stdout.getvalue())
         self.assertIn("vulnspider-crawl.json", stdout.getvalue())
         self.assertIn("vulnspider-analysis.json", stdout.getvalue())

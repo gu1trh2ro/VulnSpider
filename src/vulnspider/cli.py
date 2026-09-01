@@ -703,7 +703,14 @@ def main(
         if not simple_mode:
             parser.error(f"unsupported command: {args.command}")
     stage = "초기화"
-    pbar = tqdm(total=4, desc="(초기화)", bar_format="진행 상태: |{bar}| {n_fmt}/{total_fmt} 단계 {postfix}", colour="green", ncols=100, file=sys.stdout)
+    pbar = tqdm(
+        total=4,
+        desc="(초기화)",
+        bar_format="진행 상태: |{bar}| {n_fmt}/{total_fmt} 단계 {postfix}",
+        colour="green",
+        ncols=100,
+        file=sys.stderr,
+    )
     try:
         pbar.set_postfix_str(stage)
         pbar.update(1)
@@ -923,7 +930,6 @@ def main(
         _progress("[OK] 리포트 작성 완료")
 
         pbar.close()
-        print(file=sys.stdout)
     except _SimpleDegradedCrawl as exc:
         _print_partial_simple_result(args)
         _print_dynamic_incomplete(exc.crawl)
@@ -1645,12 +1651,9 @@ def _dynamic_authority_from_args(
         root_url=args.url,
         navigation_urls=tuple(args.dynamic_allow_navigation or ()),
         resource_grants=tuple(grants),
-        # SPA discovery must remain enabled in both simple mode and
-        # `analyze --dynamic`. Juice Shop relies on rendered routes and
-        # same-origin fetch/XHR traffic to expose many input points.
-        allow_rendered_navigation=True,
-        allow_passive_same_origin_resources=True,
-        allow_passive_same_origin_fetch_xhr=True,
+        allow_rendered_navigation=simple_mode,
+        allow_passive_same_origin_resources=simple_mode,
+        allow_passive_same_origin_fetch_xhr=simple_mode,
     )
 
 

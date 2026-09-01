@@ -33,6 +33,7 @@ from vulnspider.domain import (
 )
 from vulnspider.observation import DEFAULT_MAX_BODY_BYTES, DEFAULT_TIMEOUT_SECONDS
 from vulnspider.observation.executor import RequestTransport, execute_request
+from vulnspider.scope.loopback import require_loopback_http_url
 from vulnspider.verification.calibration import (
     VerificationConfidenceModel,
     VerificationSignal,
@@ -129,6 +130,7 @@ def verify_access_candidate(
         )
         if comparison is None:
             continue
+        require_loopback_http_url(comparison.url)
         attempted += 1
         response = execute_request(
             comparison,

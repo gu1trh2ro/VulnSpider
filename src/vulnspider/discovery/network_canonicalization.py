@@ -18,6 +18,7 @@ from vulnspider.discovery.dynamic_browser import (
     NetworkDiscoveryDisposition,
 )
 from vulnspider.discovery.html_extractor import CanonicalDiscoveryBuilder
+from vulnspider.discovery.post_replay_policy import PostReplayDisposition
 from vulnspider.discovery.static_crawler import same_origin_crawl_url
 
 
@@ -39,6 +40,7 @@ def canonicalize_network_discovery(
             raise ValueError("network discovery endpoint escaped canonical scope")
         by_source.setdefault(candidate.source_url, []).append(candidate)
     post_by_source: dict[str, list[BlockedPostJsonCandidate]] = {}
+    post_replay_materials = dict(collection.post_json_replay_materials)
     for candidate in collection.post_json_candidates:
         if not same_origin_crawl_url(scope_metadata.root_url, candidate.source_url):
             raise ValueError("POST JSON source escaped canonical scope")
@@ -112,25 +114,30 @@ def canonicalize_network_discovery(
         post_candidates = tuple(
             sorted(post_by_source.get(source_url, ()), key=lambda item: item.id)
         )
+        post_policy_counts: Counter[str] = Counter()
         for candidate in post_candidates:
+            post_policy_counts[candidate.replay_policy.disposition.value] += 1
             builder.add_structural_json_body_surface(
                 candidate.canonical_url,
                 member_names=candidate.member_names,
-                member_pairs=candidate.member_pairs,
+                ephemeral_material=post_replay_materials.get(candidate.id),
+                replay_policy=candidate.replay_policy,
                 observation_key=(
                     f"network:{candidate.resource_type}:{candidate.id}"
                 ),
-                not_ready_reasons=(
-                    NonProbeReadyReason.REQUEST_CONTEXT_MISSING,
-                ),
+                not_ready_reasons=(),
                 origin_kind=f"network_{candidate.resource_type}",
             )
         if post_candidates:
             builder.add_warning(
                 "NETWORK_POST_JSON_CAPTURED",
-                "Blocked browser POST JSON attempts were retained as reconstructable request templates when safe.",
+                "Blocked browser POST JSON attempts were retained structurally and gated by replay policy.",
                 {
                     "structural_candidate_count": len(post_candidates),
+                    "replay_policy_counts": tuple(sorted(post_policy_counts.items())),
+                    "probe_ready_candidate_count": post_policy_counts[
+                        PostReplayDisposition.SAFE_FOR_PROBE.value
+                    ],
                     "producer_kind": discovery_metadata.collector_kind.value,
                 },
                 skipped=False,

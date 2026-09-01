@@ -116,6 +116,7 @@ class SimpleCliTests(unittest.TestCase):
 
     def test_simple_url_calls_dynamic_pipeline_and_writes_both_defaults(self) -> None:
         stdout = StringIO()
+        stderr = StringIO()
         analysis = _native_analysis()
         with TemporaryDirectory() as temporary_directory:
             original_cwd = Path.cwd()
@@ -128,6 +129,7 @@ class SimpleCliTests(unittest.TestCase):
                         side_effect=_pipeline_stub(analysis),
                     ) as analyze,
                     redirect_stdout(stdout),
+                    redirect_stderr(stderr),
                 ):
                     exit_code = cli_module.main(["-u", ROOT_URL])
                 crawl_path = Path("vulnspider-crawl.json")
@@ -153,6 +155,12 @@ class SimpleCliTests(unittest.TestCase):
         self.assertTrue(authority.allow_rendered_navigation)
         self.assertTrue(authority.allow_passive_same_origin_resources)
         self.assertTrue(authority.allow_passive_same_origin_fetch_xhr)
+        self.assertNotIn("진행 상태:", stdout.getvalue())
+        self.assertIn("진행 상태:", stderr.getvalue())
+        self.assertEqual(
+            len([line for line in stdout.getvalue().splitlines() if line]),
+            4,
+        )
         self.assertIn("mode=dynamic", stdout.getvalue())
         self.assertIn("vulnspider-crawl.json", stdout.getvalue())
         self.assertIn("vulnspider-analysis.json", stdout.getvalue())

@@ -24,10 +24,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from ipaddress import ip_address
 from time import perf_counter
 from typing import Any
-from urllib.parse import urlsplit
 
 from vulnspider.domain import (
     FeatureVector,
@@ -47,6 +45,10 @@ from vulnspider.scoring.calibration import (
     CalibratedScorer,
     CalibrationError,
     heuristic_prior_for_family,
+)
+from vulnspider.scope.loopback import (
+    LoopbackSafetyError,
+    require_loopback_http_url,
 )
 from vulnspider.verification.calibration import (
     VerificationConfidenceModel,
@@ -693,19 +695,9 @@ def _target_baseline_value(target: VerificationTarget) -> str | None:
 
 
 def _require_loopback(url: str) -> None:
-    return
-    hostname = urlsplit(url).hostname
-    if hostname is None:
-        raise FocusedVerificationError("verification request URL must contain a host")
-    if hostname.lower() == "localhost":
-        return
     try:
-        address = ip_address(hostname)
-    except ValueError as exc:
+        require_loopback_http_url(url)
+    except LoopbackSafetyError as exc:
         raise FocusedVerificationError(
             "verification permits only localhost or loopback IP targets"
         ) from exc
-    if not address.is_loopback:
-        raise FocusedVerificationError(
-            "verification permits only localhost or loopback IP targets"
-        )

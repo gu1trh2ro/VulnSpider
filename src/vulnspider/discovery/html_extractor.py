@@ -29,8 +29,14 @@ from vulnspider.discovery.navigation_safety import (
     authentication_state_change_token,
     automatic_navigation_within_root_path,
 )
+from vulnspider.discovery.post_replay_policy import (
+    PostReplayDisposition,
+    PostReplayPolicyDecision,
+    PostReplayReasonCode,
+)
 from vulnspider.domain import (
     Endpoint,
+    EphemeralRequestMaterial,
     HttpMethod,
     InputLocation,
     InputPoint,
@@ -812,100 +818,107 @@ class CanonicalDiscoveryBuilder:
         observation_key: str,
         not_ready_reasons: Sequence[NonProbeReadyReason],
         origin_kind: str,
-        member_pairs: Sequence[tuple[str, str]] = (),
+        ephemeral_material: EphemeralRequestMaterial | None = None,
+        replay_policy: PostReplayPolicyDecision,
     ) -> None:
-        """Add top-level JSON members, binding a complete request when values exist."""
+        """Add persistent JSON structure and an optional replay-only sidecar."""
 
         endpoint = self._add_endpoint(
             url,
             method=HttpMethod.POST,
             observation_key=observation_key,
         )
-        canonical_pairs = tuple(
-            (canonical_name, str(value))
-            for name, value in member_pairs
+        canonical_names = tuple(
+            canonical_name
+            for name in member_names
             if (canonical_name := _canonical_input_name(name))
         )
-        if canonical_pairs:
-            if tuple(sorted(name for name, _ in canonical_pairs)) != tuple(
-                sorted(
-                    canonical_name
-                    for name in member_names
-                    if (canonical_name := _canonical_input_name(name))
-                )
-            ):
-                raise DiscoveryContractError(
-                    "JSON member names and retained values do not align"
-                )
-            template = RequestTemplate(
-                endpoint_id=endpoint.id or "",
-                endpoint_fingerprint=endpoint.fingerprint,
-                method=HttpMethod.POST,
-                url=url,
-                query=tuple(parse_qsl(urlsplit(url).query, keep_blank_values=True)),
-                json_body=canonical_pairs,
-                completeness=RequestContextCompleteness.COMPLETE,
-                context_key=f"json:{observation_key}",
-                provenance=(("json_body", "browser-request-body"),),
-                metadata={
-                    "context_kind": "json_body",
-                    "content_type": "application/json",
-                    "source_page": self.source_url,
-                    "reconstruction_status": "complete",
-                    "json_value_encoding": "canonical-json-text",
-                },
-            )
-            stored_template = self.templates.setdefault(template.id or "", template)
-            self._observe(
-                DiscoverySubjectKind.REQUEST_TEMPLATE,
-                stored_template.id or "",
-                f"template:{observation_key}",
-            )
-            for member_index, (canonical_name, value) in enumerate(canonical_pairs):
-                point = InputPoint(
-                    endpoint_id=endpoint.id or "",
-                    endpoint_fingerprint=endpoint.fingerprint,
-                    location=InputLocation.JSON_BODY,
-                    name=canonical_name,
-                    occurrence_index=None,
-                    baseline_value=value,
-                    type_hint="json",
-                    source_page=self.source_url,
-                    metadata={
-                        self.native_metadata_key: True,
-                        "hidden": False,
-                        "visibility": "network_observed",
-                        "value_state": "retained_safe",
-                        "json_value_encoding": "canonical-json-text",
-                    },
-                )
-                self._remember_point(
-                    point,
-                    raw_query_token=None,
-                    origin_kind=origin_kind,
-                    pair_index=member_index,
-                    control_index=-1,
-                    hidden=False,
-                )
-                self._bind(
-                    point,
-                    stored_template,
-                    observation_key=f"{observation_key}:json:{member_index}",
-                    ready=True,
-                    not_ready_reasons=(),
-                )
-            return
-
-        for member_index, canonical_name in enumerate(
-            _canonical_input_name(name) for name in member_names
+        if type(replay_policy) is not PostReplayPolicyDecision:
+            raise TypeError("POST JSON surface requires a replay policy decision")
+        if (
+            replay_policy.disposition == PostReplayDisposition.SAFE_FOR_PROBE
+            and ephemeral_material is None
         ):
-            if not canonical_name:
-                self.add_warning(
-                    "JSON_MEMBER_NAME_MISSING",
-                    "JSON member without a name was not made injectable",
-                    {"member_index": member_index},
+            replay_policy = PostReplayPolicyDecision(
+                disposition=PostReplayDisposition.STRUCTURAL_ONLY,
+                reason_code=PostReplayReasonCode.RECONSTRUCTION_INCOMPLETE,
+            )
+        ready = replay_policy.disposition == PostReplayDisposition.SAFE_FOR_PROBE
+        if not ready:
+            ephemeral_material = None
+        policy_not_ready_reasons: tuple[NonProbeReadyReason, ...] = ()
+        if not ready:
+            if (
+                replay_policy.reason_code
+                == PostReplayReasonCode.POLICY_ASSESSMENT_FAILED
+            ):
+                policy_not_ready_reasons = (
+                    NonProbeReadyReason.POST_POLICY_ASSESSMENT_FAILED,
                 )
-                continue
+            elif (
+                replay_policy.disposition
+                == PostReplayDisposition.BLOCKED_SENSITIVE
+            ):
+                policy_not_ready_reasons = (
+                    NonProbeReadyReason.POST_POLICY_BLOCKED_SENSITIVE,
+                )
+            else:
+                policy_not_ready_reasons = (
+                    NonProbeReadyReason.POST_POLICY_STRUCTURAL_ONLY,
+                )
+        effective_not_ready_reasons = tuple(
+            sorted(
+                set(not_ready_reasons).union(policy_not_ready_reasons),
+                key=lambda item: item.value,
+            )
+        )
+        if ephemeral_material is not None:
+            if tuple(
+                sorted(
+                    _canonical_input_name(name)
+                    for name, _ in ephemeral_material.json_body
+                )
+            ) != tuple(sorted(canonical_names)):
+                raise DiscoveryContractError(
+                    "JSON replay material does not align with structural names"
+                )
+        structural_pairs = tuple((name, "null") for name in canonical_names)
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.POST,
+            url=url,
+            query=tuple(parse_qsl(urlsplit(url).query, keep_blank_values=True)),
+            json_body=structural_pairs,
+            completeness=(
+                RequestContextCompleteness.COMPLETE
+                if ready
+                else RequestContextCompleteness.UNKNOWN
+            ),
+            context_key=f"json:{observation_key}",
+            provenance=(("json_body", "browser-request-body"),),
+            metadata={
+                "context_kind": "json_body",
+                "content_type": "application/json",
+                "source_page": self.source_url,
+                "reconstruction_status": "complete" if ready else "policy_withheld",
+                "json_value_encoding": "canonical-json-text",
+                "replay_material_state": "ephemeral" if ready else "withheld_by_policy",
+                "post_replay_disposition": replay_policy.disposition.value,
+                "post_replay_reason": replay_policy.reason_code.value,
+                "non_probe_ready_reasons": tuple(
+                    item.value for item in effective_not_ready_reasons
+                ),
+            },
+            ephemeral_material=ephemeral_material,
+        )
+        stored_template = self.templates.setdefault(template.id or "", template)
+        self._observe(
+            DiscoverySubjectKind.REQUEST_TEMPLATE,
+            stored_template.id or "",
+            f"template:{observation_key}",
+        )
+        for member_index, canonical_name in enumerate(canonical_names):
             point = InputPoint(
                 endpoint_id=endpoint.id or "",
                 endpoint_fingerprint=endpoint.fingerprint,
@@ -918,8 +931,10 @@ class CanonicalDiscoveryBuilder:
                 metadata={
                     self.native_metadata_key: True,
                     "hidden": False,
-                    "visibility": "structural_only",
-                    "value_state": "elided",
+                    "visibility": "network_observed" if ready else "structural_only",
+                    "value_state": "ephemeral" if ready else "elided",
+                    "post_replay_disposition": replay_policy.disposition.value,
+                    "post_replay_reason": replay_policy.reason_code.value,
                 },
             )
             self._remember_point(
@@ -930,17 +945,12 @@ class CanonicalDiscoveryBuilder:
                 control_index=-1,
                 hidden=False,
             )
-            status = ProbeReadiness(
-                input_point_id=point.id or "",
-                request_context_id=None,
-                status=ProbeReadyStatus.NOT_READY,
-                reasons=tuple(not_ready_reasons),
-            )
-            self.readiness.setdefault(status.id or "", status)
-            self._observe(
-                DiscoverySubjectKind.INPUT_POINT,
-                point.id or "",
-                f"input:{observation_key}:json:{member_index}",
+            self._bind(
+                point,
+                stored_template,
+                observation_key=f"{observation_key}:json:{member_index}",
+                ready=ready,
+                not_ready_reasons=effective_not_ready_reasons,
             )
 
     def add_form(

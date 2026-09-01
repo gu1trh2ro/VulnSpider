@@ -74,9 +74,47 @@ def _git_commit() -> str:
 def _display_command(cli_args: list[str]) -> str:
     """The command as documented: repo convention, forward slashes, copy-ready."""
 
+    display_args: list[str] = []
+    redact_cookie_value = False
+    for arg in cli_args:
+        if redact_cookie_value:
+            display_args.append(_redacted_cookie(arg))
+            redact_cookie_value = False
+        elif arg == "--cookie":
+            display_args.append(arg)
+            redact_cookie_value = True
+        elif arg.startswith("--cookie="):
+            display_args.append(
+                "--cookie=" + _redacted_cookie(arg.removeprefix("--cookie="))
+            )
+        else:
+            display_args.append(arg)
     return "PYTHONPATH=src python -m vulnspider " + " ".join(
-        arg.replace("\\", "/") for arg in cli_args
+        arg.replace("\\", "/") for arg in display_args
     )
+
+
+def _redacted_cookie(value: str) -> str:
+    name, separator, _secret = value.partition("=")
+    return f"{name}=<redacted>" if separator and name else "<redacted>"
+
+
+def _redact_cookie_output(value: str, cli_args: list[str]) -> str:
+    cookie_values: list[str] = []
+    next_value_is_cookie = False
+    for arg in cli_args:
+        if next_value_is_cookie:
+            cookie_values.append(arg)
+            next_value_is_cookie = False
+        elif arg == "--cookie":
+            next_value_is_cookie = True
+        elif arg.startswith("--cookie="):
+            cookie_values.append(arg.removeprefix("--cookie="))
+    redacted = value
+    for cookie in sorted(set(cookie_values), key=len, reverse=True):
+        if cookie:
+            redacted = redacted.replace(cookie, _redacted_cookie(cookie))
+    return redacted
 
 
 def _model_args() -> list[str]:
@@ -90,17 +128,25 @@ def _model_args() -> list[str]:
 class Scenario:
     """One scan: a name, a CLI argument list, and where its outputs land."""
 
-    def __init__(self, name: str, title: str, target: str, cli_args: list[str]):
+    def __init__(
+        self,
+        name: str,
+        title: str,
+        target: str,
+        cli_args: list[str],
+        output_root: Path,
+    ):
         self.name = name
         self.title = title
         self.target = target
         self.cli_args = cli_args
+        self.output_root = output_root
         self.status = "pending"
         self.detail = ""
 
     @property
     def eval_path(self) -> Path:
-        return Path(DEFAULT_OUT) / self.name / "evaluation.json"
+        return self.output_root / self.name / "evaluation.json"
 
 
 def _demoshop_public(out: Path, port: int, top_k: int) -> Scenario:
@@ -126,6 +172,7 @@ def _demoshop_public(out: Path, port: int, top_k: int) -> Scenario:
         "DemoShop — 공개 상점 (Static + Focused Verification)",
         f"http://127.0.0.1:{port}/",
         args,
+        out,
     )
 
 
@@ -155,6 +202,7 @@ def _demoshop_bac(out: Path, port: int, top_k: int) -> Scenario:
         "DemoShop — 인증 영역 BAC (`/portal/`, user 세션)",
         f"http://127.0.0.1:{port}/portal/",
         args,
+        out,
     )
 
 
@@ -179,7 +227,7 @@ def _dvwa(name: str, title: str, url: str, cookies: list[str], out: Path) -> Sce
         "--eval-output", str(d / "evaluation.json"),
         "--random-predictor", "--random-safe-weight", "4",
     ]
-    return Scenario(name, title, url, args)
+    return Scenario(name, title, url, args, out)
 
 
 def _run(scenario: Scenario, out: Path) -> None:
@@ -201,14 +249,17 @@ def _run(scenario: Scenario, out: Path) -> None:
         text=True,
         encoding="utf-8",
     )
+    safe_stdout = _redact_cookie_output(completed.stdout or "", scenario.cli_args)
+    safe_stderr = _redact_cookie_output(completed.stderr or "", scenario.cli_args)
     (directory / "run.log").write_text(
-        (completed.stdout or "") + (completed.stderr or ""), encoding="utf-8"
+        safe_stdout + safe_stderr,
+        encoding="utf-8",
     )
     if completed.returncode == 0 and scenario.eval_path.is_file():
         scenario.status = "ok"
     else:
         scenario.status = "failed"
-        tail = "\n".join((completed.stdout or completed.stderr or "").splitlines()[-3:])
+        tail = "\n".join((safe_stdout or safe_stderr).splitlines()[-3:])
         scenario.detail = tail
 
 

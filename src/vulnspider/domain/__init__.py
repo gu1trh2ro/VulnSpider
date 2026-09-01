@@ -13,6 +13,7 @@ from vulnspider.domain.access import (
 )
 from vulnspider.domain.models import (
     Endpoint,
+    EphemeralRequestMaterial,
     FeatureObservation,
     FeatureVector,
     HttpMethod,
@@ -48,6 +49,7 @@ __all__ = [
     "AccessScoringResult",
     "AccessSubjectContext",
     "Endpoint",
+    "EphemeralRequestMaterial",
     "FeatureObservation",
     "FeatureVector",
     "HttpMethod",

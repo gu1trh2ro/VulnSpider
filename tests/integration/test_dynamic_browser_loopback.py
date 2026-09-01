@@ -32,12 +32,9 @@ from vulnspider.discovery import (
     ProbeReadyStatus,
     PassiveNetworkScope,
     PlaywrightDynamicBrowser,
-    discovery_snapshot_id_for,
     preflight_dynamic_browser,
 )
 from vulnspider.domain import HttpMethod, InputLocation
-from vulnspider.pipeline import analyze_discovery_result
-from vulnspider.reporting import build_analysis_report
 
 
 class DynamicLoopbackHarnessTests(unittest.TestCase):
@@ -602,7 +599,9 @@ class DynamicBrowserLoopbackTests(unittest.TestCase):
         self.assertNotIn("network_discovery", result.to_dict()["browser_audit"])
         self.assertTrue(result.browser_audit.cleanup_complete)
 
-    def test_real_blocked_post_json_is_structural_and_never_executes(self) -> None:
+    def test_real_blocked_post_json_is_classified_without_browser_transport(
+        self,
+    ) -> None:
         with DynamicLoopbackSite() as site:
             authority = DynamicRequestAuthority(
                 root_url=site.observed_post_json_url,
@@ -651,30 +650,29 @@ class DynamicBrowserLoopbackTests(unittest.TestCase):
         }
         self.assertTrue(
             all(
-                readiness[item.id or ""].status == ProbeReadyStatus.NOT_READY
-                and readiness[item.id or ""].request_context_id is None
+                readiness[item.id or ""].status == ProbeReadyStatus.READY
+                and readiness[item.id or ""].request_context_id is not None
                 for item in points
             )
         )
-        self.assertEqual(result.discovery.request_templates, ())
-        self.assertEqual(result.discovery.input_point_request_contexts, ())
-
-        class TrapTransport:
-            def request(self, *_args, **_kwargs):
-                raise AssertionError("blocked structural POST reached executor")
-
-        analysis = analyze_discovery_result(
-            result.discovery,
-            top_k=2,
-            transport=TrapTransport(),
+        search_templates = tuple(
+            template
+            for template in result.discovery.request_templates
+            if template.endpoint_id == endpoint.id
         )
-        analysis_report = build_analysis_report(analysis)
-        self.assertEqual(analysis_report["executed_input_point_ids"], [])
-        self.assertEqual(analysis_report["probe_observations"], [])
-        self.assertEqual(analysis.probe_observations, ())
+        self.assertEqual(len(search_templates), 1)
+        template = search_templates[0]
         self.assertEqual(
-            analysis_report["crawl_reference"]["discovery_snapshot_id"],
-            discovery_snapshot_id_for(result.discovery.to_dict()),
+            template.metadata["post_replay_disposition"],
+            "SAFE_FOR_PROBE",
+        )
+        self.assertIsNotNone(template.ephemeral_material)
+        self.assertEqual(
+            sum(
+                context.input_point_id in {point.id for point in points}
+                for context in result.discovery.input_point_request_contexts
+            ),
+            2,
         )
 
         serialized = json.dumps(result.to_dict(), sort_keys=True)
@@ -688,12 +686,34 @@ class DynamicBrowserLoopbackTests(unittest.TestCase):
             "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.",
         ):
             self.assertNotIn(secret, serialized)
+        for secret in (
+            "POST_AUTHORIZATION_VALUE_SENTINEL",
+            "POST_PASSWORD_VALUE_SENTINEL",
+            "POST_API_KEY_VALUE_SENTINEL",
+            "POST_TOKEN_VALUE_SENTINEL",
+            "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.",
+        ):
             self.assertNotIn(secret.encode(), pickled)
         canonical_paths = {
             item.path for item in result.discovery.endpoints
         }
+        self.assertIn("/api/secret", canonical_paths)
+        secret_endpoint = next(
+            item
+            for item in result.discovery.endpoints
+            if item.path == "/api/secret"
+        )
+        secret_template = next(
+            item
+            for item in result.discovery.request_templates
+            if item.endpoint_id == secret_endpoint.id
+        )
+        self.assertEqual(
+            secret_template.metadata["post_replay_disposition"],
+            "BLOCKED_SENSITIVE",
+        )
+        self.assertIsNone(secret_template.ephemeral_material)
         for rejected in (
-            "/api/secret",
             "/api/malformed",
             "/api/array",
             "/api/duplicate",
@@ -706,7 +726,7 @@ class DynamicBrowserLoopbackTests(unittest.TestCase):
             for item in result.discovery.warnings
             if item.code == "NETWORK_POST_JSON_SKIPPED"
         )
-        self.assertEqual(warning.details["skipped_attempt_count"], 5)
+        self.assertEqual(warning.details["skipped_attempt_count"], 4)
         self.assertTrue(result.browser_audit.cleanup_complete)
 
     def test_real_passive_network_observation_is_bounded_and_never_replays(

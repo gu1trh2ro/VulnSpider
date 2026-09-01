@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 
 from vulnspider.access.features import ACCESS_UNAUTHORIZED_SUCCESS
@@ -99,6 +99,27 @@ class AccessVerifyTests(unittest.TestCase):
         self.assertEqual(result.final_signal, VerificationSignal.SUPPORT_REPRODUCED)
         self.assertEqual(result.reproduced, result.attempted)
         self.assertGreater(result.attempted, 0)
+
+    def test_external_target_is_rejected_before_transport(self) -> None:
+        observation = _observation()
+        reference = observation.access_probe_plan.reference_request
+        observation.access_probe_plan.reference_request = replace(
+            reference,
+            url="https://example.com/account?id=1",
+        )
+        transport = FakeTransport("idor")
+
+        with self.assertRaises(ValueError):
+            verify_access_candidate(
+                candidate_id="acand_1",
+                selection_rank=1,
+                prior_probability=0.9,
+                observation=observation,
+                input_point=_input_point(),
+                config=AccessVerificationConfig(transport=transport),
+            )
+
+        self.assertEqual(transport.calls, [])
 
     def test_no_reproduction_weakens(self) -> None:
         result = self._verify("safe")

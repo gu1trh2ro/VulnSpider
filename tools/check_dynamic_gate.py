@@ -106,11 +106,11 @@ BROWSER_LOOPBACK_CASES = (
         (
             "tests.integration.test_dynamic_browser_loopback."
             "DynamicBrowserLoopbackTests."
-            "test_real_blocked_post_json_is_structural_and_never_executes"
+            "test_real_blocked_post_json_is_classified_without_browser_transport"
         ),
         (
-            "Natural primary-page exact-origin POST JSON is blocked before transport "
-            "and retained only as canonical NOT_READY structure."
+            "Natural primary-page exact-origin POST JSON stays blocked in-browser "
+            "while canonical discovery retains tiered replay-policy classification."
         ),
     ),
     BrowserManifestCase(

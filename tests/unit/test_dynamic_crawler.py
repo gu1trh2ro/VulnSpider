@@ -357,6 +357,45 @@ class DynamicCrawlerTests(unittest.TestCase):
         )
         self.assertNotIn("network_discovery", observed.to_dict()["browser_audit"])
 
+    def test_post_replay_material_survives_worker_handoff_but_not_artifact(self) -> None:
+        root = "http://127.0.0.1:8080/start"
+        sentinel = "POST_WORKER_HANDOFF_SENTINEL_1C_A"
+        candidate, replay_material, reason = (
+            browser_module._safe_blocked_post_json_candidate(
+                method="POST",
+                url="http://127.0.0.1:8080/api/search",
+                resource_type="fetch",
+                source_url=root,
+                root_origin=("http", "127.0.0.1", 8080),
+                content_type="application/json",
+                credential_header_present=False,
+                body=(f'{{"keyword":"{sentinel}","page":1}}').encode(),
+            )
+        )
+        self.assertIsNone(reason)
+        assert candidate is not None
+        assert replay_material is not None
+        result = DynamicCrawler(
+            browser=FakeDynamicBrowser(
+                {root: rendered_snapshot(root)},
+                network_discovery=NetworkDiscoveryCollection(
+                    post_json_candidates=(candidate,),
+                    post_json_replay_materials=((candidate.id, replay_material),),
+                ),
+            ),
+            clock=lambda: 0.0,
+        ).crawl(root, DynamicCrawlPolicy(), DynamicRequestAuthority(root))
+
+        self.assertNotIn(sentinel, repr(result))
+        self.assertNotIn(sentinel, repr(result.to_dict()))
+        self.assertEqual(len(result.discovery.ready_contexts()), 2)
+        restored = pickle.loads(pickle.dumps(result, protocol=5))
+        self.assertNotIn(sentinel, repr(restored.to_dict()))
+        self.assertIn(
+            sentinel,
+            repr(restored.discovery.request_templates[0].execution_json_body),
+        )
+
     def test_transport_policy_bit_does_not_change_canonical_snapshot(self) -> None:
         root = "http://127.0.0.1:8080/start"
         snapshots = {root: rendered_snapshot(root)}

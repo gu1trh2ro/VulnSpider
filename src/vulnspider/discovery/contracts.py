@@ -61,6 +61,9 @@ class NonProbeReadyReason(StrEnum):
     RAW_QUERY_ALIGNMENT_FAILED = "RAW_QUERY_ALIGNMENT_FAILED"
     UNSUPPORTED_INPUT_LOCATION = "UNSUPPORTED_INPUT_LOCATION"
     REQUEST_NOT_AUTHORIZED = "REQUEST_NOT_AUTHORIZED"
+    POST_POLICY_STRUCTURAL_ONLY = "POST_POLICY_STRUCTURAL_ONLY"
+    POST_POLICY_BLOCKED_SENSITIVE = "POST_POLICY_BLOCKED_SENSITIVE"
+    POST_POLICY_ASSESSMENT_FAILED = "POST_POLICY_ASSESSMENT_FAILED"
 
 
 class DiscoverySubjectKind(StrEnum):
@@ -1357,7 +1360,18 @@ class CanonicalDiscoveryResult:
                 )
             if not template.json_body:
                 raise DiscoveryContractError(
-                    "probe-ready JSON body requires retained member values"
+                    "probe-ready JSON body requires structural member bindings"
+                )
+            if (
+                template.metadata.get("post_replay_disposition")
+                != "SAFE_FOR_PROBE"
+            ):
+                raise DiscoveryContractError(
+                    "probe-ready JSON body requires safe POST replay policy"
+                )
+            if template.ephemeral_material is None:
+                raise DiscoveryContractError(
+                    "probe-ready JSON body requires ephemeral replay material"
                 )
             return
         if provenance.get("form_method") not in {"explicit", "html_default_get"}:
@@ -1629,7 +1643,9 @@ class CanonicalDiscoveryResult:
                     "query": [list(pair) for pair in item.query],
                     "form": [list(pair) for pair in item.form],
                     "json_body": [list(pair) for pair in item.json_body],
-                    "cookies": dict(sorted(item.cookies.items())),
+                    "cookies": {
+                        name: "<redacted>" for name in sorted(item.cookies)
+                    },
                     "completeness": item.completeness.value,
                     "context_key": item.context_key,
                     "provenance": [list(pair) for pair in item.provenance],

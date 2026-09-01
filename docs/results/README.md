@@ -39,7 +39,7 @@ PYTHONPATH=src python -m vulnspider analyze --url http://127.0.0.1:8899/ --top-k
 - 상태: **ok**
 
 ```bash
-PYTHONPATH=src python -m vulnspider analyze --url http://127.0.0.1:8899/portal/ --access-control --cookie demoshop_session=user.1042.707ad4053eb5 --top-k 10 --max-pages 20 --max-requests 100 --output docs/results/demoshop-bac/analysis.json --html-output docs/results/demoshop-bac/dashboard.html --verify --verification-model data/corpus/verification-model.json --verify-output docs/results/demoshop-bac/verification.json --verify-detail-output docs/results/demoshop-bac/verification-detail.html --ground-truth data/demo/demoshop-ground-truth.json --application-id demoshop --eval-output docs/results/demoshop-bac/evaluation.json --random-predictor --random-safe-weight 4
+PYTHONPATH=src python -m vulnspider analyze --url http://127.0.0.1:8899/portal/ --access-control --cookie demoshop_session=<redacted> --top-k 10 --max-pages 20 --max-requests 100 --output docs/results/demoshop-bac/analysis.json --html-output docs/results/demoshop-bac/dashboard.html --verify --verification-model data/corpus/verification-model.json --verify-output docs/results/demoshop-bac/verification.json --verify-detail-output docs/results/demoshop-bac/verification-detail.html --ground-truth data/demo/demoshop-ground-truth.json --application-id demoshop --eval-output docs/results/demoshop-bac/evaluation.json --random-predictor --random-safe-weight 4
 ```
 
 | Arm | P@1 | R@1 | MAP@1 | P@5 | R@5 | MAP@5 |

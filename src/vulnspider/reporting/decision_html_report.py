@@ -201,9 +201,8 @@ def render_decision_html_report(
     # vulnerability type -- even though every input point is scored as several
     # candidates. Scoring and the metrics stay candidate-level; only this
     # human-facing view collapses (see _collapse_to_highest_type).
-    display_selected = _confidence_ordered(
-        outcome.selected,
-        verification,
+    display_selected = _collapse_to_highest_type(
+        _confidence_ordered(outcome.selected, verification)
     )
     order_heading = (
         "검증 후 최종 신뢰도 순서 <span class=\"ko-en\">final confidence order</span>"
@@ -384,9 +383,9 @@ def _render_charts(
     endpoint_count: int,
     input_point_count: int,
 ) -> str:
-    # `display_selected` is the same Top-K set re-ordered by the shown score;
-    # the counts below are order-independent, but the per-candidate bar chart
-    # follows it so the bars match the card order.
+    # `display_selected` is the human-facing Top-K subset after shown-score
+    # ordering and per-subject collapse. Every chart follows the same surfaced
+    # candidates so its counts and bars match the cards below.
     selected = tuple(display_selected) if display_selected else outcome.selected
 
     bands = {"high": 0, "medium": 0, "low": 0}
