@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from contextlib import contextmanager
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -8,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
 import unittest
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from vulnspider import cli
 
@@ -163,14 +164,17 @@ def native_static_site():
             self._send(404, b"unexpected", "text/plain")
 
         def do_POST(self) -> None:
-            self._record("POST")
+            content_length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(content_length).decode("utf-8")
+            self._record("POST", body=body)
             self._send(500, b"POST form was submitted", "text/plain")
 
-        def _record(self, method: str) -> None:
+        def _record(self, method: str, *, body: str = "") -> None:
             primary_log.append(
                 {
                     "method": method,
                     "path": self.path,
+                    "body": body,
                     "user_agent": self.headers.get("User-Agent", ""),
                     "cookie": self.headers.get("Cookie", ""),
                     "authorization": self.headers.get("Authorization", ""),
@@ -214,7 +218,7 @@ def native_static_site():
 
 
 class NativeStaticDiscoveryEndToEndTests(unittest.TestCase):
-    def test_cli_url_flow_is_bounded_get_only_and_reports_one_outcome(
+    def test_cli_url_flow_executes_bounded_get_and_ready_post_with_provenance(
         self,
     ) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -262,7 +266,7 @@ class NativeStaticDiscoveryEndToEndTests(unittest.TestCase):
         self.assertTrue(primary_log)
         self.assertEqual(
             {entry["method"] for entry in primary_log},
-            {"GET"},
+            {"GET", "POST"},
         )
         self.assertTrue(
             all(not entry["cookie"] for entry in primary_log)
@@ -282,8 +286,51 @@ class NativeStaticDiscoveryEndToEndTests(unittest.TestCase):
             if entry["user_agent"] != "VulnSpider/0.2 static discovery"
         ]
         self.assertEqual(len(crawler_requests), 12)
-        self.assertEqual(len(probe_requests), 18)
         self.assertLessEqual(len(crawler_requests), 20)
+        self.assertEqual({entry["method"] for entry in crawler_requests}, {"GET"})
+        probe_method_paths = Counter(
+            (entry["method"], urlsplit(entry["path"]).path)
+            for entry in probe_requests
+        )
+        self.assertEqual(
+            Counter(
+                {
+                    method_path: count
+                    for method_path, count in probe_method_paths.items()
+                    if method_path[0] == "GET"
+                }
+            ),
+            Counter(
+                {
+                    ("GET", "/search"): 12,
+                    ("GET", "/items"): 4,
+                    ("GET", "/relative-search"): 2,
+                }
+            ),
+        )
+        self.assertEqual(probe_method_paths[("POST", "/post-sentinel")], 2)
+        self.assertEqual(
+            sum(
+                count
+                for (method, _path), count in probe_method_paths.items()
+                if method == "POST"
+            ),
+            2,
+        )
+        post_bodies = [
+            tuple(parse_qsl(entry["body"], keep_blank_values=True))
+            for entry in probe_requests
+            if entry["method"] == "POST"
+        ]
+        self.assertIn((("post_value", "not-submitted"),), post_bodies)
+        post_probe = next(
+            body
+            for body in post_bodies
+            if body != (("post_value", "not-submitted"),)
+        )
+        self.assertEqual([name for name, _value in post_probe], ["post_value"])
+        self.assertTrue(post_probe[0][1].startswith("VULNSPIDER_"))
+
         crawler_paths = [entry["path"] for entry in crawler_requests]
         self.assertIn("/search?q=hello", crawler_paths)
         self.assertIn("/search?q=", crawler_paths)
@@ -319,7 +366,7 @@ class NativeStaticDiscoveryEndToEndTests(unittest.TestCase):
             "MAX_DEPTH_REACHED",
         ):
             self.assertIn(warning_code, warning_text)
-        self.assertIn("executes GET request contexts only", warning_text)
+        self.assertNotIn("executes GET request contexts only", warning_text)
         self.assertIn("form_method_provenance=html_default_get", warning_text)
 
         parser = _ReportStructureParser()
@@ -333,10 +380,10 @@ class NativeStaticDiscoveryEndToEndTests(unittest.TestCase):
         ):
             self.assertIn(candidate_id, html_text)
 
-        # The report joins candidates back to their input points; a query
-        # parameter location must render, and it must stay GET-only.
+        # The report joins candidates back to their discovered input points and
+        # renders both the retained GET path and the explicit READY POST form.
         self.assertIn("query.", html_text)
-        self.assertNotIn("POST http://", html_text)
+        self.assertIn("POST http://", html_text)
 
         candidate_text = json.dumps(report["verification_order"], sort_keys=True)
         for warning_code in (
