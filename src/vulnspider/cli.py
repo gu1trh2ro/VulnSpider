@@ -703,7 +703,14 @@ def main(
         if not simple_mode:
             parser.error(f"unsupported command: {args.command}")
     stage = "초기화"
-    pbar = tqdm(total=4, desc="(초기화)", bar_format="진행 상태: |{bar}| {n_fmt}/{total_fmt} 단계 {postfix}", colour="green", ncols=100, file=sys.stdout)
+    pbar = tqdm(
+        total=4,
+        desc="(초기화)",
+        bar_format="진행 상태: |{bar}| {n_fmt}/{total_fmt} 단계 {postfix}",
+        colour="green",
+        ncols=100,
+        file=sys.stderr,
+    )
     try:
         pbar.set_postfix_str(stage)
         pbar.update(1)
@@ -923,7 +930,6 @@ def main(
         _progress("[OK] 리포트 작성 완료")
 
         pbar.close()
-        print(file=sys.stdout)
     except _SimpleDegradedCrawl as exc:
         _print_partial_simple_result(args)
         _print_dynamic_incomplete(exc.crawl)

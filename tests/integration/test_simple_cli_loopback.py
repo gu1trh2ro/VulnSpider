@@ -288,8 +288,8 @@ class SimpleDynamicCliLoopbackTests(unittest.TestCase):
         self.assertIn("vulnspider: [*]", stderr.getvalue())
         self.assertIn("vulnspider: [OK]", stderr.getvalue())
         self.assertNotIn("[ERROR]", stderr.getvalue())
-        # Simple mode writes the HTML dashboard by default, so the summary has
-        # four non-empty lines; the preceding progress separator is blank.
+        # Simple mode writes the HTML dashboard by default, so stdout is the
+        # four-line result summary while progress remains on stderr.
         self.assertEqual(
             len([line for line in stdout.getvalue().splitlines() if line]),
             4,
