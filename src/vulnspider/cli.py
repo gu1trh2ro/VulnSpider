@@ -435,6 +435,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Opt in to bounded combined Static and Dynamic discovery.",
     )
     analyze.add_argument(
+        "--dynamic-passive-capture",
+        action="store_true",
+        help=(
+            "Observe the page's own same-origin fetch/XHR and resource "
+            "requests during Dynamic discovery (SPA/REST-JSON surfaces). Off "
+            "by default; requires --dynamic. Enables candidate discovery from "
+            "JSON REST endpoints an SPA calls (e.g. OWASP Juice Shop)."
+        ),
+    )
+    analyze.add_argument(
         "--dynamic-allow-navigation",
         action="append",
         default=None,
@@ -1596,6 +1606,8 @@ _DYNAMIC_OPTION_NAMES = (
 def _reject_dynamic_options_without_opt_in(args: argparse.Namespace) -> None:
     if args.dynamic:
         return
+    if getattr(args, "dynamic_passive_capture", False):
+        raise CLIError("Dynamic policy and authority options require --dynamic")
     if any(getattr(args, name) is not None for name in _DYNAMIC_OPTION_NAMES):
         raise CLIError("Dynamic policy and authority options require --dynamic")
 
@@ -1647,13 +1659,19 @@ def _dynamic_authority_from_args(
             ) from None
         grants.append(DynamicResourceGrant(kind=kind, url=url))
 
+    # Passive same-origin capture (rendered navigation + resources + fetch/XHR)
+    # is always on in simple URL mode; analyze mode opts in explicitly with
+    # --dynamic-passive-capture so SPA/REST-JSON surfaces can be discovered.
+    passive_capture = simple_mode or getattr(
+        args, "dynamic_passive_capture", False
+    )
     return DynamicRequestAuthority(
         root_url=args.url,
         navigation_urls=tuple(args.dynamic_allow_navigation or ()),
         resource_grants=tuple(grants),
-        allow_rendered_navigation=simple_mode,
-        allow_passive_same_origin_resources=simple_mode,
-        allow_passive_same_origin_fetch_xhr=simple_mode,
+        allow_rendered_navigation=passive_capture,
+        allow_passive_same_origin_resources=passive_capture,
+        allow_passive_same_origin_fetch_xhr=passive_capture,
     )
 
 
