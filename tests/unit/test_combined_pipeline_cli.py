@@ -27,6 +27,7 @@ from vulnspider.discovery import (
     DynamicCrawlTerminationReason,
     DynamicIntegrityError,
     DynamicNetworkDecisionKind,
+    DynamicNetworkReason,
     DynamicPageResult,
     DynamicRequestAuthority,
     DynamicResourceKind,
@@ -522,6 +523,70 @@ class CombinedCliTests(unittest.TestCase):
                     DynamicNetworkDecisionKind.BLOCK,
                 )
 
+    def test_dynamic_passive_capture_constructs_bounded_authority(self) -> None:
+        authority = self._advanced_dynamic_authority(
+            "--dynamic-passive-capture",
+        )
+
+        self.assertTrue(authority.allow_rendered_navigation)
+        self.assertTrue(authority.allow_passive_same_origin_resources)
+        self.assertTrue(authority.allow_passive_same_origin_fetch_xhr)
+        self.assertTrue(authority.allows_rendered_navigation(f"{ROOT_URL}dashboard"))
+        self.assertFalse(
+            authority.allows_rendered_navigation(
+                "http://127.0.0.1:8080/dashboard"
+            )
+        )
+
+        cases = (
+            (
+                "GET",
+                f"{ROOT_URL}app.js",
+                "script",
+                DynamicNetworkDecisionKind.ALLOW,
+                DynamicNetworkReason.AUTHORIZED_RESOURCE,
+            ),
+            (
+                "GET",
+                f"{ROOT_URL}api/items",
+                "fetch",
+                DynamicNetworkDecisionKind.ALLOW,
+                DynamicNetworkReason.PASSIVE_SAME_ORIGIN_FETCH_XHR,
+            ),
+            (
+                "HEAD",
+                f"{ROOT_URL}api/items",
+                "xhr",
+                DynamicNetworkDecisionKind.ALLOW,
+                DynamicNetworkReason.PASSIVE_SAME_ORIGIN_FETCH_XHR,
+            ),
+            (
+                "POST",
+                f"{ROOT_URL}api/items",
+                "fetch",
+                DynamicNetworkDecisionKind.BLOCK,
+                DynamicNetworkReason.NON_GET_METHOD,
+            ),
+            (
+                "GET",
+                "http://127.0.0.1:8080/api/items",
+                "fetch",
+                DynamicNetworkDecisionKind.BLOCK,
+                DynamicNetworkReason.REQUEST_NOT_AUTHORIZED,
+            ),
+        )
+        for method, url, resource_type, expected_decision, expected_reason in cases:
+            with self.subTest(method=method, url=url, resource_type=resource_type):
+                decision = authority.decide_http(
+                    method=method,
+                    url=url,
+                    resource_type=resource_type,
+                    is_primary_page=True,
+                    is_main_frame=False,
+                )
+                self.assertEqual(decision.decision, expected_decision)
+                self.assertEqual(decision.reason, expected_reason)
+
     def test_dynamic_navigation_grant_remains_exact_and_strict(self) -> None:
         granted_url = f"{ROOT_URL}dashboard"
         authority = self._advanced_dynamic_authority(
@@ -625,6 +690,7 @@ class CombinedCliTests(unittest.TestCase):
                     "INVALID_AUTHORITY",
                 ),
                 (["--dynamic-max-pages", "1"], "require --dynamic"),
+                (["--dynamic-passive-capture"], "require --dynamic"),
                 (
                     ["--dynamic", "--dynamic-allow-resource", "bogus=/x"],
                     "category must be one of",
