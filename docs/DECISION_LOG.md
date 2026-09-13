@@ -1514,6 +1514,93 @@ DemoShop에서도 지금까지 BAC 후보는 "인증이 아예 없어 아무나 
 
 ---
 
+## ADR-041 — Portable multi-screen result dashboard
+
+Status: Accepted
+Date: 2026-09-13
+
+Decision:
+
+- Replace the v0.2 decision report's long card wall with Korean overview,
+  candidate-list, candidate-detail and reading-guide screens. Keep the existing
+  HTML destination and one-file offline delivery using fragment navigation.
+- Render endpoint/input-point ownership as an explicitly labeled map; no crawl
+  edges or attack paths are inferred. Show selected candidate count separately
+  from the existing highest-type-per-subject representative view.
+- Present supplied calibration evidence, initial request pairs, individual
+  VerificationResult payloads/validator decisions/execution references and
+  final confidence. No score, verdict, request or payload is reconstructed.
+  Missing provenance remains missing; BAC aggregates do not invent individual
+  identifier payloads. Per-payload confidences are not presented as cumulative.
+- Use plain explanations before expandable technical records. Defense guidance
+  is conditional and never reports a successful exploit or a completed fix.
+- Inline a fixed, data-independent script for navigation/focus, local search,
+  filters, history and printing. Escape all dynamic text/attributes and restrict
+  scripts to its SHA-256 CSP hash; default network/resource access is denied.
+  CSS fragment navigation provides a modern-browser no-JavaScript fallback.
+
+Context:
+
+The user requested a service-like final graduation-project report that students
+and professors outside web security can follow, with visual summaries and
+separate detail pages showing why candidates deserve review.
+
+Alternatives:
+
+Separate HTML files would complicate artifact distribution/publication. An
+external frontend framework/CDN would add offline and dependency requirements.
+One long page would preserve the information overload the user asked to fix.
+
+Consequences:
+
+- `decision-html-v4` changes presentation only. CLI, JSON, scoring, selection,
+  payload execution and frozen v0.1 report semantics remain compatible.
+- Fragment addresses are scoped to one generated report. A new scan may reorder
+  candidates. Older stored reports retain their original UI until regenerated.
+- New presentation helpers live in `reporting/dashboard_assets.py`,
+  `dashboard_layout.py`, and `dashboard_evidence.py`.
+- Browser QA and independent Gate Review are recorded in the execution plan.
+
+---
+
+## ADR-042 — DemoShop storefront presentation and unified confidence labels
+
+Status: Accepted
+Date: 2026-09-13
+
+Decision:
+
+Honor the requested dashboard terminology: **상위 취약점 후보**, and **최종
+신뢰도** as the display label for the currently available probability, including
+unverified candidates. Retain source explanations and before/after evidence.
+No `VerificationConfidence` is fabricated, no `RankScore` is relabeled as a
+probability, and no JSON, scoring or verification contract changes.
+
+Present DemoShop through a responsive storefront shell and four locally bundled
+AI-generated product photos. Fixed asset routes map to explicitly allowlisted
+files. Product, quantity and category UI selections use bounded fragments and
+DOM updates; cart/checkout completion is a visual simulation with no persistence
+or actual order/payment operation. Ordinary links retain bare canonical paths.
+
+Context:
+
+Graduation evaluators need recognizable shopping screens and understandable
+report labels. The previous placeholder storefront was unsuitable for demos.
+
+Consequences:
+
+- `PAGES`, 100 query input points, default seeds, ground truth, `_fragment`
+  response semantics, loopback scope and authentication rules remain unchanged.
+- New styles/scripts load from local assets; intentional target vulnerabilities
+  remain in the existing response fragments. Detailed raw responses sit behind
+  a disclosure so ordinary shopping screens stay readable.
+- The HTML presentation changes response-size denominators. Historical ranking
+  measurements require a target revision and a fresh evaluation for comparison.
+- No dependency was added. Static asset routing, canonical forms and navigation
+  are covered by regression tests; browser QA checks the simulated purchase flow.
+
+---
+
 ## New Decision Template
 
 ```text

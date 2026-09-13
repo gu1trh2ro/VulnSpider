@@ -83,6 +83,8 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlsplit
 
+from tools import demo_shop_storefront as storefront
+
 from vulnspider.corpus.ground_truth import (
     GROUND_TRUTH_SCHEMA_VERSION,
     GroundTruthKey,
@@ -762,6 +764,12 @@ PAGES: tuple[PageSpec, ...] = (
 )
 
 PAGES_BY_PATH: dict[str, PageSpec] = {page.path: page for page in PAGES}
+INPUT_POINT_NUMBERS = {
+    key: number
+    for number, key in enumerate(
+        ((page.path, item.name) for page in PAGES for item in page.inputs), start=1
+    )
+}
 
 INPUT_POINTS = sum(len(page.inputs) for page in PAGES)
 VULNERABLE_INPUT_POINTS = sum(
@@ -1089,8 +1097,11 @@ def _chrome(page: PageSpec) -> str:
 
     count = 3 + zlib.crc32(page.path.encode("utf-8")) % 7
     picks = "".join(
-        f'<li><span class="thumb"></span>추천 상품 {index + 1}'
-        f'<em>{19000 + index * 2300:,}원</em></li>'
+        f'<li><a href="/product#item-{storefront.PRODUCTS[index % 4][0]}">'
+        f'<img src="/assets/{storefront.PRODUCTS[index % 4][1]}.png" '
+        f'alt="{storefront.PRODUCTS[index % 4][3]}" loading="lazy" width="1024" height="1024">'
+        f'<b>{storefront.PRODUCTS[index % 4][3]}</b>'
+        f'<em>{storefront.PRODUCTS[index % 4][4]:,}원</em></a></li>'
         for index in range(count)
     )
     return (
@@ -1340,16 +1351,15 @@ def _nav() -> str:
 def _layout(title: str, body: str) -> bytes:
     return (
         "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{escape(title)} · DemoShop</title>"
-        f"<style>{_STYLE}</style></head><body>"
-        '<header class="top"><span class="brand">DemoShop</span>'
-        f"{_nav()}</header><main>{body}</main>"
-        '<footer class="bottom">DemoShop — VulnSpider 평가용 모의 쇼핑몰. '
-        "실제 상거래 사이트가 아닙니다.</footer></body></html>"
+        f'<style>{_STYLE}</style><link rel="stylesheet" href="/assets/shop.css">'
+        '<script src="/assets/shop.js" defer></script></head><body>'
+        f'{storefront.header()}<main>{body}</main>{storefront.footer()}</body></html>'
     ).encode("utf-8")
 
 
-def _control(item: InputSpec, value: str) -> str:
+def _control(item: InputSpec, value: str, *, number: int | None = None) -> str:
     # A filter form keeps what was submitted, so the value is echoed here too --
     # HTML-escaped, as a form control must be. For a route that sanitises on
     # input, the control shows the *sanitised* value: showing the raw one would
@@ -1357,25 +1367,48 @@ def _control(item: InputSpec, value: str) -> str:
     # route look defended by encoding, which is not what it does.
     if item.kind == "safe_stripped":
         value = _strip_dangerous(value)
+    field_id = f' id="input-point-{number:03d}"' if number is not None else ''
     if item.control == "hidden":
-        return f'<input type="hidden" name="{item.name}" value="{escape(value)}">'
-    if item.control == "select":
+        field = f'<input type="hidden"{field_id} name="{item.name}" value="{escape(value)}">'
+    elif item.control == "select":
         options = "".join(
             f'<option value="{escape(option)}"'
             f'{" selected" if option == value else ""}>{escape(option)}</option>'
             for option in item.options
         )
-        field = f'<select name="{item.name}">{options}</select>'
+        field = f'<select{field_id} name="{item.name}">{options}</select>'
     elif item.control == "textarea":
-        field = f'<textarea name="{item.name}" rows="2">{escape(value)}</textarea>'
+        field = f'<textarea{field_id} name="{item.name}" rows="2">{escape(value)}</textarea>'
     else:
-        field = f'<input type="text" name="{item.name}" value="{escape(value)}">'
-    return f"<label>{escape(item.label)}{field}</label>"
+        field = f'<input type="text"{field_id} name="{item.name}" value="{escape(value)}">'
+    if number is None:
+        return field if item.control == "hidden" else f"<label>{escape(item.label)}{field}</label>"
+    label = escape(item.label)
+    tooltip = (
+        f'<span class="input-tooltip" role="tooltip" id="input-hint-{number:03d}">'
+        f'<strong>입력점 #{number:03d}</strong><span>{label} · {escape(item.name)}</span>'
+        + ('<small>페이지에 포함된 숨김 입력</small>' if item.control == 'hidden' else '')
+        + '</span>'
+    )
+    caption = (
+        f'<span>{label}</span>' if item.control == 'hidden'
+        else f'<label for="input-point-{number:03d}">{label}</label>'
+    )
+    return (
+        f'<div class="input-point-field" data-input-point="{number:03d}">'
+        f'<div class="field-caption">{caption}'
+        f'<button class="input-marker" type="button" aria-label="입력점 {number:03d} 안내" '
+        f'aria-describedby="input-hint-{number:03d}"><span aria-hidden="true">⊙</span></button>'
+        f'{tooltip}</div>{field}'
+        + ('<span class="hidden-input-note">숨김 입력</span>' if item.control == 'hidden' else '')
+        + '</div>'
+    )
 
 
 def _filter_form(page: PageSpec, query: dict[str, str]) -> str:
     controls = "".join(
-        _control(item, query.get(item.name, item.seed)) for item in page.inputs
+        _control(item, query.get(item.name, item.seed), number=INPUT_POINT_NUMBERS[(page.path, item.name)])
+        for item in page.inputs
     )
     return (
         f'<form class="filters" method="get" action="{page.path}">'
@@ -1395,10 +1428,17 @@ def render_route(page: PageSpec, query: dict[str, str]) -> tuple[int, bytes]:
         status = max(status, item_status)
         cards.append(html)
     body = (
-        f"<h1>{escape(page.title)}</h1>"
+        f'<a class="surface-jump" href="#input-points">⊙ 이 페이지의 입력점 {len(page.inputs)}개 보기</a>'
+        f"{storefront.route_intro(page.path, page.title)}"
+        '<details class="route-options" id="input-points"'
+        + ('' if page.path in ('/product', '/cart', '/checkout') else ' open')
+        + f'><summary>선택한 조건과 상세 정보 <span class="surface-count">⊙ {len(page.inputs)}개 입력점</span></summary>'
         f'<p class="blurb">{escape(page.blurb)}</p>'
         f"{_filter_form(page, query)}"
+        '<details class="response-details"><summary>조회 응답 자세히 보기</summary>'
         f'<div class="results">{"".join(cards)}</div>'
+        '</details>'
+        '</details>'
         f"{_chrome(page)}"
     )
     return status, _layout(page.title, body)
@@ -1424,12 +1464,7 @@ def render_index() -> bytes:
         + "</ul></section>"
         for section, pages in sections.items()
     )
-    body = (
-        "<h1>오늘의 추천</h1>"
-        '<p class="blurb">신상품과 기획전을 한눈에 확인하세요.</p>'
-        f'<div class="sections">{blocks}</div>'
-        f"{_chrome(PAGES[0])}"
-    )
+    body = storefront.home(blocks)
     return _layout("홈", body)
 
 
@@ -1673,6 +1708,11 @@ class DemoShopHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parts = urlsplit(self.path)
+        asset = storefront.ASSETS.get(parts.path)
+        if asset is not None:
+            asset_path, content_type = asset
+            self._respond(200, asset_path.read_bytes(), content_type=content_type)
+            return
         query = {
             name: values[0]
             for name, values in parse_qs(parts.query, keep_blank_values=True).items()

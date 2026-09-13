@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -35,6 +37,14 @@ from vulnspider.reporting.guidance import (
     DefenseGuidance,
     build_defense_guidance,
 )
+from vulnspider.reporting import dashboard_layout as layout
+from vulnspider.reporting.dashboard_assets import SCRIPT, STYLE
+from vulnspider.reporting.dashboard_evidence import (
+    explain_candidate,
+    fix_acceptance,
+    payload_records,
+    verification_explanation,
+)
 from vulnspider.reporting.html_report import (
     VULNERABILITY_LABELS,
     ProbeRun,
@@ -50,7 +60,7 @@ from vulnspider.reporting.html_report import (
 from vulnspider.scoring.calibration import CalibratedProbability, CalibratedScorer
 from vulnspider.verification.focused import CandidateVerification
 
-DECISION_HTML_REPORT_VERSION = "decision-html-v3"
+DECISION_HTML_REPORT_VERSION = "decision-html-v4"
 
 _EMPTY_INPUT_POINTS: Mapping[str, InputPoint] = {}
 _EMPTY_ENDPOINTS: Mapping[str, Endpoint] = {}
@@ -204,16 +214,18 @@ def render_decision_html_report(
     display_selected = _collapse_to_highest_type(
         _confidence_ordered(outcome.selected, verification)
     )
-    order_heading = (
-        "검증 후 최종 신뢰도 순서 <span class=\"ko-en\">final confidence order</span>"
-        if verified
-        else "검증 순서 <span class=\"ko-en\">Verification order</span>"
-    )
-    sections = [
+    rows = _dashboard_rows(display_selected, input_points, endpoints, verification, access_observations)
+    methodology = [
+        '<section class="report-page" id="methodology" aria-label="리포트 읽는 법">',
+        '<div class="page-heading"><div>' + layout.page_heading(
+            "리포트 읽는 법", "점수가 의미하는 것과 분석 범위를 확인하세요. 기술적인 산출 정보도 이 화면에서 볼 수 있습니다."
+        ) + '</div></div>',
+        _render_reading_guide(),
+        '<details class="technical"><summary>이번 분석의 모델과 선택 정책</summary>',
         _render_header(target, outcome, models, verified),
-        _render_stats(
-            outcome, verification, surfaced_count=len(display_selected)
-        ),
+        _render_guarantee(outcome),
+        '</details>',
+        '<div class="method-chart">',
         _render_charts(
             outcome,
             verification=verification,
@@ -221,10 +233,21 @@ def render_decision_html_report(
             endpoint_count=endpoint_count or len(endpoints),
             input_point_count=input_point_count or len(input_points),
         ),
-        _render_guarantee(outcome),
-        _render_warnings(list(warnings)),
-        f'<h2 class="section">{order_heading}</h2>',
+        '</div>',
         _render_intro(verified),
+        '</section>',
+    ]
+    sections = [
+        layout.overview(
+            rows, target=target, endpoint_count=endpoint_count or len(endpoints),
+            input_point_count=input_point_count or len(input_points),
+            scored_count=outcome.initial_candidates, selected_count=len(outcome.selected),
+            warnings_html=_render_warnings(list(warnings)).replace(
+                '>Warnings (클릭해서 접기/펴기)</summary>',
+                '>분석 참고 사항 (펼쳐 보기)</summary>', 1,
+            ),
+        ),
+        layout.candidates_page(rows, len(outcome.selected), _render_unselected(outcome, input_points, endpoints)),
         _render_candidates(
             display_selected,
             input_points=input_points,
@@ -234,19 +257,71 @@ def render_decision_html_report(
             verification=verification,
             access_observations=access_observations,
         ),
-        _render_unselected(outcome, input_points, endpoints),
-        _render_footer(outcome, elapsed_seconds, verified),
+        "\n".join(methodology),
     ]
     body = "\n\n".join(section for section in sections if section)
+    body = layout.shell(body, _render_footer(outcome, elapsed_seconds, verified))
+    script_hash = base64.b64encode(hashlib.sha256(SCRIPT.encode("utf-8")).digest()).decode("ascii")
+    csp = f"default-src 'none'; script-src 'sha256-{script_hash}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
     title = "VulnSpider 결정 리포트" + (f" — {target}" if target else "")
     return (
         "<!DOCTYPE html>\n"
         '<html lang="ko">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f'<meta http-equiv="Content-Security-Policy" content="{_esc(csp)}">\n'
         f"<title>{_esc(title)}</title>\n"
-        f"<style>{_DOCUMENT_STYLE}{CHART_STYLE}{_EXTRA_STYLE}</style>\n"
-        f'</head>\n<body>\n<div class="wrap">\n\n{body}\n\n</div>\n</body>\n</html>\n'
+        f"<style>{_DOCUMENT_STYLE}{CHART_STYLE}{STYLE}</style>\n"
+        f'</head>\n<body>\n{body}\n<noscript><p class="notice">JavaScript가 꺼져 있어 검색·필터·인쇄 버튼은 사용할 수 없습니다. 메뉴와 후보 링크로 화면을 이동할 수 있습니다.</p></noscript>\n'
+        f'<script>{SCRIPT}</script>\n</body>\n</html>\n'
     )
+
+
+def _dashboard_rows(
+    selected: Sequence[DecisionCandidate],
+    input_points: Mapping[str, InputPoint],
+    endpoints: Mapping[str, Endpoint],
+    verification: Mapping[str, CandidateVerification],
+    access_observations: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    rows = []
+    for rank, candidate in enumerate(selected, 1):
+        point = input_points.get(candidate.subject_ref)
+        observation = access_observations.get(candidate.subject_ref)
+        endpoint_id = point.endpoint_id if point is not None else ""
+        parameter = "입력점 정보 미제공"
+        if point is not None:
+            suffix = f"[{point.occurrence_index}]" if point.occurrence_index is not None else ""
+            parameter = f"{point.location.value.lower()}.{point.name}{suffix}"
+        if observation is not None:
+            plan = observation.access_probe_plan
+            endpoint_id = plan.endpoint_id
+            parameter = _ACCESS_CHECK_LABEL.get(plan.check_kind.value, plan.check_kind.value)
+        elif candidate.family == "BROKEN_ACCESS_CONTROL":
+            parameter = "접근제어 관계 · 위치 정보 미제공"
+        endpoint = endpoints.get(endpoint_id)
+        verified = verification.get(candidate.candidate_id)
+        rows.append({
+            "rank": rank, "family": candidate.family,
+            "path": f"{endpoint.method.value} {endpoint.path}" if endpoint is not None else "엔드포인트 정보 미제공",
+            "endpoint_key": endpoint.id if endpoint is not None else f"unknown-{rank}",
+            "parameter": parameter, "score": _final_score(candidate, verification),
+            "score_kind": "최종 신뢰도",
+            "state": verified.final_outcome.value if verified is not None else "UNVERIFIED",
+        })
+    return rows
+
+
+def _render_reading_guide() -> str:
+    concepts = (
+        ("입력점과 후보는 어떻게 다른가요?", "검색어·상품 번호처럼 값을 받는 자리가 입력점입니다. 같은 자리에서도 SQL Injection과 XSS를 각각 살펴보기 때문에 유형별 후보는 여러 개가 될 수 있습니다. 접근제어는 요청 간 권한 관계를 따로 분석합니다."),
+        ("검증 순서와 점수는 어떻게 읽나요?", "검증 이전의 우선순위로 상위 K개(Top-K)를 먼저 골랐습니다. 목록의 점수는 현재까지의 최종 신뢰도입니다. 추가 검증이 없으면 검증 전 확률을 그대로 사용합니다. 원래의 RankScore는 취약점 확률이 아닙니다."),
+        ("추가 확인은 무엇을 하나요?", "제안된 변형 입력값(페이로드)을 결정적인 검증기가 검사한 뒤 허용된 값만 재요청합니다. 분석 규칙이 관찰 근거에 따라 신뢰도를 갱신합니다. LLM의 설명이나 제안만으로 취약점을 판정하지 않습니다."),
+        ("이 결과로 어디까지 알 수 있나요?", "높은 점수는 먼저 살펴볼 근거가 강하다는 의미입니다. 취약점 확정이나 서비스 전체의 안전 인증은 아닙니다. 미관측은 확인하지 못한 상태이며, 관측값 0과 다릅니다. 선택되지 않은 후보도 안전 판정을 받은 것은 아닙니다."),
+    )
+    return '<div class="reading-guide">' + "".join(
+        f'<section class="panel"><div class="panel-head"><h2>{title}</h2></div><div class="panel-body">{text}</div></section>'
+        for title, text in concepts
+    ) + '</div>'
 
 
 def write_decision_html_report(
@@ -296,8 +371,8 @@ def _render_header(
     )
     tagline = (
         "보정된 확률로 후보 순위를 매긴 뒤, 상위 후보를 실제로 재검증하여 신뢰도를 "
-        "갱신했습니다. 아래 점수는 <b>검증 이후의 최종 신뢰도</b>이며, 여전히 확정된 "
-        "취약점이 아니라 검증 우선순위입니다."
+        "갱신했습니다. 검증 기록이 있는 후보는 <b>검증 이후의 최종 신뢰도</b>를, "
+        "없는 후보의 최종 신뢰도는 검증 전 확률을 그대로 사용합니다. 확정된 취약점은 아닙니다."
         if verified
         else "보정된 확률로 후보 순위를 매기고 확률이 가장 높은 Top-K를 검증 대상으로 "
         "선택한 결과입니다. <b>검증 우선순위이며 확정된 취약점이 아닙니다.</b>"
@@ -312,44 +387,6 @@ def _render_header(
         f"  {target_line}\n"
         f'  <div class="target">모델 &rarr; {_esc(model_line)}</div>\n'
         "</header>"
-    )
-
-
-def _render_stats(
-    outcome: DecisionOutcome,
-    verification: Mapping[str, CandidateVerification] = _EMPTY_VERIFICATION,
-    *,
-    surfaced_count: int | None = None,
-) -> str:
-    # "선택됨" counts what the report surfaces: one finding per input point
-    # (its top type), not the underlying per-type candidates.
-    selected_count = (
-        surfaced_count if surfaced_count is not None else len(outcome.selected)
-    )
-    cells = [
-        (_fmt_number(outcome.initial_candidates), "채점된 후보"),
-        (_fmt_number(selected_count), "선택됨"),
-        (_fmt_number(outcome.top_k), "Top-K"),
-        (f"{outcome.expected_findings:.2f}", "기대 발견 수"),
-    ]
-    if verification:
-        supported = sum(
-            1
-            for item in verification.values()
-            if item.final_outcome.value == "SUPPORTED"
-        )
-        cells.append((_fmt_number(len(verification)), "검증됨"))
-        cells.append((_fmt_number(supported), "검증 뒷받침"))
-    items = "\n".join(
-        f'  <div class="stat"><div class="n">{_esc(value)}</div>'
-        f'<div class="l">{_esc(label)}</div></div>'
-        for value, label in cells
-    )
-    return (
-        f'<section class="stats">\n{items}\n</section>\n'
-        '<div class="notice small">Top-K는 확률이 가장 높은 K개를 그대로 고른 '
-        "것입니다. 후보가 취약할 확률의 합이 곧 기대 발견 수이므로, 확률순 정렬이 "
-        "곧 기대 발견 수를 최대로 만드는 최적 선택입니다.</div>"
     )
 
 
@@ -397,7 +434,7 @@ def _render_charts(
             for name in ("high", "medium", "low")
         ],
         center_value=_fmt_number(len(selected)),
-        center_caption="선택된 후보의 확률 구간 분포",
+        center_caption="선택된 후보의 표시 점수 구간 분포",
         empty_caption="선택된 후보가 없습니다.",
     )
 
@@ -455,32 +492,31 @@ def _render_charts(
     return (
         '<div class="chart-grid">\n'
         + chart_card(
-            "확률 구간 분포",
+            "최종 신뢰도 구간 분포",
             donut,
             english="probability bands",
-            note="취약할 확률이 70% 이상이면 높음, 40% 이상이면 중간입니다. "
-            "구간은 표시용이며 선택 자체는 이미 끝났습니다.",
+            note="표시 점수 70% 이상은 높음, 40% 이상은 중간입니다. "
+            "현재까지의 최종 신뢰도입니다. 추가 검증이 없으면 검증 전 확률을 그대로 사용합니다. 위험 등급은 아닙니다.",
         )
         + chart_card(
             "유형별 선택 건수",
             family_bars,
             english="selected by family",
-            note="건수가 많은 유형부터 표시했습니다. 확률은 유형과 무관하게 "
-            "같은 척도이므로 유형 간에도 그대로 비교할 수 있습니다.",
+            note="표시된 대표 후보의 유형별 건수입니다. 확정된 취약점 수가 아닙니다.",
         )
         + chart_card(
-            "파이프라인 축소",
+            "분석 단계별 규모 · 파이프라인 축소",
             funnel,
             english="pipeline funnel",
-            note="크롤링으로 찾은 것에서 실제로 검증할 것까지 몇 단계로 줄었는지 "
-            "보여줍니다. 이 축소가 이 프로젝트의 핵심 주장입니다.",
+            note="엔드포인트, 입력점, 유형별 후보는 단위가 다릅니다. 이 막대는 단계별 규모를 "
+            "비교하며, 감소율이나 검증 완료율을 뜻하지 않습니다.",
         )
         + chart_card(
-            "선택된 후보 확률 비교",
+            "상위 취약점 후보 최종 신뢰도 비교",
             top_bars,
             english="selected candidates",
-            note="막대 길이가 곧 취약할 확률입니다. 검증은 위에서부터 순서대로 "
-            "수행하면 됩니다.",
+            note="막대는 각 후보의 최종 신뢰도입니다. 추가 검증이 없으면 검증 전 확률을 유지하며, "
+            "검증 전 선택 순서와 달라질 수 있습니다.",
             card_class="wide",
         )
         + "\n</div>"
@@ -549,9 +585,9 @@ def _render_candidates(
     access_observations: Mapping[str, Any] = _EMPTY_ACCESS_OBS,
 ) -> str:
     if not selected:
-        return '<div class="empty">선택된 후보가 없습니다.</div>'
+        return ""
     cards = "\n".join(
-        _render_candidate(
+        layout.detail_page(_render_candidate(
             candidate,
             rank=rank,
             input_points=input_points,
@@ -560,10 +596,10 @@ def _render_candidates(
             calibrated=probabilities.get(candidate.candidate_id),
             verified=verification.get(candidate.candidate_id),
             access_observation=access_observations.get(candidate.subject_ref),
-        )
+        ), rank, len(selected), _family_label(candidate.family))
         for rank, candidate in enumerate(selected, start=1)
     )
-    return f'<section class="findings">\n{cards}\n</section>'
+    return cards
 
 
 def _render_candidate(
@@ -624,13 +660,23 @@ def _render_candidate(
       </div>
     </div>
 
+    <section class="detail-section"><h2><span>01</span>왜 이 후보를 살펴봐야 하나요?</h2>
+    {explain_candidate(candidate.family, calibrated)}
+    <details class="technical"><summary>전체 순위 근거와 기여도 보기</summary>
+    {_render_evidence(candidate, calibrated)}</details></section>
+
+    <section class="detail-section"><h2><span>02</span>처음에는 어떤 차이가 관찰됐나요?</h2>
+    <p class="panel-desc">일반 입력의 응답과 입력을 바꾼 응답을 비교한 실제 기록입니다.</p>
+    {requests_html or '<div class="missing-note">초기 요청·응답 기록이 제공되지 않았습니다.</div>'}</section>
+
+    <section class="detail-section"><h2><span>03</span>추가 확인으로 무엇을 알게 됐나요?</h2>
+    {verification_explanation(verified)}
     {_render_verification(verified)}
+    {payload_records(verified)}</section>
 
-    {_render_evidence(candidate, calibrated)}
-
-    {requests_html}
-
+    <section class="detail-section"><h2><span>04</span>어떻게 개선할 수 있나요?</h2>
     {guidance_html}
+    {fix_acceptance(candidate.family)}</section>
     <div class="ids">candidate {_esc(candidate.candidate_id)} &middot; \
 feature vector {_esc(candidate.feature_vector_ref)}</div>
   </article>"""
@@ -678,7 +724,7 @@ def _meter_caption(
     verified: CandidateVerification | None,
 ) -> str:
     if verified is None:
-        return f"취약 확률 &middot; 기대값 {candidate.expected_value:.2f}"
+        return f"최종 신뢰도 &middot; 추가 검증 없음 · 검증 전 확률 유지 &middot; 기대값 {candidate.expected_value:.2f}"
     return (
         "검증 후 최종 신뢰도 &middot; 검증 전 "
         f"{_fmt_percent(verified.prior_probability)}%"
@@ -713,6 +759,8 @@ def _render_verification(verified: CandidateVerification | None) -> str:
         if unique_reasons
         else ""
     )
+    if reason_html:
+        reason_html = '<details class="technical"><summary>분석 규칙의 원문 근거</summary>' + reason_html + '</details>'
     if verified.results:
         accepted = sum(
             1
@@ -972,8 +1020,8 @@ def _render_footer(
     verified: bool = False,
 ) -> str:
     caveat = (
-        "여기의 점수는 검증 이후의 최종 신뢰도입니다. 규칙 기반 검증 근거이며 "
-        "여전히 확정된 취약점이 아닙니다."
+        "현재까지의 최종 신뢰도입니다. 추가 검증이 없으면 검증 전 확률을 그대로 사용합니다. "
+        "표시 점수는 확정된 취약점 판정이 아닙니다."
         if verified
         else "여기의 확률은 검증 이전의 우선순위입니다(ADR-016). 확정된 취약점이 "
         "아닙니다."
@@ -986,64 +1034,3 @@ def _render_footer(
         f'<span class="warn">{caveat}</span>'
         "</footer>"
     )
-
-
-_EXTRA_STYLE = """
-  .ko-en{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;
-         color:var(--muted);font-weight:500;margin-left:8px}
-  .notice b{color:var(--ink)}
-  .why .bars{margin-top:4px}
-  .vpanel .vhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-         margin:2px 0 6px}
-  .vbadge{display:inline-block;padding:2px 9px;border-radius:999px;
-         font-size:12px;font-weight:600;color:#fff}
-  .vbadge.high{background:var(--high,#c0392b)}
-  .vbadge.low{background:var(--low,#7f8c8d)}
-  .vbadge.muted{background:var(--muted,#95a5a6)}
-  .vscore{font-size:12.5px;color:var(--ink)}
-  .vscore b{margin:0 3px}
-  ul.vreason{margin:4px 0 0;padding-left:18px;font-size:12.5px;color:var(--ink)}
-  ul.vreason li{margin:2px 0}
-  .fixhead{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px}
-  .fixchip{display:inline-block;padding:1px 9px;border-radius:999px;
-         background:var(--accent);color:#fff;font-size:11px;font-weight:600;
-         letter-spacing:0;text-transform:none}
-  .fixlead{font-size:12.5px;color:var(--ink);margin-bottom:10px;line-height:1.5}
-  .fixgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px}
-  @media(max-width:640px){.fixgrid{grid-template-columns:1fr}}
-  .fixsub{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
-         color:var(--accent);font-weight:600;margin-bottom:3px}
-  .fix ul{margin:0;padding-left:16px}
-  .fix li{font-size:12px;color:var(--ink);line-height:1.5;margin:3px 0}
-  .fixnote{margin-top:10px;font-size:12px;color:var(--ink);line-height:1.5;
-         padding:7px 10px;background:rgba(0,0,0,.035);border-radius:6px}
-  .fixdisc{display:block;margin-top:10px;font-size:11px}
-
-  /* Wide desktop layout + visual polish (overrides the shared base;
-     applies to the decision dashboard only). Findings flow into a
-     responsive multi-column grid so the page reads wide, not tall. */
-  body{background:linear-gradient(180deg,#e9edf4 0,var(--paper) 340px) no-repeat,var(--paper)}
-  .wrap{max-width:1240px;padding:44px 32px 96px}
-  header.masthead{border-bottom-width:3px;padding-bottom:22px}
-  .brand h1{font-size:30px}
-  .ver{color:var(--muted)}
-  .stats{box-shadow:0 1px 3px rgba(18,22,29,.06)}
-  .stat .n{font-size:24px}
-  .notice{box-shadow:0 1px 2px rgba(18,22,29,.05)}
-  h2.section{font-size:14px;margin-top:42px;padding-bottom:9px;
-             border-bottom:1px solid var(--line)}
-  .findings{display:grid;grid-template-columns:repeat(auto-fit,minmax(540px,1fr));
-            gap:18px;align-items:start;margin-top:6px}
-  .finding{margin-bottom:0;border-radius:12px;
-           box-shadow:0 1px 3px rgba(18,22,29,.06),0 8px 22px rgba(18,22,29,.045);
-           transition:box-shadow .16s ease,transform .16s ease}
-  .finding:hover{transform:translateY(-1px);
-           box-shadow:0 2px 6px rgba(18,22,29,.09),0 12px 30px rgba(18,22,29,.075)}
-  .chart-grid{gap:16px}
-  @media print{
-    body{background:var(--paper)}
-    .finding,.stats,.notice{box-shadow:none}
-    .finding:hover{transform:none}
-    .findings{grid-template-columns:1fr 1fr}
-  }
-"""

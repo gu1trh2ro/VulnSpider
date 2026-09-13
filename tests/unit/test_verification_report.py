@@ -77,7 +77,8 @@ class VerificationReportTests(unittest.TestCase):
         html = render_decision_html_report(outcome)
         self.assertIn('class="prio', html)
         self.assertIn("40%", html)
-        self.assertIn("취약 확률", html)
+        self.assertIn("최종 신뢰도", html)
+        self.assertIn("추가 검증 없음 · 검증 전 확률 유지", html)
         self.assertNotIn("검증 결과", html)
         self.assertNotIn("검증 후 최종 신뢰도", html)
 

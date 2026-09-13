@@ -117,8 +117,8 @@ def _sqli_guidance(evidence: Sequence[Any]) -> DefenseGuidance:
             family=_SQLI,
             case_label="에러 기반 (DB 오류 노출)",
             lead=(
-                "DB 오류 메시지가 응답에 그대로 드러나, 공격자가 스키마와 쿼리 "
-                "구조를 역추적할 수 있는 상태입니다."
+                "DB 오류 패턴이 관찰된 후보입니다. 실제 원인을 확인하고, 입력이 "
+                "질의 구조에 영향을 주지 않도록 파라미터화와 오류 처리를 점검하세요."
             ),
             primary=_SQLI_PRIMARY,
             secondary=_SQLI_SECONDARY,
@@ -130,10 +130,11 @@ def _sqli_guidance(evidence: Sequence[Any]) -> DefenseGuidance:
         )
     return DefenseGuidance(
         family=_SQLI,
-        case_label="추론 기반 (응답 차이)",
+        case_label="추론 신호 점검 / 일반 SQLi 방어",
         lead=(
-            "명시적 오류 없이 응답 크기·상태 변화만으로 주입 성공 여부가 드러나는 "
-            "형태입니다(블라인드 SQLi 가능)."
+            "DB 오류를 근거로 한 분류는 제공되지 않았습니다. 응답 차이가 있다면 "
+            "정상적인 기능 변화인지 먼저 확인하세요. 차이만으로 블라인드 SQLi를 "
+            "판정하지 않으며, 아래는 이 유형에 대한 일반 방어 지침입니다."
         ),
         primary=_SQLI_PRIMARY,
         secondary=_SQLI_SECONDARY,
@@ -151,8 +152,8 @@ def _bac_guidance(access_check_kind: str | None) -> DefenseGuidance:
             family=_BAC,
             case_label="IDOR (식별자 치환)",
             lead=(
-                "요청의 식별자만 바꿔 다른 사용자의 리소스에 접근할 수 있는 "
-                "상태입니다(안전하지 않은 직접 객체 참조)."
+                "식별자를 바꾼 요청을 비교한 후보입니다. 다른 사용자의 리소스에 "
+                "권한 없이 접근되는지는 실제 객체 소유권과 응답 내용을 확인해야 합니다."
             ),
             primary=_BAC_PRIMARY,
             secondary=_BAC_SECONDARY,
@@ -166,8 +167,8 @@ def _bac_guidance(access_check_kind: str | None) -> DefenseGuidance:
             family=_BAC,
             case_label="인증 우회 (자격증명 제거)",
             lead=(
-                "인증 정보를 제거해도 보호된 리소스에 접근되는 상태로, 인증 강제가 "
-                "누락됐을 수 있습니다."
+                "인증 정보를 제거한 요청을 비교한 후보입니다. 보호 리소스가 실제로 "
+                "노출되는지와 인증 검사의 적용 여부를 확인하세요."
             ),
             primary=_BAC_PRIMARY,
             secondary=_BAC_SECONDARY,

@@ -148,6 +148,21 @@ respectively.
 
 Simple `-u` mode produces `vulnspider-report.html` — the single end-to-end web
 dashboard — by default, alongside the machine-readable crawl/analysis JSON.
+The v0.2 dashboard now opens on a Korean overview with discovery counts, a
+candidate ownership map, and a type distribution. Its sidebar leads to a
+searchable/filterable candidate list and a guide for non-specialist readers.
+Selecting a node or row opens a dedicated candidate screen with initial
+observations, actual additional payload records, before/after confidence,
+conditional defensive guidance, and criteria for checking a fix. All screens
+travel in one offline HTML file using fragment links; browser back/forward and
+direct detail links work without companion assets. The map represents
+endpoint/input-point ownership, not discovered navigation or attack paths.
+The displayed representative count remains distinct from the selected
+type-specific candidate count. Missing, rejected, unexecuted, and BAC aggregate
+records are labeled explicitly. A fixed CSP-hashed script supplies navigation,
+search, filters and current-screen printing; modern browsers can still navigate
+the fragment screens using CSS when JavaScript is disabled. Existing generated
+reports must be regenerated to receive this UI (ADR-041).
 With `--verify` it leads with the post-verification confidence. Adding
 `--verify` (on `analyze` or simple `-u` mode) runs focused verification
 after ranking: for each Top-K candidate it proposes same-family variant
@@ -283,6 +298,30 @@ onboarding workflow:
 
 These files document how v0.1 was built and reviewed. New v0.2 work starts from
 the current code and the v0.2 documents, not by replaying the prompts.
+
+## DemoShop storefront presentation
+
+Run `python demo_target_server.py` and open `http://127.0.0.1:8899/` for the
+responsive lifestyle storefront, with four locally bundled product photos,
+category browsing, product details, quantity selection and a cart/checkout
+simulation. No real order or payment is created. All 100 canonical GET input
+points, labels and probe response behaviors remain available. Photography and
+asset provenance: [DemoShop assets](tools/demo_shop_assets/README.md).
+
+Each canonical input now has a small `⊙` marker: hover over the field or focus
+the marker to see its display number `#001`–`#100` and parameter name. The
+page's input-point shortcut expands the existing form. Hidden inputs have a
+separate annotation. Numbers follow the authored target order and are display
+identifiers, distinct from scanner-generated InputPoint IDs.
+
+The v0.2 dashboard calls the overview list **상위 취약점 후보** and every
+candidate's displayed probability **최종 신뢰도**. Without focused verification,
+that value is the unchanged pre-verification probability, explicitly explained
+in the report; no verification record is invented and scores are not recomputed.
+
+Storefront HTML sizes have changed. Regenerate reports and ranking evaluations
+against the current target revision rather than treating historical metrics as
+measurements of the same response bytes.
 
 ## Development checks
 
