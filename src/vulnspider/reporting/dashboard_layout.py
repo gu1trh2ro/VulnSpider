@@ -8,6 +8,7 @@ from typing import Any
 
 from vulnspider.reporting.charts import Slice, donut_chart
 from vulnspider.reporting.dashboard_assets import SPIDER_MARK
+from vulnspider.reporting.dashboard_story import analysis_journey, candidate_caption, confidence_comparison
 from vulnspider.reporting.html_report import _fmt_percent
 
 FAMILY_LABELS = {
@@ -85,7 +86,8 @@ def candidate_table(rows: Sequence[Mapping[str, Any]], *, table_id: str) -> str:
         family, state = _esc(row["family"]), _esc(row["state"])
         body.append(
             f'<tr data-family="{family}" data-state="{state}"><td>{row["rank"]:02d}</td>'
-            f'<td><a class="location-link" href="#candidate-{row["rank"]}">{_esc(row["path"])}</a>'
+            f'<td><a class="location-link" href="#candidate-{row["rank"]}">{candidate_caption(row)}</a>'
+            f'<div class="location-sub">{_esc(row["path"])}</div>'
             f'<div class="location-sub">{_esc(row["parameter"])}</div></td>'
             f'<td><span class="family-tag"><i class="family-dot {family}" aria-hidden="true"></i>'
             f'{_esc(FAMILY_LABELS.get(row["family"], row["family"]))}</span></td>'
@@ -117,12 +119,16 @@ def relationship_map(rows: Sequence[Mapping[str, Any]]) -> str:
             f'<a class="candidate-node" href="#candidate-{row["rank"]}" '
             f'aria-label="{row["rank"]}번 {_esc(row["parameter"])} 후보 상세">'
             f'<i class="family-dot {_esc(row["family"])}" aria-hidden="true"></i>'
-            f'<span class="node-name">{_esc(row["parameter"])}</span>'
+            f'<span class="node-name">{_esc(row.get("friendly_parameter") or row["parameter"])}'
+            + (f'<small>입력점 #{_esc(row["input_number"])}</small>' if row.get("input_number") else '')
+            + '</span>'
             f'<strong>{_fmt_percent(row["score"])}% ↗</strong></a>'
             for row in group
         )
         nodes.append(
-            f'<div class="endpoint-node"><div class="node-path">{_esc(group[0]["path"])}</div>{links}</div>'
+            f'<div class="endpoint-node"><div class="node-path">'
+            + (f'<b>{_esc(group[0]["friendly_path"])}</b>' if group[0].get("friendly_path") else '')
+            + f'{_esc(group[0]["path"])}</div>{links}</div>'
         )
     graph = (
         '<div class="map-canvas"><div class="map-root"><div class="map-root-icon" aria-hidden="true">▧</div>'
@@ -172,12 +178,7 @@ def overview(
         "대상 웹사이트에서 수집한 입력점과 상위 취약점 후보를 종합한 최종 분석 결과입니다. 후보별 판단 근거, 검증 기록과 개선 방법을 확인할 수 있습니다.",
         eyebrow="FINAL ANALYSIS OVERVIEW",
     )
-    metrics = (
-        metric(endpoint_count, "발견한 엔드포인트", "요청 방식과 경로로 구분한 검사 대상")
-        + metric(input_point_count, "발견한 입력점", "검색어·상품 번호처럼 값을 받는 자리")
-        + metric(scored_count, "채점한 유형별 후보", "입력점 × 유형 및 접근제어 관계")
-        + metric(len(rows), "먼저 볼 대표 후보", f"선택된 유형별 후보 {selected_count}개에서 요약", accent=True)
-    )
+    metrics = analysis_journey(endpoint_count, input_point_count, scored_count, selected_count, len(rows))
     table = candidate_table(rows[:5], table_id="overview-list") if rows else '<div class="empty">선택된 후보가 없습니다.</div>'
     steps = (
         ("발견", "크롤링으로 경로와 입력점을 수집"),
@@ -192,7 +193,7 @@ def overview(
     return f"""<section class="report-page overview" id="overview" aria-label="분석 개요">
 <div class="page-heading"><div>{heading}<div class="target-chip">◎ {_esc(target or '분석 대상 정보 미제공')}</div></div>
 <a class="button primary" href="#candidates">후보 살펴보기 <span aria-hidden="true">→</span></a></div>
-<div class="metrics">{metrics}</div>{warnings_html}
+{metrics}{confidence_comparison(rows)}{warnings_html}
 <div class="overview-grid">{relationship_map(rows)}{family_chart(rows)}</div>
 <section class="panel"><div class="panel-head"><div><h2>상위 취약점 후보</h2>
 <p class="panel-desc">현재까지의 최종 신뢰도를 표시합니다. 추가 검증이 없으면 검증 전 확률을 그대로 사용합니다.</p></div>
@@ -220,12 +221,15 @@ def candidates_page(rows: Sequence[Mapping[str, Any]], selected_count: int, unse
 </section>"""
 
 
-def detail_page(card: str, rank: int, total: int, label: str) -> str:
+def detail_page(card: str, rank: int, total: int, label: str, row: Mapping[str, Any] | None = None) -> str:
     previous = f'<a class="button" href="#candidate-{rank - 1}">← 이전 후보</a>' if rank > 1 else '<span></span>'
     following = f'<a class="button" href="#candidate-{rank + 1}">다음 후보 →</a>' if rank < total else '<a class="button" href="#candidates">목록으로 →</a>'
     return (
         f'<section class="report-page" id="candidate-{rank}" aria-label="{rank}번 후보 상세">'
         '<a class="back-link" href="#candidates">← 취약점 후보 목록</a>'
         f'<div class="page-heading"><div>{page_heading(f"후보 {rank:02d} · {label}", "위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.", eyebrow="CANDIDATE DETAIL")}</div></div>'
-        f'{card}<nav class="detail-pager" aria-label="후보 간 이동">{previous}{following}</nav></section>'
+        + (f'<div class="source-caption"><strong>{candidate_caption(row)}</strong>'
+           '<p>이름과 번호는 일반 요청의 응답에 표시된 DemoShop 안내입니다. 후보 순위와 입력점 번호는 서로 다릅니다.</p></div>'
+           if row is not None and row.get("input_number") else '')
+        + f'{card}<nav class="detail-pager" aria-label="후보 간 이동">{previous}{following}</nav></section>'
     )

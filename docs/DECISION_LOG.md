@@ -1601,6 +1601,20 @@ Consequences:
 
 ---
 
+### Dashboard demonstration follow-up (2026-09-14)
+
+The overview now connects discovery/observation/selection counts and compares
+the first three representatives' supplied prior and final confidence on a fixed
+0–100% scale. Selected candidate count remains distinct from collapsed display
+count; missing verification never implies a gain or an executed payload.
+
+DemoShop names and marker numbers are optional descriptive annotations read
+from an existing, attributable baseline response and matching GET form. They
+are escaped and never feed identities, scoring or selection. Missing, duplicate,
+malformed or mismatched annotations retain canonical technical names. No target
+module imports, ground-truth access, new requests or discovery contracts were
+introduced. The implementation remains covered by ADR-041/042.
+
 ## New Decision Template
 
 ```text

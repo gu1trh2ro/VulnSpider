@@ -39,7 +39,9 @@ from vulnspider.reporting.guidance import (
 )
 from vulnspider.reporting import dashboard_layout as layout
 from vulnspider.reporting.dashboard_assets import SCRIPT, STYLE
+from vulnspider.reporting.dashboard_story import source_caption
 from vulnspider.reporting.dashboard_evidence import (
+    SIGNAL_EXPLANATIONS,
     explain_candidate,
     fix_acceptance,
     payload_records,
@@ -214,7 +216,7 @@ def render_decision_html_report(
     display_selected = _collapse_to_highest_type(
         _confidence_ordered(outcome.selected, verification)
     )
-    rows = _dashboard_rows(display_selected, input_points, endpoints, verification, access_observations)
+    rows = _dashboard_rows(display_selected, input_points, endpoints, verification, access_observations, probe_runs)
     methodology = [
         '<section class="report-page" id="methodology" aria-label="리포트 읽는 법">',
         '<div class="page-heading"><div>' + layout.page_heading(
@@ -256,6 +258,7 @@ def render_decision_html_report(
             probabilities=probabilities,
             verification=verification,
             access_observations=access_observations,
+            display_rows=rows,
         ),
         "\n".join(methodology),
     ]
@@ -282,6 +285,7 @@ def _dashboard_rows(
     endpoints: Mapping[str, Endpoint],
     verification: Mapping[str, CandidateVerification],
     access_observations: Mapping[str, Any],
+    probe_runs: Mapping[str, ProbeRun] = _EMPTY_PROBE_RUNS,
 ) -> list[dict[str, Any]]:
     rows = []
     for rank, candidate in enumerate(selected, 1):
@@ -307,6 +311,14 @@ def _dashboard_rows(
             "parameter": parameter, "score": _final_score(candidate, verification),
             "score_kind": "최종 신뢰도",
             "state": verified.final_outcome.value if verified is not None else "UNVERIFIED",
+            "prior": float(verified.prior_probability) if verified is not None else float(candidate.probability),
+            "verification_explanation": SIGNAL_EXPLANATIONS.get(
+                verified.final_signal.value if verified is not None else "",
+                "제공된 추가 확인 결과는 상세 화면에서 확인할 수 있습니다.",
+            ),
+            "family_label": layout.FAMILY_LABELS.get(candidate.family, candidate.family),
+            **(source_caption(point, endpoint, probe_runs.get(candidate.feature_vector_ref))
+               if candidate.family != "BROKEN_ACCESS_CONTROL" else {}),
         })
     return rows
 
@@ -583,6 +595,7 @@ def _render_candidates(
     probabilities: Mapping[str, CalibratedProbability],
     verification: Mapping[str, CandidateVerification] = _EMPTY_VERIFICATION,
     access_observations: Mapping[str, Any] = _EMPTY_ACCESS_OBS,
+    display_rows: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     if not selected:
         return ""
@@ -596,7 +609,8 @@ def _render_candidates(
             calibrated=probabilities.get(candidate.candidate_id),
             verified=verification.get(candidate.candidate_id),
             access_observation=access_observations.get(candidate.subject_ref),
-        ), rank, len(selected), _family_label(candidate.family))
+        ), rank, len(selected), _family_label(candidate.family),
+            display_rows[rank - 1] if display_rows else None)
         for rank, candidate in enumerate(selected, start=1)
     )
     return cards
