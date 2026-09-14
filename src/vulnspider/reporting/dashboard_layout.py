@@ -7,6 +7,7 @@ from html import escape
 from typing import Any
 
 from vulnspider.reporting.charts import Slice, donut_chart
+from vulnspider.reporting.dashboard_assets import SPIDER_MARK
 from vulnspider.reporting.html_report import _fmt_percent
 
 FAMILY_LABELS = {
@@ -40,7 +41,7 @@ def page_heading(title: str, description: str, *, eyebrow: str = "SCAN REPORT") 
 def shell(body: str, footer: str) -> str:
     return f"""<a class="skip-link" href="#overview">본문으로 이동</a>
 <aside class="sidebar" aria-label="리포트 탐색">
-  <a class="app-brand" href="#overview"><span class="brand-mark" aria-hidden="true">⌘</span>VulnSpider</a>
+  <a class="app-brand" href="#overview"><span class="brand-mark" aria-hidden="true">{SPIDER_MARK}</span>VulnSpider</a>
   <small>SECURITY INSIGHTS</small>
   <div class="nav-label">WORKSPACE</div>
   <nav aria-label="주 메뉴">
@@ -167,9 +168,9 @@ def overview(
     input_point_count: int, scored_count: int, selected_count: int, warnings_html: str,
 ) -> str:
     heading = page_heading(
-        "어디부터 살펴보면 좋을까요?",
-        "웹사이트의 입력점을 살펴보고, 추가 확인이 필요한 후보를 모았습니다. 후보를 선택하면 판단 근거와 개선 방법을 확인할 수 있습니다.",
-        eyebrow="VULNERABILITY OVERVIEW",
+        "웹사이트 취약점 분석 결과 개요",
+        "대상 웹사이트에서 수집한 입력점과 상위 취약점 후보를 종합한 최종 분석 결과입니다. 후보별 판단 근거, 검증 기록과 개선 방법을 확인할 수 있습니다.",
+        eyebrow="FINAL ANALYSIS OVERVIEW",
     )
     metrics = (
         metric(endpoint_count, "발견한 엔드포인트", "요청 방식과 경로로 구분한 검사 대상")

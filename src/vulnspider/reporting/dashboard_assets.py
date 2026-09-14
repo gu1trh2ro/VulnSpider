@@ -1,5 +1,25 @@
 """Trusted, dependency-free navigation and presentation assets for v0.2."""
 
+# Static dotted silhouette inspired by the CLI spider; no report data or assets.
+SPIDER_MARK = (
+    '<svg class="spider-mark" viewBox="0 0 44 60" aria-hidden="true" focusable="false">'
+    '<g fill="none" stroke="currentColor" stroke-width="1.8" '
+    'stroke-linecap="round" stroke-dasharray="0.1 3">'
+    '<path d="M18 23 12 18 10 9 10 3 M26 23 32 18 34 9 34 3 '
+    'M17 27 8 24 3 16 2 9 M27 27 36 24 41 16 42 9 '
+    'M17 31 8 34 3 42 2 50 M27 31 36 34 41 42 42 50 '
+    'M18 35 12 42 12 50 16 57 M26 35 32 42 32 50 28 57 '
+    'M20 15 19 9 M24 15 25 9"/></g><g fill="currentColor">'
+    + ''.join(
+        f'<circle cx="{x}" cy="{y}" r="0.9"/>'
+        for x in range(16, 29, 2)
+        for y in range(15, 47, 2)
+        if ((x - 22) / 4) ** 2 + ((y - 21) / 6) ** 2 <= 1
+        or ((x - 22) / 5.5) ** 2 + ((y - 36) / 10) ** 2 <= 1
+    )
+    + '</g></svg>'
+)
+
 STYLE = """
 :root{--paper:#f5f7fa;--ink:#192b3c;--muted:#627184;--accent:#087e8b;
  --line:#e1e8ed;--high:#b64d47;--medium:#987014;--low:#637588;
@@ -14,9 +34,9 @@ summary:focus-visible{outline:3px solid #0a98a6!important;outline-offset:4px}
 .sidebar{position:fixed;inset:0 auto 0 0;width:224px;background:#102d3b;color:#b8ccd4;
  padding:32px 20px;display:flex;flex-direction:column;z-index:10}
 .app-brand{display:flex;gap:11px;align-items:center;font-size:22px;font-weight:750;
- letter-spacing:-.7px;color:#f7ffff}.brand-mark{display:grid;place-items:center;width:36px;
- height:38px;background:#167b88;border:1px solid #3696a2;border-radius:12px;color:#dcffff}
-.sidebar small{font-size:10px;letter-spacing:2px;display:block;margin:9px 0 39px 47px}
+ letter-spacing:-.7px;color:#f7ffff}.brand-mark{display:grid;place-items:center;width:44px;
+ height:60px;flex-shrink:0;color:#ff667d}.spider-mark{display:block;width:44px;height:60px}
+.sidebar small{font-size:10px;letter-spacing:2px;display:block;margin:9px 0 39px 55px}
 .nav-label{font-size:10px;letter-spacing:1.8px;color:#89a8b6;margin:8px 12px 12px}
 .sidebar nav a{display:flex;gap:13px;align-items:center;padding:13px 14px;border-radius:8px;
  margin:5px 0;font-weight:550;font-size:13px}.sidebar nav a:hover{background:#1b4050}
