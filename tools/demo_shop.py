@@ -1096,13 +1096,13 @@ def _chrome(page: PageSpec) -> str:
     """
 
     count = 3 + zlib.crc32(page.path.encode("utf-8")) % 7
+    products = storefront.PRODUCTS
     picks = "".join(
-        f'<li><a href="/product#item-{storefront.PRODUCTS[index % 4][0]}">'
-        f'<img src="/assets/{storefront.PRODUCTS[index % 4][1]}.png" '
-        f'alt="{storefront.PRODUCTS[index % 4][3]}" loading="lazy" width="1024" height="1024">'
-        f'<b>{storefront.PRODUCTS[index % 4][3]}</b>'
-        f'<em>{storefront.PRODUCTS[index % 4][4]:,}원</em></a></li>'
-        for index in range(count)
+        f'<li><a href="/product#item-{product.id}">'
+        f'<img src="{product.image}" alt="{escape(product.name)}" '
+        f'loading="lazy" width="1024" height="1024">'
+        f'<b>{escape(product.name)}</b><em>{product.price:,}원</em></a></li>'
+        for product in (products[index % len(products)] for index in range(count))
     )
     return (
         '<section class="picks"><h3>함께 본 상품</h3>'
@@ -1348,18 +1348,53 @@ def _nav() -> str:
     return f'<nav>{links}</nav>'
 
 
-def _layout(title: str, body: str) -> bytes:
+def _input_of(path: str, name: str) -> str:
+    """Tag a storefront control with the canonical input point it feeds.
+
+    Presentation only. The tag is static text (display number, label, name)
+    that shop.css shows in reveal mode, so an audience can see that the header
+    search box or a category tab ends up as one of the numbered parameters.
+    """
+
+    item = next(item for item in PAGES_BY_PATH[path].inputs if item.name == name)
+    number = INPUT_POINT_NUMBERS[(path, name)]
+    return (
+        f'<span class="input-of" aria-hidden="true">⊙ #{number:03d} '
+        f"{escape(item.label)} <code>{escape(name)}</code></span>"
+    )
+
+
+def _layout(title: str, body: str, *, input_count: int = 0) -> bytes:
+    # Reveal mode is a viewer preference kept in localStorage; restoring the
+    # class before first paint avoids a flash of unmarked controls.
+    count = f"<b data-reveal-count>{input_count}</b>" if input_count else ""
+    toggle = (
+        '<button class="reveal-toggle" type="button" data-reveal-toggle '
+        'aria-pressed="false"><span aria-hidden="true">⊙</span>'
+        f'<span data-reveal-label>입력점 표시</span>{count}</button>'
+    )
     return (
         "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{escape(title)} · DemoShop</title>"
         f'<style>{_STYLE}</style><link rel="stylesheet" href="/assets/shop.css">'
+        "<script>try{if(localStorage.getItem('demoshop-reveal-inputs')==='1')"
+        "document.documentElement.classList.add('reveal-inputs')}catch(e){}</script>"
+        f'<script src="{storefront.PRODUCTS_SCRIPT}" defer></script>'
         '<script src="/assets/shop.js" defer></script></head><body>'
-        f'{storefront.header()}<main>{body}</main>{storefront.footer()}</body></html>'
+        f"{storefront.header(_input_of)}<main>{body}</main>{toggle}"
+        f"{storefront.footer()}</body></html>"
     ).encode("utf-8")
 
 
-def _control(item: InputSpec, value: str, *, number: int | None = None) -> str:
+def _control(
+    item: InputSpec,
+    value: str,
+    *,
+    number: int | None = None,
+    path: str = "",
+    chips: tuple[tuple[str, str], ...] = (),
+) -> str:
     # A filter form keeps what was submitted, so the value is echoed here too --
     # HTML-escaped, as a form control must be. For a route that sanitises on
     # input, the control shows the *sanitised* value: showing the raw one would
@@ -1387,6 +1422,7 @@ def _control(item: InputSpec, value: str, *, number: int | None = None) -> str:
     tooltip = (
         f'<span class="input-tooltip" role="tooltip" id="input-hint-{number:03d}">'
         f'<strong>입력점 #{number:03d}</strong><span>{label} · {escape(item.name)}</span>'
+        + (f'<small>GET {escape(path)}?{escape(item.name)}=…</small>' if path else '')
         + ('<small>페이지에 포함된 숨김 입력</small>' if item.control == 'hidden' else '')
         + '</span>'
     )
@@ -1398,21 +1434,41 @@ def _control(item: InputSpec, value: str, *, number: int | None = None) -> str:
         f'<div class="input-point-field" data-input-point="{number:03d}">'
         f'<div class="field-caption">{caption}'
         f'<button class="input-marker" type="button" aria-label="입력점 {number:03d} 안내" '
-        f'aria-describedby="input-hint-{number:03d}"><span aria-hidden="true">⊙</span></button>'
+        f'aria-describedby="input-hint-{number:03d}"><span aria-hidden="true">⊙</span>'
+        f'<span class="marker-number" aria-hidden="true">{number:03d}</span></button>'
         f'{tooltip}</div>{field}'
         + ('<span class="hidden-input-note">숨김 입력</span>' if item.control == 'hidden' else '')
+        + _chips(chips)
         + '</div>'
     )
 
 
+def _chips(chips: tuple[tuple[str, str], ...]) -> str:
+    # Quick picks are unnamed type=button controls: they set the text input's
+    # value and submit, so the crawl still sees one control with its seed.
+    if not chips:
+        return ""
+    return '<span class="chips">' + "".join(
+        f'<button type="button" class="chip" data-chip="{escape(value)}">{escape(label)}</button>'
+        for value, label in chips
+    ) + "</span>"
+
+
 def _filter_form(page: PageSpec, query: dict[str, str]) -> str:
     controls = "".join(
-        _control(item, query.get(item.name, item.seed), number=INPUT_POINT_NUMBERS[(page.path, item.name)])
+        _control(
+            item,
+            query.get(item.name, item.seed),
+            number=INPUT_POINT_NUMBERS[(page.path, item.name)],
+            path=page.path,
+            chips=storefront.chips(page.path, item.name),
+        )
         for item in page.inputs
     )
+    submit = escape(storefront.route_copy(page.path).submit)
     return (
-        f'<form class="filters" method="get" action="{page.path}">'
-        f'{controls}<div class="actions"><button type="submit">적용</button></div>'
+        f'<form class="filters" id="input-points" method="get" action="{page.path}">'
+        f'{controls}<div class="actions"><button type="submit">{submit}</button></div>'
         "</form>"
     )
 
@@ -1429,19 +1485,17 @@ def render_route(page: PageSpec, query: dict[str, str]) -> tuple[int, bytes]:
         cards.append(html)
     body = (
         f'<a class="surface-jump" href="#input-points">⊙ 이 페이지의 입력점 {len(page.inputs)}개 보기</a>'
-        f"{storefront.route_intro(page.path, page.title)}"
-        '<details class="route-options" id="input-points"'
-        + ('' if page.path in ('/product', '/cart', '/checkout') else ' open')
-        + f'><summary>선택한 조건과 상세 정보 <span class="surface-count">⊙ {len(page.inputs)}개 입력점</span></summary>'
-        f'<p class="blurb">{escape(page.blurb)}</p>'
-        f"{_filter_form(page, query)}"
-        '<details class="response-details"><summary>조회 응답 자세히 보기</summary>'
-        f'<div class="results">{"".join(cards)}</div>'
-        '</details>'
-        '</details>'
-        f"{_chrome(page)}"
+        + storefront.route_body(
+            page.path,
+            page.title,
+            page.blurb,
+            _filter_form(page, query),
+            "".join(cards),
+            _input_of,
+        )
+        + _chrome(page)
     )
-    return status, _layout(page.title, body)
+    return status, _layout(page.title, body, input_count=len(page.inputs))
 
 
 def render_index() -> bytes:
@@ -1464,7 +1518,7 @@ def render_index() -> bytes:
         + "</ul></section>"
         for section, pages in sections.items()
     )
-    body = storefront.home(blocks)
+    body = storefront.home(blocks, _input_of)
     return _layout("홈", body)
 
 
@@ -1708,6 +1762,13 @@ class DemoShopHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parts = urlsplit(self.path)
+        if parts.path == storefront.PRODUCTS_SCRIPT:
+            self._respond(
+                200,
+                storefront.products_script(),
+                content_type="text/javascript; charset=utf-8",
+            )
+            return
         asset = storefront.ASSETS.get(parts.path)
         if asset is not None:
             asset_path, content_type = asset

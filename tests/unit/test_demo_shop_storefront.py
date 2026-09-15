@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 from html.parser import HTMLParser
 from http.client import HTTPConnection
@@ -87,7 +88,9 @@ class StorefrontContractTests(unittest.TestCase):
 
     def test_all_four_product_photos_are_bundled_and_referenced(self) -> None:
         body = demo_shop.render_index().decode("utf-8")
-        for _, photo, _, _, _, _, _ in demo_shop_storefront.PRODUCTS:
+        photos = {product.photo for product in demo_shop_storefront.PRODUCTS}
+        self.assertEqual(len(photos), 4)
+        for photo in photos:
             route = f"/assets/{photo}.png"
             self.assertIn(route, body)
             path, mime = demo_shop_storefront.ASSETS[route]
@@ -95,6 +98,71 @@ class StorefrontContractTests(unittest.TestCase):
             self.assertEqual(path.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
         self.assertIn('name="viewport"', body)
         self.assertIn("실제 결제·주문·배송은 이루어지지 않습니다", body)
+
+    def test_every_route_renders_its_form_as_the_page_panel(self) -> None:
+        # The canonical form is the page's own UI: a contextual submit label,
+        # the response cards in a visible results section, and no collapsed
+        # details wrapper hiding the controls.
+        for page in demo_shop.PAGES:
+            body = demo_shop.render_route(page, {})[1].decode("utf-8")
+            copy = demo_shop_storefront.route_copy(page.path)
+            self.assertIn(f'id="input-points" method="get" action="{page.path}"', body, page.path)
+            self.assertIn(f'<button type="submit">{copy.submit}</button>', body, page.path)
+            self.assertIn(f"<h2>{copy.results}</h2>", body, page.path)
+            self.assertNotIn('class="route-options"', body, page.path)
+        self.assertEqual(set(demo_shop_storefront.ROUTE_COPY), set(demo_shop.PAGES_BY_PATH))
+
+    def test_quick_picks_and_pagers_are_unnamed_non_submitting_buttons(self) -> None:
+        for (path, name), picks in demo_shop_storefront.CHIPS.items():
+            item = next(item for item in demo_shop.PAGES_BY_PATH[path].inputs if item.name == name)
+            self.assertEqual(item.control, "text", (path, name))
+            self.assertIn(item.seed, {value for value, _ in picks}, (path, name))
+        for page in demo_shop.PAGES:
+            body = demo_shop.render_route(page, {})[1].decode("utf-8")
+            for match in re.finditer(r"<button\b([^>]*)>", body):
+                attributes = match.group(1)
+                self.assertNotIn("name=", attributes, page.path)
+                if 'type="submit"' not in attributes:
+                    self.assertIn('type="button"', attributes, page.path)
+
+    def test_the_catalog_is_twelve_products_over_four_photos_with_stable_ids(self) -> None:
+        products = demo_shop_storefront.PRODUCTS
+        self.assertEqual(len(products), 12)
+        self.assertEqual([product.id for product in products], [str(number) for number in range(101, 113)])
+        self.assertEqual({product.photo for product in products}, {"sneakers", "tote", "headphones", "lamp"})
+        for product in products:
+            # Every variant is a bundled, allowlisted asset of the right type.
+            path, mime = demo_shop_storefront.ASSETS[product.image]
+            self.assertTrue(path.is_file(), product.image)
+            self.assertEqual(mime, "image/jpeg" if product.file else "image/png", product.image)
+        body = demo_shop.render_route(demo_shop.PAGES_BY_PATH["/catalog"], {})[1].decode("utf-8")
+        self.assertEqual(body.count('class="product-card"'), 12)
+        # Product data travels as its own script asset, so editing the catalog
+        # never changes a route's response bytes (and so never a scan's features).
+        self.assertIn(f'<script src="{demo_shop_storefront.PRODUCTS_SCRIPT}" defer>', body)
+        for product in products:
+            self.assertNotIn(product.name, body.split("<main>", 1)[0], product.id)
+        script = demo_shop_storefront.products_script().decode("utf-8")
+        self.assertTrue(script.startswith("window.DEMOSHOP_PRODUCTS = ["))
+        self.assertNotIn("</script>", script)
+        for product in products:
+            # Sized products (shoes, bags) offer sizes of their own colour only;
+            # the rest offer the model's colours, their own among them.
+            values = [value for value, _label in product.variants]
+            self.assertTrue(values, product.id)
+            if product.sizes:
+                self.assertTrue(all(value.startswith(product.color + "-") for value in values), (product.id, values))
+            else:
+                self.assertIn(product.color, values, product.id)
+        # The catalog form's seeds describe at least one product, so applying
+        # the crawl baseline shows a result instead of an empty grid.
+        seeds = demo_shop.PAGES_BY_PATH["/catalog"].seeds
+        self.assertTrue(any(
+            product.category == seeds["category"]
+            and product.brand_key == seeds["brand"]
+            and product.color == seeds["color"]
+            for product in products
+        ))
 
 
 class StorefrontAssetHTTPTests(unittest.TestCase):
@@ -109,6 +177,17 @@ class StorefrontAssetHTTPTests(unittest.TestCase):
         cls.server.shutdown()
         cls.server.server_close()
         cls.worker.join(timeout=5)
+
+    def test_the_products_script_is_served_as_javascript(self) -> None:
+        connection = HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        try:
+            connection.request("GET", demo_shop_storefront.PRODUCTS_SCRIPT)
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader("Content-Type"), "text/javascript; charset=utf-8")
+            self.assertEqual(response.read(), demo_shop_storefront.products_script())
+        finally:
+            connection.close()
 
     def test_only_exact_allowlisted_assets_are_served(self) -> None:
         for route, (path, mime) in demo_shop_storefront.ASSETS.items():

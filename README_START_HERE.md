@@ -302,17 +302,50 @@ the current code and the v0.2 documents, not by replaying the prompts.
 ## DemoShop storefront presentation
 
 Run `python demo_target_server.py` and open `http://127.0.0.1:8899/` for the
-responsive lifestyle storefront, with four locally bundled product photos,
-category browsing, product details, quantity selection and a cart/checkout
-simulation. No real order or payment is created. All 100 canonical GET input
-points, labels and probe response behaviors remain available. Photography and
-asset provenance: [DemoShop assets](tools/demo_shop_assets/README.md).
+responsive lifestyle storefront: twelve products (four locally bundled photos
+plus eight recoloured variants of them), category browsing, product details,
+a cart/checkout simulation and a service page for every route. No real order or payment is
+created. All 100 canonical GET input points, labels and probe response
+behaviors remain available. Photography and asset provenance:
+[DemoShop assets](tools/demo_shop_assets/README.md).
 
-Each canonical input now has a small `⊙` marker: hover over the field or focus
-the marker to see its display number `#001`–`#100` and parameter name. The
-page's input-point shortcut expands the existing form. Hidden inputs have a
-separate annotation. Numbers follow the authored target order and are display
-identifiers, distinct from scanner-generated InputPoint IDs.
+Every route's canonical GET form *is* the page's UI: the catalog and search
+render it as the filter bar above the grid (category, brand, colour, size,
+sort, page), the product page as its option panel (`id`, `variant`, `tab`,
+`qty`), the cart and checkout as their order forms, and each service route
+(orders, tickets, seller tools, admin lookups, …) as its own form with a
+contextual submit label. The page reacts to what was submitted — the grid is
+filtered, sorted and paged from the URL query, the product/cart/checkout
+totals follow `qty`, `coupon`, `shipping` — and the server's per-parameter
+response cards (rows, echoes, database errors, validation warnings) are shown
+in a visible results section. Quick-pick chips and the pager are unnamed
+`type="button"` controls; names, seeds, form actions, response behaviors and
+ground truth are unchanged, and a crawl still finds 33 endpoints and 100
+input points. Product data (names, prices, per-product option chips) is served
+as its own script, `/assets/products.js`, not embedded in the page: editing the
+catalog never changes a route's response bytes, so it never moves a scan's
+response-size features or the ranking a dashboard is built from.
+
+Each canonical input has a small `⊙` marker: hover over the field or focus the
+marker to see its display number `#001`–`#100`, parameter name and request
+shape (`GET /search?q=…`). The page's input-point shortcut expands the existing
+form. Hidden inputs have a separate annotation. Numbers follow the authored
+target order and are display identifiers, distinct from scanner-generated
+InputPoint IDs.
+
+The fixed **⊙ 입력점 표시** pill (bottom right) switches on reveal mode for the
+demo: every canonical control gets a solid green outline with its number, and
+the storefront controls that feed a canonical parameter — the header search
+box (`/search q`), category tabs (`category`), the product grid
+(`/product id`), the product tab bar (`tab`) and the catalog pager (`page`) —
+get a dashed outline and a `⊙ #001 검색어 q` tag; quick-pick chips and pager
+buttons turn green as well. The choice is kept in `localStorage`, so it
+survives navigation; click again to return to the plain storefront.
+
+The header search box is a real search: Enter or the magnifier opens
+`/search?q=<term>`, the term narrows the product grid on the client and the
+route echoes it as input point #001. The box has no `name` and no `<form>`, so
+the crawl surface is still the canonical `/search` GET form.
 
 The v0.2 dashboard calls the overview list **상위 취약점 후보** and every
 candidate's displayed probability **최종 신뢰도**. Without focused verification,
