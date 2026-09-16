@@ -122,6 +122,9 @@
     const wanted = path === '/compare' ? (ids || '').split(',').map(id => id.trim()).filter(id => byId[id]) : null;
     const matches = card => {
       const p = byId[card.dataset.product];
+      // Without the products script the page degrades to what the server
+      // rendered: category tabs still work, the finer filters are skipped.
+      if (!p) return category === 'all' || card.dataset.category === category;
       if (path === '/account/wishlist') return WISHLIST.includes(p.id);
       if (wanted) return wanted.includes(p.id);
       if (category !== 'all' && p.category !== category) return false;
@@ -141,7 +144,7 @@
     let shown = cards.filter(matches);
     if (path === '/account/wishlist' && !order) shown.sort((a, b) => WISHLIST.indexOf(a.dataset.product) - WISHLIST.indexOf(b.dataset.product));
     if (wanted && !order) shown.sort((a, b) => wanted.indexOf(a.dataset.product) - wanted.indexOf(b.dataset.product));
-    if (order) shown = shown.slice().sort((a, b) => order(byId[a.dataset.product], byId[b.dataset.product]));
+    if (order && products.length) shown = shown.slice().sort((a, b) => order(byId[a.dataset.product], byId[b.dataset.product]));
     const pageSize = PAGED.includes(path) ? PAGE_SIZE : Infinity;
     const pages = Math.max(1, Math.ceil(shown.length / pageSize));
     const requested = applied && digits(filters.page) ? Number(filters.page) : 1;
@@ -189,7 +192,7 @@
     }
     const compare = document.querySelector('[data-compare]');
     if (compare) {
-      const chosen = shown.map(card => byId[card.dataset.product]);
+      const chosen = shown.map(card => byId[card.dataset.product]).filter(Boolean);
       compare.hidden = chosen.length === 0;
       compare.textContent = '';
       if (chosen.length) {
@@ -278,7 +281,7 @@
   }
 
   // Cart: `qty`, `coupon` and `note` are reflected in the order summary.
-  if (path === '/cart' && form) {
+  if (path === '/cart' && form && products.length) {
     const p = (itemHash && byId[itemHash[1]]) || products[0];
     if (itemHash && itemHash[2] && field('qty')) field('qty').value = itemHash[2];
     const renderCart = () => {
@@ -302,7 +305,7 @@
   }
 
   // Checkout: shipping, payment, message and reference come from the form.
-  if (path === '/checkout' && form) {
+  if (path === '/checkout' && form && products.length) {
     const p = (itemHash && byId[itemHash[1]]) || products[0];
     const qty = itemHash && itemHash[2] ? Number(itemHash[2]) : 1;
     const renderCheckout = () => {
