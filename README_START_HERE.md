@@ -163,6 +163,13 @@ records are labeled explicitly. A fixed CSP-hashed script supplies navigation,
 search, filters and current-screen printing; modern browsers can still navigate
 the fragment screens using CSS when JavaScript is disabled. Existing generated
 reports must be regenerated to receive this UI (ADR-041).
+The projector update (`decision-html-v5`) adds larger high-contrast text,
+**화면 크게** with persistent navigation, a **발표 스토리** screen, verification
+status cards and final-confidence bars. Candidate detail compares retained,
+escaped Baseline/Probe response excerpts and explains the recorded clues and
+their limits in plain Korean. It remains an offline report with no manual
+target-execution feature. Presentation guidance and the fresh K=20 run command:
+[Projector demo guide](docs/PROJECTOR_DEMO_GUIDE.md).
 With `--verify` it leads with the post-verification confidence. Adding
 `--verify` (on `analyze` or simple `-u` mode) runs focused verification
 after ranking: for each Top-K candidate it proposes same-family variant

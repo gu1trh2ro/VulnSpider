@@ -1615,6 +1615,24 @@ malformed or mismatched annotations retain canonical technical names. No target
 module imports, ground-truth access, new requests or discovery contracts were
 introduced. The implementation remains covered by ADR-041/042.
 
+### Projector and recorded-evidence follow-up (2026-09-21)
+
+`decision-html-v5` extends ADR-041/042 with a presentation story, larger
+high-contrast typography, an opt-in projector view with persistent navigation,
+representative verification-state counts and final-confidence bars. The top
+two displayed representatives link to their recorded evidence, with no manual
+proof or target-execution link. The user explicitly excluded the unfinished
+DemoShop proof feature; its code/assets and fixture changes were removed.
+
+Candidate detail displays bounded, escaped retained Baseline/Probe excerpts,
+actual request values, status/size and provenance. Excerpt matching is only a
+reading aid. Interpretations use supplied calibration evidence, distinguish
+aggregate input-point signals from the displayed pair, and explain false
+positives and missing/error records. A SQL error is not proof of SQL execution;
+reflection alone is not proof of script execution. Status cards count displayed
+representatives, not confirmed vulnerabilities. No score/confidence, JSON,
+selection, feature extraction or network behavior changes.
+
 ## New Decision Template
 
 ```text

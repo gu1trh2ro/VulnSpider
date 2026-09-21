@@ -40,6 +40,8 @@ from vulnspider.reporting.guidance import (
 from vulnspider.reporting import dashboard_layout as layout
 from vulnspider.reporting.dashboard_assets import SCRIPT, STYLE
 from vulnspider.reporting.dashboard_story import source_caption
+from vulnspider.reporting.dashboard_comparison import response_comparison
+from vulnspider.reporting.dashboard_presentation import presentation_page
 from vulnspider.reporting.dashboard_evidence import (
     SIGNAL_EXPLANATIONS,
     explain_candidate,
@@ -62,7 +64,7 @@ from vulnspider.reporting.html_report import (
 from vulnspider.scoring.calibration import CalibratedProbability, CalibratedScorer
 from vulnspider.verification.focused import CandidateVerification
 
-DECISION_HTML_REPORT_VERSION = "decision-html-v4"
+DECISION_HTML_REPORT_VERSION = "decision-html-v5"
 
 _EMPTY_INPUT_POINTS: Mapping[str, InputPoint] = {}
 _EMPTY_ENDPOINTS: Mapping[str, Endpoint] = {}
@@ -240,6 +242,7 @@ def render_decision_html_report(
         '</section>',
     ]
     sections = [
+        presentation_page(rows, input_point_count or len(input_points), len(outcome.selected)),
         layout.overview(
             rows, target=target, endpoint_count=endpoint_count or len(endpoints),
             input_point_count=input_point_count or len(input_points),
@@ -634,6 +637,21 @@ def _render_candidate(
     )
     band = _priority_band(probability)
     percent = _fmt_percent(probability)
+    prior_probability = (
+        float(verified.prior_probability) if verified is not None else float(candidate.probability)
+    )
+    prior_percent = _fmt_percent(prior_probability)
+    delta_points = probability * 100 - prior_probability * 100
+    verify_delta = ""
+    prior_tick = ""
+    if verified is not None:
+        prior_tick = f'<span class="prior-tick" style="left:{prior_percent}%" aria-hidden="true"></span>'
+        if abs(delta_points) >= 0.05:
+            arrow, tone = ("▲", "up") if delta_points > 0 else ("▼", "down")
+            verify_delta = (
+                f'<div class="verify-delta {tone}"><span class="vd-from">검증 전 {prior_percent}%</span>'
+                f'<b>{arrow} {abs(delta_points):.1f}%p</b><span class="vd-label">추가 검증 반영</span></div>'
+            )
     if access_observation is not None:
         plan = access_observation.access_probe_plan
         endpoint_line = _render_access_endpoint_line(
@@ -648,7 +666,8 @@ def _render_candidate(
             else None
         )
         endpoint_line = _render_endpoint_line(endpoint, input_point)
-        requests_html = _render_requests(candidate, probe_runs)
+        requests_html = response_comparison(input_point, probe_runs.get(candidate.feature_vector_ref), candidate.family, calibrated)
+        requests_html += '<details class="technical"><summary>요청 전체 표 · 응답 크기 비교</summary>' + _render_requests(candidate, probe_runs) + '</details>'
     access_check_kind = (
         access_observation.access_probe_plan.check_kind.value
         if access_observation is not None
@@ -669,19 +688,20 @@ def _render_candidate(
       </div>
       <div class="meterwrap">
         <div class="prio {band}">{percent}%</div>
-        <div class="meter"><i class="{band}" style="width:{percent}%"></i></div>
+        {verify_delta}
+        <div class="meter"><i class="{band}" style="width:{percent}%"></i>{prior_tick}</div>
         <div class="pcaption">{_meter_caption(candidate, verified)}</div>
       </div>
     </div>
 
-    <section class="detail-section"><h2><span>01</span>왜 이 후보를 살펴봐야 하나요?</h2>
+    <section class="detail-section"><h2><span>01</span>처음에는 어떤 차이가 관찰됐나요?</h2>
+    <p class="panel-desc">일반 입력의 응답과 입력을 바꾼 응답을 비교한 실제 기록입니다.</p>
+    {requests_html or '<div class="missing-note">초기 요청·응답 기록이 제공되지 않았습니다.</div>'}</section>
+
+    <section class="detail-section"><h2><span>02</span>왜 이 후보를 살펴봐야 하나요?</h2>
     {explain_candidate(candidate.family, calibrated)}
     <details class="technical"><summary>전체 순위 근거와 기여도 보기</summary>
     {_render_evidence(candidate, calibrated)}</details></section>
-
-    <section class="detail-section"><h2><span>02</span>처음에는 어떤 차이가 관찰됐나요?</h2>
-    <p class="panel-desc">일반 입력의 응답과 입력을 바꾼 응답을 비교한 실제 기록입니다.</p>
-    {requests_html or '<div class="missing-note">초기 요청·응답 기록이 제공되지 않았습니다.</div>'}</section>
 
     <section class="detail-section"><h2><span>03</span>추가 확인으로 무엇을 알게 됐나요?</h2>
     {verification_explanation(verified)}

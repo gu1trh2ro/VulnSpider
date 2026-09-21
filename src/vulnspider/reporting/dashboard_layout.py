@@ -9,6 +9,7 @@ from typing import Any
 from vulnspider.reporting.charts import Slice, donut_chart
 from vulnspider.reporting.dashboard_assets import SPIDER_MARK
 from vulnspider.reporting.dashboard_story import analysis_journey, candidate_caption, confidence_comparison
+from vulnspider.reporting.dashboard_presentation import evidence_summary
 from vulnspider.reporting.html_report import _fmt_percent
 
 FAMILY_LABELS = {
@@ -47,6 +48,7 @@ def shell(body: str, footer: str) -> str:
   <div class="nav-label">WORKSPACE</div>
   <nav aria-label="주 메뉴">
     <a href="#overview" aria-current="page"><span class="nav-icon" aria-hidden="true">▦</span>분석 개요</a>
+    <a href="#presentation"><span class="nav-icon" aria-hidden="true">▷</span>발표 스토리</a>
     <a href="#candidates"><span class="nav-icon" aria-hidden="true">◎</span>취약점 후보</a>
     <a href="#methodology"><span class="nav-icon" aria-hidden="true">▤</span>리포트 읽는 법</a>
   </nav>
@@ -55,7 +57,9 @@ def shell(body: str, footer: str) -> str:
 </aside>
 <div class="workspace">
   <div class="topbar"><div class="crumb">리포트 &nbsp; / &nbsp; <b id="current-page">분석 개요</b></div>
+    <nav class="projector-nav" aria-label="발표 화면 이동"><a href="#overview">개요</a><a href="#presentation">발표 스토리</a><a href="#candidates">후보 목록</a></nav>
     <div class="top-actions"><span class="snapshot-badge">● 저장된 분석 결과</span>
+    <button class="button projector-toggle" type="button" data-projector aria-pressed="false">화면 크게</button>
     <button class="button" type="button" data-print>현재 화면 인쇄 ↗</button></div>
   </div>
   <main class="main-content">{body}{footer}</main>
@@ -192,8 +196,8 @@ def overview(
     )
     return f"""<section class="report-page overview" id="overview" aria-label="분석 개요">
 <div class="page-heading"><div>{heading}<div class="target-chip">◎ {_esc(target or '분석 대상 정보 미제공')}</div></div>
-<a class="button primary" href="#candidates">후보 살펴보기 <span aria-hidden="true">→</span></a></div>
-{metrics}{confidence_comparison(rows)}{warnings_html}
+<a class="button primary" href="#presentation">발표 스토리 시작 <span aria-hidden="true">→</span></a></div>
+{metrics}{evidence_summary(rows)}{confidence_comparison(rows)}{warnings_html}
 <div class="overview-grid">{relationship_map(rows)}{family_chart(rows)}</div>
 <section class="panel"><div class="panel-head"><div><h2>상위 취약점 후보</h2>
 <p class="panel-desc">현재까지의 최종 신뢰도를 표시합니다. 추가 검증이 없으면 검증 전 확률을 그대로 사용합니다.</p></div>

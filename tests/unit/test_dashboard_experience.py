@@ -57,7 +57,7 @@ class DashboardExperienceTests(unittest.TestCase):
         rendered = render_decision_html_report(outcome, target=attack, warnings=(attack,))
         parsed = DocumentLinks(rendered)
         self.assertEqual(len(parsed.ids), len(set(parsed.ids)))
-        self.assertTrue({"overview", "candidates", "methodology", "candidate-1", "candidate-2"}.issubset(parsed.ids))
+        self.assertTrue({"overview", "presentation", "candidates", "methodology", "candidate-1", "candidate-2"}.issubset(parsed.ids))
         self.assertTrue(all(link.startswith("#") and link[1:] in parsed.ids for link in parsed.links))
         self.assertEqual(parsed.scripts, [{}])
         self.assertIn(f"<script>{SCRIPT}</script>", rendered)
@@ -66,6 +66,8 @@ class DashboardExperienceTests(unittest.TestCase):
         self.assertIn("default-src 'none'", parsed.csp)
         self.assertNotIn(attack, rendered)
         self.assertIn(html.escape(attack), rendered)
+        self.assertNotIn("/_lab/verify", rendered)
+        self.assertNotIn("직접 실증", rendered)
 
     def test_empty_report_keeps_overview_and_does_not_invent_a_candidate_screen(self) -> None:
         rendered = render_decision_html_report(run_decision_layer((), top_k=5))

@@ -40,10 +40,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
-sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(SRC))
+sys.path.insert(0, str(ROOT))
 
-import demo_shop  # noqa: E402  (path set above)
+from tools import demo_shop  # noqa: E402  (path set above)
 from vulnspider import __version__  # noqa: E402
 
 DEMO_GROUND_TRUTH = "data/demo/demoshop-ground-truth.json"
