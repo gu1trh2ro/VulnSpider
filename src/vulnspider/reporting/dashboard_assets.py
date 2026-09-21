@@ -482,6 +482,73 @@ STYLE += """
 """
 
 
+STYLE += """
+/* --- v0.2 visual layer: type icons, at-a-glance hero, confidence gauges ---- */
+:root{--sqli-soft:#f4ecdd;--xss-soft:#efedf8;--bac-soft:#e4f1f0}
+
+/* Type glyphs inherit the family colour wherever they appear. */
+.fam-ico{width:17px;height:17px;flex:0 0 auto;vertical-align:-3px}
+.family-tag{gap:8px;font-weight:650}
+.family-tag.SQLI{color:var(--sqli)}
+.family-tag.REFLECTED_XSS{color:var(--xss)}
+.family-tag.BROKEN_ACCESS_CONTROL{color:var(--bac)}
+.map-legend span.SQLI{color:var(--sqli)}
+.map-legend span.REFLECTED_XSS{color:var(--xss)}
+.map-legend span.BROKEN_ACCESS_CONTROL{color:var(--bac)}
+.map-legend .fam-ico{width:14px;height:14px}
+.fam.SQLI{color:var(--sqli)}.fam.REFLECTED_XSS{color:var(--xss)}.fam.BROKEN_ACCESS_CONTROL{color:var(--bac)}
+
+/* "가장 먼저 확인할 곳" — the visual headline of the whole report. */
+.risk-headline{margin-bottom:22px}
+.risk-grid{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:14px;padding:6px 23px 24px}
+.risk-card{display:flex;align-items:center;gap:16px;min-width:0;padding:18px 20px;
+ border:1px solid var(--edge);border-left:5px solid var(--edge-strong);border-radius:12px;
+ background:#fff;color:var(--ink)}
+.risk-card:hover{background:#f6fafb}
+.risk-card.SQLI{border-left-color:var(--sqli)}
+.risk-card.REFLECTED_XSS{border-left-color:var(--xss)}
+.risk-card.BROKEN_ACCESS_CONTROL{border-left-color:var(--bac)}
+.risk-rank{font:800 15px/1 var(--mono);color:#9aa8b2;flex:0 0 auto}
+.risk-ico{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;flex:0 0 auto;
+ background:var(--surface-2)}
+.risk-ico .fam-ico{width:24px;height:24px}
+.risk-card.SQLI .risk-ico{color:var(--sqli);background:var(--sqli-soft)}
+.risk-card.REFLECTED_XSS .risk-ico{color:var(--xss);background:var(--xss-soft)}
+.risk-card.BROKEN_ACCESS_CONTROL .risk-ico{color:var(--bac);background:var(--bac-soft)}
+.risk-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.risk-fam{font-size:12px;font-weight:800;letter-spacing:.4px;color:var(--muted)}
+.risk-loc{font-size:16px;font-weight:700;line-height:1.4;overflow-wrap:anywhere}
+.risk-say{font-size:13px;color:var(--muted);margin:7px 0 0;line-height:1.65}
+.risk-gauge{position:relative;width:74px;height:74px;flex:0 0 auto}
+.risk-gauge svg{width:74px;height:74px;transform:rotate(-90deg)}
+.risk-gauge .g-bg{fill:none;stroke:#e7eef1;stroke-width:3.2}
+.risk-gauge .g-fg{fill:none;stroke:var(--accent);stroke-width:3.2;stroke-linecap:round}
+.risk-card.SQLI .g-fg{stroke:var(--sqli)}
+.risk-card.REFLECTED_XSS .g-fg{stroke:var(--xss)}
+.risk-card.BROKEN_ACCESS_CONTROL .g-fg{stroke:var(--bac)}
+.risk-pct{position:absolute;inset:0;display:grid;place-content:center;text-align:center;line-height:1}
+.risk-pct b{font:800 21px/1 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.risk-pct small{font-size:11px;color:var(--muted)}
+.risk-card.lead .risk-loc{font-size:19px}
+.risk-card.lead .risk-ico{width:52px;height:52px}.risk-card.lead .risk-ico .fam-ico{width:28px;height:28px}
+.risk-card.lead .risk-gauge,.risk-card.lead .risk-gauge svg{width:86px;height:86px}
+.risk-card.lead .risk-pct b{font-size:25px}
+.projector .risk-loc{font-size:18px}.projector .risk-card.lead .risk-loc{font-size:22px}
+
+/* Detail header: a big family glyph makes the type unmistakable. */
+.finding .vtype{display:flex;align-items:center;gap:12px}
+.finding .vtype .fam{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:11px;
+ background:var(--surface-2);flex:0 0 auto}
+.finding .vtype .fam-ico{width:24px;height:24px}
+
+@media(max-width:1000px){.risk-grid{grid-template-columns:1fr 1fr}.risk-card.lead{grid-column:1/-1}}
+@media(max-width:640px){.risk-grid{grid-template-columns:1fr}.risk-card{padding:15px 16px;gap:12px}
+ .risk-card.lead .risk-gauge,.risk-card.lead .risk-gauge svg{width:74px;height:74px}
+ .risk-gauge,.risk-gauge svg{width:64px;height:64px}}
+@media print{.risk-card{break-inside:avoid}}
+"""
+
+
 # No report data is interpolated into JavaScript; all data comes from escaped DOM.
 SCRIPT = """(() => {
   'use strict';
@@ -493,7 +560,8 @@ SCRIPT = """(() => {
     pages.forEach(p => p.classList.toggle('active', p === page));
     nav.forEach(a => {
       const current = a.hash === '#' + page.id ||
-        (page.id.startsWith('candidate-') && a.hash === '#candidates');
+        (page.id.startsWith('candidate-') && a.hash === '#candidates') ||
+        (page.id.startsWith('ac-candidate-') && a.hash === '#ac-candidates');
       if (current) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
     });

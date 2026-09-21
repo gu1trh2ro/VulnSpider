@@ -4,9 +4,9 @@
 
 | 항목 | 값 |
 | --- | --- |
-| 생성 시각 | 2026-09-21 04:00 UTC |
+| 생성 시각 | 2026-09-21 13:45 UTC |
 | VulnSpider 버전 | 0.1.0 |
-| git 커밋 | cdb1a68 |
+| git 커밋 | c023d01 |
 | Python | 3.12.6 |
 | 검증 모델 | 있음 (data/corpus/verification-model.json) |
 | 랜덤 예측기 | per-input-point, safe-weight 4, 시드 0, 1000 trials |

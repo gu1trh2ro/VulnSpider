@@ -32,6 +32,86 @@ def _esc(value: Any) -> str:
     return escape(str(value), quote=True)
 
 
+FAMILY_ICONS = {
+    "SQLI": (
+        '<svg class="fam-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" '
+        'stroke-width="1.5" aria-hidden="true"><ellipse cx="10" cy="4.6" rx="6" ry="2.3"/>'
+        '<path d="M4 4.6v10.8c0 1.27 2.69 2.3 6 2.3s6-1.03 6-2.3V4.6"/>'
+        '<path d="M4 10c0 1.27 2.69 2.3 6 2.3s6-1.03 6-2.3"/></svg>'
+    ),
+    "REFLECTED_XSS": (
+        '<svg class="fam-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" '
+        'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        '<path d="M7 5 2.5 10 7 15M13 5l4.5 5L13 15M11.6 3.6 8.4 16.4"/></svg>'
+    ),
+    "BROKEN_ACCESS_CONTROL": (
+        '<svg class="fam-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" '
+        'stroke-width="1.5" aria-hidden="true"><rect x="4.3" y="9" width="11.4" height="8.2" rx="1.6"/>'
+        '<path d="M7 9V6.6a3 3 0 0 1 6 0V9"/></svg>'
+    ),
+}
+
+
+def family_icon(family: str) -> str:
+    """A small monochrome type glyph that inherits the family colour."""
+
+    return FAMILY_ICONS.get(family, '<i class="family-dot" aria-hidden="true"></i>')
+
+
+def family_tag(family: str) -> str:
+    label = FAMILY_LABELS.get(family, family)
+    return f'<span class="family-tag {_esc(family)}">{family_icon(family)}{_esc(label)}</span>'
+
+
+_HEADLINE_SAY = {
+    "SQLI": "입력값이 데이터베이스 질의문에 섞여 들어갈 수 있는 자리입니다.",
+    "REFLECTED_XSS": "입력값이 화면에 그대로 출력돼 스크립트가 실행될 수 있는 자리입니다.",
+    "BROKEN_ACCESS_CONTROL": "권한 확인 없이 다른 사용자의 자원이 열릴 수 있는 자리입니다.",
+}
+
+
+def _risk_gauge(percent: str) -> str:
+    return (
+        '<div class="risk-gauge"><svg viewBox="0 0 36 36" aria-hidden="true">'
+        '<circle class="g-bg" cx="18" cy="18" r="15.9" pathLength="100"/>'
+        f'<circle class="g-fg" cx="18" cy="18" r="15.9" pathLength="100" '
+        f'stroke-dasharray="{percent} 100"/></svg>'
+        f'<div class="risk-pct"><b>{percent}</b><small>%</small></div></div>'
+    )
+
+
+def risk_headline(rows: Sequence[Mapping[str, Any]]) -> str:
+    """A visual, at-a-glance hero: where to look first, with confidence gauges."""
+
+    if not rows:
+        return ""
+    cards = []
+    for index, row in enumerate(rows[:3]):
+        family = _esc(row["family"])
+        percent = _fmt_percent(row["score"])
+        lead = " lead" if index == 0 else ""
+        say = (
+            f'<p class="risk-say">{_esc(_HEADLINE_SAY.get(row["family"], ""))}</p>'
+            if index == 0 and row["family"] in _HEADLINE_SAY else ""
+        )
+        cards.append(
+            f'<a class="risk-card {family}{lead}" href="#candidate-{row["rank"]}">'
+            f'<span class="risk-rank">{row["rank"]:02d}</span>'
+            f'<span class="risk-ico">{family_icon(row["family"])}</span>'
+            '<span class="risk-main">'
+            f'<span class="risk-fam">{_esc(FAMILY_LABELS.get(row["family"], row["family"]))}</span>'
+            f'<span class="risk-loc">{candidate_caption(row)}</span>{say}</span>'
+            f'{_risk_gauge(percent)}</a>'
+        )
+    return (
+        '<section class="panel risk-headline"><div class="panel-head"><div>'
+        '<h2>가장 먼저 확인할 곳</h2>'
+        '<p class="panel-desc">최종 신뢰도가 높은 상위 후보입니다. 카드를 누르면 그 후보의 판단 근거로 이동합니다.</p>'
+        f'</div><a class="text-link" href="#candidates">전체 {len(rows)}개 →</a></div>'
+        f'<div class="risk-grid">{"".join(cards)}</div></section>'
+    )
+
+
 def page_heading(title: str, description: str, *, eyebrow: str = "SCAN REPORT") -> str:
     return (
         f'<div class="eyebrow">{_esc(eyebrow)}</div>'
@@ -92,8 +172,7 @@ def candidate_table(rows: Sequence[Mapping[str, Any]], *, table_id: str) -> str:
             f'<td><a class="location-link" href="#candidate-{row["rank"]}">{candidate_caption(row)}</a>'
             f'<div class="location-sub">{_esc(row["path"])}</div>'
             f'<div class="location-sub">{_esc(row["parameter"])}</div></td>'
-            f'<td><span class="family-tag"><i class="family-dot {family}" aria-hidden="true"></i>'
-            f'{_esc(FAMILY_LABELS.get(row["family"], row["family"]))}</span></td>'
+            f'<td>{family_tag(row["family"])}</td>'
             f'<td class="score-cell">{score}%<div class="mini-meter" aria-hidden="true">'
             f'<i style="width:{score}%"></i></div><div class="location-sub">{_esc(row["score_kind"])}</div></td>'
             f'<td><span class="state {state}">{_esc(STATUS_LABELS.get(row["state"], row["state"]))}</span></td>'
@@ -141,7 +220,7 @@ def relationship_map(rows: Sequence[Mapping[str, Any]]) -> str:
         '이번 결과만으로 대상 전체의 안전 여부를 판단할 수 없습니다.</div>'
     )
     legend = "".join(
-        f'<span><i class="family-dot {family}" aria-hidden="true"></i>{_esc(label)}</span>'
+        f'<span class="{_esc(family)}">{family_icon(family)}{_esc(label)}</span>'
         for family, label in FAMILY_LABELS.items()
     )
     return (
@@ -196,6 +275,7 @@ def overview(
     return f"""<section class="report-page overview" id="overview" aria-label="분석 개요">
 <div class="page-heading"><div>{heading}<div class="target-chip">◎ {_esc(target or '분석 대상 정보 미제공')}</div></div>
 <a class="button primary" href="#candidates">상위 후보 자세히 보기 <span aria-hidden="true">→</span></a></div>
+{risk_headline(rows)}
 {metrics}{evidence_summary(rows)}{confidence_comparison(rows)}{warnings_html}
 <div class="overview-grid">{relationship_map(rows)}{family_chart(rows)}</div>
 <section class="panel"><div class="panel-head"><div><h2>상위 취약점 후보</h2>

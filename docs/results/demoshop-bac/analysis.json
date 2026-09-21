@@ -3,6 +3,7 @@
   "target": "http://127.0.0.1:8899/portal/",
   "policy_version": "top-k-argmax-v1",
   "warnings": [
+    "discovery DUPLICATE_URL: duplicate canonical URL was not queued again",
     "discovery FORM_CONTROL_NON_DATA: button control is not an injectable successful control",
     "discovery FORM_CONTROL_OUTSIDE_FORM: input outside a form was not bound to a request context",
     "discovery OFF_PATH_SCOPE_LINK: Link was outside the implicit root path scope.",
@@ -97,7 +98,7 @@
     "candidates_scored": 12,
     "selected": 12,
     "deferred": 0,
-    "expected_findings": 6.258414814551751
+    "expected_findings": 6.231303213265389
   },
   "guarantee": null,
   "verification": {
@@ -127,10 +128,10 @@
       "candidate_id": "acand_d0e47503abcdbd8b",
       "input_point_ref": "accplan_ad45a03cf4343e05",
       "family": "BROKEN_ACCESS_CONTROL",
-      "probability": 0.9533562908188665,
+      "probability": 0.9533429227171654,
       "selection_rank": 2,
-      "prior_probability": 0.9533562908188665,
-      "final_confidence": 0.9533562908188665,
+      "prior_probability": 0.9533429227171654,
+      "final_confidence": 0.9533429227171654,
       "verification_outcome": "SUPPORTED",
       "verification_signal": "SUPPORT_REPRODUCED"
     },
@@ -139,7 +140,7 @@
       "candidate_id": "acand_dd8a8d5947bdb89d",
       "input_point_ref": "accplan_20d0b53adff8b04c",
       "family": "BROKEN_ACCESS_CONTROL",
-      "probability": 0.5284227935535972,
+      "probability": 0.5280779699257556,
       "selection_rank": 7
     },
     {
@@ -147,7 +148,7 @@
       "candidate_id": "acand_155951a7d7e518da",
       "input_point_ref": "accplan_0267ef54a8268dc0",
       "family": "BROKEN_ACCESS_CONTROL",
-      "probability": 0.523569873816171,
+      "probability": 0.5232295169064742,
       "selection_rank": 9
     },
     {
@@ -155,7 +156,7 @@
       "candidate_id": "acand_c2e3a8311f51fe6a",
       "input_point_ref": "accplan_1b57a5c17ea7a0a5",
       "family": "BROKEN_ACCESS_CONTROL",
-      "probability": 0.5234600295665459,
+      "probability": 0.4976463678574517,
       "selection_rank": 10
     },
     {
@@ -163,10 +164,10 @@
       "candidate_id": "cand_a44e9b65c96aa368",
       "input_point_ref": "inp_f9da04f7fc402cb9",
       "family": "SQLI",
-      "probability": 0.549193858664073,
+      "probability": 0.5495428634774664,
       "selection_rank": 6,
-      "prior_probability": 0.549193858664073,
-      "final_confidence": 0.4477490778631567,
+      "prior_probability": 0.5495428634774664,
+      "final_confidence": 0.44809769536022176,
       "verification_outcome": "UNCHANGED",
       "verification_signal": "UNCHANGED"
     },
@@ -175,10 +176,10 @@
       "candidate_id": "acand_7a7857c8557a8cd3",
       "input_point_ref": "accplan_60f3cf53ac5cca69",
       "family": "BROKEN_ACCESS_CONTROL",
-      "probability": 0.5283057845229459,
+      "probability": 0.5279609246184335,
       "selection_rank": 8,
-      "prior_probability": 0.5283057845229459,
-      "final_confidence": 0.3574025654350965,
+      "prior_probability": 0.5279609246184335,
+      "final_confidence": 0.3570848116460398,
       "verification_outcome": "WEAKENED",
       "verification_signal": "WEAKEN"
     },
@@ -187,10 +188,10 @@
       "candidate_id": "cand_b43142e5d01f35bf",
       "input_point_ref": "inp_2a7f011e22206b0e",
       "family": "REFLECTED_XSS",
-      "probability": 0.431317556277942,
+      "probability": 0.43131679471948015,
       "selection_rank": 4,
-      "prior_probability": 0.431317556277942,
-      "final_confidence": 0.2181504148196721,
+      "prior_probability": 0.43131679471948015,
+      "final_confidence": 0.2181498852595704,
       "verification_outcome": "WEAKENED",
       "verification_signal": "WEAKEN"
     },
@@ -199,10 +200,10 @@
       "candidate_id": "cand_6a59e6cdc7dd5cd1",
       "input_point_ref": "inp_72bb13a27801ec9d",
       "family": "REFLECTED_XSS",
-      "probability": 0.4312851907432952,
+      "probability": 0.43104256603222635,
       "selection_rank": 5,
-      "prior_probability": 0.4312851907432952,
-      "final_confidence": 0.21812790962021944,
+      "prior_probability": 0.43104256603222635,
+      "final_confidence": 0.21795924214871717,
       "verification_outcome": "WEAKENED",
       "verification_signal": "WEAKEN"
     },
@@ -211,10 +212,10 @@
       "candidate_id": "cand_170106dd1622a036",
       "input_point_ref": "inp_f9da04f7fc402cb9",
       "family": "REFLECTED_XSS",
-      "probability": 0.38956339623317804,
+      "probability": 0.3897086168385822,
       "selection_rank": 3,
-      "prior_probability": 0.38956339623317804,
-      "final_confidence": 0.19013275047698255,
+      "prior_probability": 0.3897086168385822,
+      "final_confidence": 0.1902267949320608,
       "verification_outcome": "WEAKENED",
       "verification_signal": "WEAKEN"
     },
@@ -223,10 +224,10 @@
       "candidate_id": "cand_a22cd77eec74f0d6",
       "input_point_ref": "inp_2a7f011e22206b0e",
       "family": "SQLI",
-      "probability": 0.2233255151296538,
+      "probability": 0.22332393181193838,
       "selection_rank": 11,
-      "prior_probability": 0.2233255151296538,
-      "final_confidence": 0.1606264273644844,
+      "prior_probability": 0.22332393181193838,
+      "final_confidence": 0.1606251966346419,
       "verification_outcome": "UNCHANGED",
       "verification_signal": "UNCHANGED"
     },
@@ -235,10 +236,10 @@
       "candidate_id": "cand_04c23c90c4132562",
       "input_point_ref": "inp_72bb13a27801ec9d",
       "family": "SQLI",
-      "probability": 0.2232582344066159,
+      "probability": 0.22275444754154872,
       "selection_rank": 12,
-      "prior_probability": 0.2232582344066159,
-      "final_confidence": 0.16057413057878583,
+      "prior_probability": 0.22275444754154872,
+      "final_confidence": 0.1601826217635226,
       "verification_outcome": "UNCHANGED",
       "verification_signal": "UNCHANGED"
     }

@@ -681,7 +681,7 @@ def _render_candidate(
     <div class="fhead">
       <div>
         <div class="rank">#{rank}</div>
-        <div class="vtype">{_esc(_family_label(candidate.family))}</div>
+        <div class="vtype"><span class="fam {candidate.family}">{layout.family_icon(candidate.family)}</span>{_esc(_family_label(candidate.family))}</div>
         {endpoint_line}
       </div>
       <div class="meterwrap">

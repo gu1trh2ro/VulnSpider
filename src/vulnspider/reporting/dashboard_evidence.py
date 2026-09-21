@@ -137,13 +137,12 @@ def payload_records(verified: CandidateVerification | None) -> str:
             if error
         ) if refs is not None else ''
         warnings = "".join(f'<li>{_esc(warning)}</li>' for warning in result.warnings)
-        signal_explanation = SIGNAL_EXPLANATIONS.get(confidence.signal.value, "")
         cards.append(f"""<section class="payload-card">
 <div class="payload-head"><b>추가 페이로드 {index:02d} · 검증기 {validator} · {execution_label}</b>
 <span class="state {_esc(state)}">{_esc(STATUS_LABELS.get(state, state))}</span></div>
 <div class="payload-body"><div class="payload-values"><div><label>기준 입력값</label>{based_on}</div>
 <div><label>{'실행 기록에 연결된' if executed else '제안된'} 변형 입력값</label><pre>{_esc(result.mutated_value)}</pre></div></div>
-<p>{_esc(signal_explanation)} <b>검증 전 {confidence.prior_probability * 100:.1f}% → 이 페이로드의 신뢰도 {confidence.confidence * 100:.1f}%</b></p>
+<p class="payload-confidence"><b>검증 전 {confidence.prior_probability * 100:.1f}% → 이 페이로드 신뢰도 {confidence.confidence * 100:.1f}%</b></p>
 <ul>{reasons}{errors}{warnings}</ul>{comparison}
 <details class="technical"><summary>원문 근거 · 제안 정보와 실행 출처</summary><ul>{original_reasons}</ul><div class="payload-meta">
 제안자: {_esc(result.provider)} · {_esc(result.proposer_version)}<br>
