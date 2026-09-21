@@ -327,7 +327,8 @@ totals follow `qty`, `coupon`, `shipping` — and the server's per-parameter
 response cards (rows, echoes, database errors, validation warnings) are shown
 in a visible results section. Quick-pick chips and the pager are unnamed
 `type="button"` controls; names, seeds, form actions, response behaviors and
-ground truth are unchanged, and a crawl still finds 33 endpoints and 100
+ground truth are unchanged, and the public evaluation surface retains its 100
+input points. The parameter-free member login entries add pages without adding
 input points. Product data (names, prices, per-product option chips) is served
 as its own script, `/assets/products.js`, not embedded in the page: editing the
 catalog never changes a route's response bytes, so it never moves a scan's
@@ -362,6 +363,37 @@ in the report; no verification record is invented and scores are not recomputed.
 Storefront HTML sizes have changed. Regenerate reports and ranking evaluations
 against the current target revision rather than treating historical metrics as
 measurements of the same response bytes.
+
+The header's **마이페이지** now opens `/login`, with a single **soohoon으로 로그인**
+button. It creates the existing demo `user` session (uid 1042) through an explicit
+POST and redirects to `/portal/`. Returning to My Page keeps that session;
+**로그아웃** clears the browser cookie. No password, email link or destination
+fields are needed for this fixed demo profile.
+
+For the manual BAC example, open **주문 상세** from My Page. Order `4100` belongs
+to `soohoon` (uid 1042). Change the **주문번호** field to `4101` and select **조회**:
+the same signed-in user can now see `sanghyun`'s order (uid 1043), including a
+different product and amount. The intentional flaw is the missing ownership
+check; requests without a valid session still receive 403. The payment-card
+route remains the safe comparison: `5001` succeeds and `5002` is denied.
+These are synthetic fixtures; non-seed order identifiers continue to return a
+synthetic other-member record for the existing BAC probe behavior.
+
+The header's **주문조회** and footer's **주문 및 배송 조회** open that same protected
+order screen through `/login/orders`. If needed, the one-button login returns
+directly to the order lookup. Existing signed-in `/orders?order_id=...` URLs also
+redirect to `/portal/order?ref=...`, preserving the entered number; older demo
+numbers `20240517` and `20240518` map to `4100` and `4101`. An anonymous `/orders`
+visit retains the four public evaluation inputs and offers a member-order login
+link. Thus real order data and its BAC label remain on the protected endpoint.
+
+The older `/account/login` GET form remains an evaluation fixture with its three
+canonical inputs; it does not authenticate. `/login?as=admin|user` remains an
+explicit lab helper for the existing scanner runbook. Anonymous GET navigation
+never submits the shopper login form. Session cookies are demo-only signed
+tokens, marked HttpOnly and SameSite=Lax; logout clears the browser cookie rather
+than revoking this deterministic lab token. Responses use `Cache-Control:
+no-store` so a logged-out browser revalidates protected pages.
 
 ## Development checks
 

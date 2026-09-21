@@ -1633,6 +1633,60 @@ reflection alone is not proof of script execution. Status cards count displayed
 representatives, not confirmed vulnerabilities. No score/confidence, JSON,
 selection, feature extraction or network behavior changes.
 
+## ADR-043 — Simple DemoShop member login and order ownership demonstration
+
+**Status:** Accepted
+**Date:** 2026-09-21
+
+**Decision:** The storefront My Page link opens a parameter-free GET `/login`
+screen. A single explicit POST button issues the existing `user` demo session
+(uid 1042, display name `soohoon`) and redirects to fixed `/portal/`. POST
+`/logout` clears that browser cookie and redirects to fixed `/login`. Named
+credentials, role selectors, return URLs and scanner tokens are absent from the
+shopper screen. Cookies use HttpOnly and SameSite=Lax; responses are no-store.
+
+**Context:** `/account/login` is a public injection-evaluation fixture, previously
+linked as My Page. Its destination inputs and email-link wording made the manual
+login/BAC demonstration confusing. The real authenticated portal already exists
+under ADR-037 and can be reused without changing scanner authentication.
+
+**Consequences:**
+- Preserve the 100 public canonical input points, seeds, ground truth, and
+  `/account/login` response semantics. The new anonymous login page has no named
+  input controls, no portal links and does not issue cookies on GET. Explicit
+  legacy `/login?as=admin|user` lab helpers remain compatible.
+- The protected order form still uses `ref` with seed `4100`. The new display
+  identifies its owner as `soohoon` (1042); `4101` displays `sanghyun` (1043).
+  Changing only the order number in the same session demonstrates the deliberate
+  missing ownership check. Non-seed identifiers still produce synthetic records
+  to preserve the existing IDOR fixture. Anonymous/forged sessions still get 403,
+  and the ownership-checked payment-card negative control is unchanged.
+- Login/logout only change a demo browser cookie. Empty POST bodies are required;
+  query values never control the issued role or redirect. No account creation,
+  order mutation, scanner execution, transport authority, dependency, domain
+  contract or frozen v0.1 behavior changes. Deterministic tokens remain lab-only;
+  browser logout is not server-side token revocation.
+- Public navigation now includes a parameter-free login page and its empty POST
+  form endpoint. No named input point is added. Page sizes change, so evaluations
+  and response-size-derived rankings require fresh measurements.
+
+### Order lookup navigation follow-up (2026-09-21)
+
+Header/footer order links now use parameter-free `/login/orders`, which renders
+the same one-button login for anonymous visitors and redirects existing sessions
+to `/portal/order`. Explicit POST login has the same fixed destination; arbitrary
+query values cannot select roles or destinations. Neither anonymous login entry
+authenticates on GET or links protected resources into the public crawl.
+
+Authenticated legacy `/orders?order_id=...` requests are redirect aliases to
+`/portal/order?ref=...`; values are URL encoded, and old fixture examples
+20240517/20240518 map to 4100/4101. The protected endpoint remains responsible for
+displaying records. Anonymous `/orders` retains its four canonical inputs and
+SQLi fixture behavior, with a member-login call to action. Public labels remain
+unchanged: actual cross-member order records are served by the existing BAC
+endpoint, not duplicated under the public SQLi endpoint. Evaluation runbooks use
+anonymous public scans and separately authenticated portal scans as before.
+
 ## New Decision Template
 
 ```text

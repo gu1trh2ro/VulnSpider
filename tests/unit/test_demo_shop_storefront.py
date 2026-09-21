@@ -72,7 +72,7 @@ class StorefrontContractTests(unittest.TestCase):
     def test_navigation_never_adds_query_seeds_or_unknown_routes(self) -> None:
         documents = [demo_shop.render_index()]
         documents.extend(demo_shop.render_route(page, {})[1] for page in demo_shop.PAGES)
-        allowed = {"", "/"} | set(demo_shop.PAGES_BY_PATH)
+        allowed = {"", "/", demo_shop.LOGIN_PATH, demo_shop.ORDER_LOGIN_PATH} | set(demo_shop.PAGES_BY_PATH)
         for body in documents:
             for link in Links(body).links:
                 parsed = urlsplit(link)

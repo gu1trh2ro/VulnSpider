@@ -50,8 +50,8 @@ Why every parameter is a GET form control
 Each route renders a filter/search form holding *all* of its parameters, and
 the storefront links to routes without a query string. The static crawler turns
 a GET form's controls into ``QUERY`` input points on the action path, so one
-crawled page yields that route's whole input surface -- 33 pages for 100 input
-points, instead of one link per parameter.
+crawled page yields that route's whole input surface. Including the storefront
+and the parameter-free member login entries, 35 pages expose 100 input points.
 
 The response echoes **every** parameter present, not just the first. A probe
 changes exactly one parameter and leaves the rest at their seeds, so every
@@ -522,7 +522,7 @@ PAGES: tuple[PageSpec, ...] = (
         section="내 계정",
         blurb="가입한 아이디로 로그인 링크를 받습니다.",
         inputs=(
-            _text("username", "xss_raw", "hyunseo", "아이디"),
+            _text("username", "xss_raw", "soohoon", "아이디"),
             _text("return_to", "xss_attr", "/account/profile", "로그인 후 이동"),
             _text("next", "safe_stripped", "/cart", "다음 단계"),
         ),
@@ -534,7 +534,7 @@ PAGES: tuple[PageSpec, ...] = (
         blurb="공개 프로필에 표시되는 정보입니다.",
         inputs=(
             _text("uid", "bac", "1042", "회원 번호"),
-            _text("nickname", "xss_raw", "hyunseo", "닉네임"),
+            _text("nickname", "xss_raw", "soohoon", "닉네임"),
             InputSpec(
                 name="bio",
                 kind="xss_conditional",
@@ -617,7 +617,7 @@ PAGES: tuple[PageSpec, ...] = (
         blurb="상담원 연결 전 대기 화면입니다.",
         inputs=(
             _text("room", "safe_param", "r-4471", "상담방"),
-            _text("nickname", "xss_js", "hyunseo", "표시 이름"),
+            _text("nickname", "xss_js", "soohoon", "표시 이름"),
         ),
     ),
     PageSpec(
@@ -683,7 +683,7 @@ PAGES: tuple[PageSpec, ...] = (
         section="이벤트",
         blurb="신상품 소식을 메일로 받습니다.",
         inputs=(
-            _text("email", "safe_validated", "hyunseo@demoshop.test", "이메일"),
+            _text("email", "safe_validated", "soohoon@demoshop.test", "이메일"),
             _hidden("source", "safe_escaped", "footer", "유입 경로"),
         ),
     ),
@@ -749,7 +749,7 @@ PAGES: tuple[PageSpec, ...] = (
         inputs=(
             _text("id", "bac", "1042", "회원 번호"),
             _choice("role", "safe_allowlist", ("member", "seller", "admin"), "역할"),
-            _text("q", "sqli_error", "hyunseo", "검색어"),
+            _text("q", "sqli_error", "soohoon", "검색어"),
         ),
     ),
     PageSpec(
@@ -804,14 +804,15 @@ def counts_by_family() -> dict[str, int]:
 # is reachable only with a session cookie, and is scanned separately
 # (``analyze --url .../portal/ --cookie demoshop_session=... --access-control``).
 #
-# It is deliberately *not* linked from the public index: crawling it without the
-# cookie would just collect 403s, and mixing it into the public injection scan
-# would let CREDENTIAL_STRIP flag every public page. Keeping it isolated lets the
-# BAC scan target it directly.
+# The public header links only to a parameter-free login screen. Its explicit
+# POST action is never followed by the crawler; protected resources stay out of
+# the anonymous injection scan. The BAC scan targets the portal directly.
 
 LOGIN_PATH = "/login"
+ORDER_LOGIN_PATH = "/login/orders"
 ACCOUNT_INDEX_PATH = "/portal/"
 SESSION_COOKIE = "demoshop_session"
+DEMO_MEMBER = "soohoon"
 
 # role -> user id. The scan logs in out-of-band as one of these and passes the
 # resulting cookie with --cookie; DemoShop never creates accounts.
@@ -1117,6 +1118,32 @@ def _sql_error(page: PageSpec, value: str) -> str:
     return phrasing.format(value=escape(value))
 
 
+_IDOR_ORDER_PATHS = ("/order/invoice", "/admin/orders")
+
+
+def _order_leak(order_id: str) -> str:
+    """The order history an IDOR on an order route leaks -- another member's."""
+
+    items = (
+        ("무선 오버이어 헤드폰", 149000, "2024-05-18", "배송완료"),
+        ("데일리 스웨이드 스니커즈", 89000, "2024-05-12", "배송완료"),
+        ("에센셜 캔버스 토트", 59000, "2024-04-30", "구매확정"),
+    )
+    numbers = (escape(order_id), "20240512", "20240430")
+    rows = "".join(
+        f"<tr><td>{num}</td><td>{escape(name)}</td>"
+        f"<td>{price:,}원</td><td>{escape(date)}</td><td>{escape(status)}</td></tr>"
+        for num, (name, price, date, status) in zip(numbers, items)
+    )
+    return (
+        '<p class="hint">소유권 확인 없이 다른 회원 <b>sanghyun</b> 님의 '
+        "주문 명세가 조회되었습니다.</p>"
+        '<table class="record"><tr>'
+        "<th>주문번호</th><th>상품</th><th>결제금액</th><th>주문일</th><th>상태</th>"
+        f"</tr>{rows}</table>"
+    )
+
+
 def _fragment(
     page: PageSpec,
     item: InputSpec,
@@ -1189,6 +1216,8 @@ def _fragment(
         rows = 1 if _has_sql_metachar(value) else 7
         return 200, _card(item.label, _result_rows("조회 결과", rows))
     if kind == "bac":
+        if page.path in _IDOR_ORDER_PATHS:
+            return 200, _card(item.label, _order_leak(value))
         return 200, _card(
             item.label,
             '<table class="record">'
@@ -1708,10 +1737,12 @@ def _confirmation(page: PageSpec, item: InputSpec, value: str,
             "SQL 조건이 담긴 값을 보내야 결과 행 수의 변화가 드러납니다.",
         )
     if kind == "bac":
+        victim = "sanghyun" if page.path in _IDOR_ORDER_PATHS else _fake_holder(value)
         return _poc_banner(
             "confirmed", "Broken Access Control 취약점이 확인되었습니다", label, value,
             "인가 확인 없이 식별자만 바꾸자 다른 사용자의 자원이 그대로 조회되었습니다. "
             "권한 없는 자원 접근(Broken Access Control)이 맞습니다.",
+            _poc_source("인가 없이 열람된 자원", f"{item.label} {value} → 소유자 {victim}"),
         )
 
     reason = _SAFE_REASONS.get(kind)
@@ -1754,7 +1785,8 @@ def _account_confirm_banner(route: AccountRoute, value: str,
             "confirmed", "Broken Access Control(IDOR) 취약점이 확인되었습니다", label, value,
             "로그인은 했지만 소유권 확인이 없어, 식별자만 다른 값으로 바꾸자 다른 사용자의 자원이 "
             "그대로 열렸습니다. 권한 없는 자원 접근 — Broken Access Control(IDOR)이 맞습니다.",
-            _poc_source("인가 없이 조회된 남의 자원", f"{route.param}={value} 소유자 {_fake_holder(value)}"),
+            _poc_source("인가 없이 조회된 남의 자원", f"{route.param}={value} 소유자 "
+                        + ("sanghyun" if route.path == "/portal/order" else _fake_holder(value))),
         )
     if value != route.seed:
         return _poc_banner(
@@ -1963,9 +1995,10 @@ def _account_lab_section() -> str:
 
 
 def _account_form(route: AccountRoute, value: str) -> str:
+    label = "주문번호" if route.path == "/portal/order" else route.param
     return (
         f'<form class="filters" method="get" action="{route.path}">'
-        f"<label>{escape(route.param)}"
+        f"<label>{escape(label)}"
         f'<input type="text" name="{route.param}" value="{escape(value)}"></label>'
         '<div class="actions"><button type="submit">조회</button></div></form>'
     )
@@ -1988,25 +2021,54 @@ def render_login(role: str) -> bytes:
     return _layout("로그인", body)
 
 
-def render_account_index(session: tuple[str, int]) -> bytes:
-    role, uid = session
-    links = "".join(
-        f'<li><a href="{route.path}">{escape(route.title)}</a></li>'
-        for route in ACCOUNT_ROUTES
-    )
+def render_member_login(*, action: str = LOGIN_PATH) -> bytes:
+    """Human login only; viewing this page never issues a session cookie."""
+
     body = (
-        f"<h1>내 계정 · {escape(role)} (uid {uid})</h1>"
-        '<p class="blurb">로그인한 사용자만 볼 수 있는 영역입니다.</p>'
-        f"<ul>{links}</ul>"
+        '<section class="member-login"><p class="eyebrow">MY DEMOSHOP</p>'
+        '<h1>로그인</h1><p>로그인하고 내 주문과 회원 정보를 확인하세요.</p>'
+        '<div class="member-profile"><span class="member-avatar" aria-hidden="true">S</span>'
+        f'<div><strong>{DEMO_MEMBER}</strong><span>기본 프로필 · 일반 회원</span></div></div>'
+        f'<form method="post" action="{escape(action)}">'
+        f'<button class="button dark" type="submit">{DEMO_MEMBER}으로 로그인</button></form>'
+        '<p class="member-note">시연용 계정으로 비밀번호 없이 이용할 수 있습니다.</p>'
+        '</section>'
     )
-    return _layout("내 계정", body)
+    return _layout("로그인", body)
+
+
+def _member_heading(session: tuple[str, int], title: str) -> str:
+    role, uid = session
+    name = DEMO_MEMBER if role == "user" else role
+    return (
+        '<div class="member-heading"><div><p class="eyebrow">MY DEMOSHOP</p>'
+        f'<h1>{escape(title)}</h1><p><strong>{escape(name)}</strong> 님 · 회원번호 {uid}</p></div>'
+        '<form method="post" action="/logout">'
+        '<button class="button outline" type="submit">로그아웃</button></form></div>'
+    )
+
+
+def render_account_index(session: tuple[str, int]) -> bytes:
+    body = (
+        '<section class="member-page">' + _member_heading(session, "마이페이지")
+        + '<section class="member-order"><div class="section-heading"><h2>내 주문</h2>'
+        '<span>최근 주문 1건</span></div><div class="member-order-row">'
+        '<img src="/assets/sneakers.png" alt="데일리 스웨이드 스니커즈" width="104" height="104">'
+        '<div><p class="eyebrow">주문번호 4100 · 배송완료</p>'
+        '<h3>데일리 스웨이드 스니커즈</h3><p>2024.05.17 · 89,000원 · 수량 1</p></div>'
+        '<a class="button dark" href="/portal/order">주문 상세</a></div></section>'
+        '<nav class="member-links" aria-label="내 계정 메뉴">'
+        '<a href="/portal/message">쪽지함 <span>↗</span></a>'
+        '<a href="/portal/card">결제 수단 <span>↗</span></a></nav></section>'
+    )
+    return _layout("마이페이지", body)
 
 
 def _forbidden(message: str) -> tuple[int, bytes]:
     body = (
         '<h1>403</h1>'
         f'<p class="warn">{escape(message)}</p>'
-        f'<p><a href="{LOGIN_PATH}?as=admin">로그인</a></p>'
+        f'<p><a href="{LOGIN_PATH}">로그인</a></p>'
     )
     return 403, _layout("접근 거부", body)
 
@@ -2024,6 +2086,34 @@ def render_account_route(
     value = query.get(route.param, route.seed)
     banner = _account_confirm_banner(route, value, query)
 
+    if route.path == "/portal/order":
+        # Intentionally vulnerable fixture: authentication is enforced above,
+        # but changing only ref returns another member's synthetic order.
+        own = value == route.seed
+        holder, owner_uid = (DEMO_MEMBER, 1042) if own else ("sanghyun", 1043)
+        product = "데일리 스웨이드 스니커즈" if own else "무선 오버이어 헤드폰"
+        price = "89,000" if own else "149,000"
+        photo = "sneakers" if own else "headphones"
+        date = "2024.05.17" if own else "2024.05.18"
+        body = (
+            '<section class="member-page">' + _member_heading(session, route.title)
+            + f'<p><a class="text-link" href="{ACCOUNT_INDEX_PATH}">← 마이페이지</a></p>'
+            + banner + '<section class="route-panel"><div class="panel-heading">'
+            '<h2>주문 조회</h2><p>주문번호로 주문 내역을 확인하세요.</p></div>'
+            + _account_form(route, value) + '</section>'
+            '<section class="member-order"><div class="section-heading"><h2>주문 내역</h2>'
+            '<span>배송완료</span></div><table class="record member-record">'
+            f'<tr><th>주문번호</th><td>{escape(value)}</td></tr>'
+            f'<tr><th>주문자</th><td>{holder}</td></tr>'
+            f'<tr><th>소유자 uid</th><td>{owner_uid}</td></tr>'
+            f'<tr><th>주문일</th><td>{date}</td></tr></table>'
+            '<div class="member-order-row">'
+            f'<img src="/assets/{photo}.png" alt="{product}" width="104" height="104">'
+            f'<div><h3>{product}</h3><p>수량 1 · 배송완료</p></div>'
+            f'<strong>{price}원</strong></div></section></section>'
+        )
+        return 200, _layout(route.title, body, head_extra=_POC_STYLE if banner else "")
+
     if route.kind == "owned":
         # Proper access control: the resource must belong to the session user.
         # Each user's own card is the seed value; any other identifier is
@@ -2040,7 +2130,7 @@ def render_account_route(
             body = (
                 banner + "<h1>403</h1>"
                 f'<p class="warn">{message}</p>'
-                f'<p><a href="{LOGIN_PATH}?as=admin">로그인</a></p>'
+                f'<p><a href="{LOGIN_PATH}">로그인</a></p>'
             )
             return 403, _layout("접근 거부", body, head_extra=_POC_STYLE)
         card = _account_form(route, value) + _card(
@@ -2068,7 +2158,7 @@ def render_account_route(
 
 
 class DemoShopHandler(BaseHTTPRequestHandler):
-    """GET-only handler. Nothing here writes state or leaves the loopback."""
+    """Loopback fixture with member POST actions and a legacy GET role helper."""
 
     server_version = "DemoShop/1.0"
 
@@ -2107,18 +2197,33 @@ class DemoShopHandler(BaseHTTPRequestHandler):
         if parts.path == LAB_PATH:
             self._respond(200, render_lab())
             return
-        if parts.path == LOGIN_PATH:
-            role = query.get("as", "admin")
+        session = parse_session(self.headers.get("Cookie"))
+        if parts.path in (LOGIN_PATH, ORDER_LOGIN_PATH):
+            destination = "/portal/order" if parts.path == ORDER_LOGIN_PATH else ACCOUNT_INDEX_PATH
+            if "as" not in query or parts.path == ORDER_LOGIN_PATH:
+                if session is not None:
+                    self._respond(303, b"", location=destination)
+                else:
+                    self._respond(200, render_member_login(action=parts.path))
+                return
+            # Retain explicit role login for the existing scanner/lab runbook.
+            role = query["as"]
             if role not in _USERS:
                 self._respond(400, _layout("로그인", "<h1>알 수 없는 역할</h1>"))
                 return
             self._respond(
                 200,
                 render_login(role),
-                set_cookie=f"{SESSION_COOKIE}={session_token(role)}; Path=/",
+                set_cookie=f"{SESSION_COOKIE}={session_token(role)}; Path=/; HttpOnly; SameSite=Lax",
             )
             return
-        session = parse_session(self.headers.get("Cookie"))
+        if parts.path == "/orders" and session is not None:
+            # Old shopper bookmarks/forms hand off to the authoritative member
+            # order endpoint. Anonymous /orders remains the public SQLi fixture.
+            entered = query.get("order_id", "4100")
+            ref = {"20240517": "4100", "20240518": "4101"}.get(entered, entered)
+            self._respond(303, b"", location="/portal/order?" + urlencode({"ref": ref}))
+            return
         if parts.path in (ACCOUNT_INDEX_PATH, "/portal"):
             if session is None:
                 status, body = _forbidden("로그인이 필요합니다.")
@@ -2138,6 +2243,28 @@ class DemoShopHandler(BaseHTTPRequestHandler):
         status, body = render_route(page, query)
         self._respond(status, body)
 
+    def do_POST(self) -> None:
+        # Both forms have no named controls and no body to read. Reject body
+        # uploads instead of introducing unbounded/blocking request-body I/O.
+        path = urlsplit(self.path).path
+        if path not in (LOGIN_PATH, ORDER_LOGIN_PATH, "/logout"):
+            self._respond(405, b"Method Not Allowed")
+            return
+        if self.headers.get("Transfer-Encoding") or self.headers.get("Content-Length", "0") != "0":
+            self._respond(400, b"Empty form required")
+            return
+        if path in (LOGIN_PATH, ORDER_LOGIN_PATH):
+            destination = "/portal/order" if path == ORDER_LOGIN_PATH else ACCOUNT_INDEX_PATH
+            self._respond(
+                303, b"", location=destination,
+                set_cookie=f"{SESSION_COOKIE}={session_token('user')}; Path=/; HttpOnly; SameSite=Lax",
+            )
+        else:
+            self._respond(
+                303, b"", location=LOGIN_PATH,
+                set_cookie=f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax",
+            )
+
     def _respond(
         self,
         status: int,
@@ -2145,12 +2272,16 @@ class DemoShopHandler(BaseHTTPRequestHandler):
         *,
         content_type: str = "text/html; charset=utf-8",
         set_cookie: str | None = None,
+        location: str | None = None,
     ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         if set_cookie is not None:
             self.send_header("Set-Cookie", set_cookie)
+        if location is not None:
+            self.send_header("Location", location)
         self.end_headers()
         self.wfile.write(body)
 

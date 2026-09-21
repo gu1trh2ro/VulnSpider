@@ -37,6 +37,11 @@ short purpose. Do not work on a teammate's branch without explicit agreement.
 
 ## Starting work
 
+For the current working copy, the user-selected branch is
+`feat/dashboard-improve` (2026-09-21). Continue on this existing branch; create
+a different branch only when explicitly requested. This instruction takes
+precedence over the default branch-creation example below.
+
 ```text
 git fetch origin --prune
 git switch prototype/v0.1

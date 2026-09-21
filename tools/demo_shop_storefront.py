@@ -270,13 +270,13 @@ def header(input_of: InputTag = untagged) -> str:
     return '''<div class="announcement">좋은 취향의 시작, DemoShop &nbsp; · &nbsp; 전 상품 무료배송</div>
 <header class="store-header"><div class="header-inner"><a class="wordmark" href="/">DemoShop<span>EVERYDAY, WELL CHOSEN.</span></a>
 <div class="search-box" data-input-of="/search q"><input type="search" data-search-input placeholder="어떤 일상을 찾고 있나요?" aria-label="통합 검색" autocomplete="off"><a class="search-go" href="/search" data-search-go aria-label="검색"><b aria-hidden="true">⌕</b></a>''' + input_of("/search", "q") + '''</div>
-<div class="header-actions"><a href="/account/login">마이페이지</a><a href="/orders">주문조회</a><a class="cart-link" href="/cart">장바구니 <span>1</span></a></div></div>
+<div class="header-actions"><a href="/login">마이페이지</a><a href="/login/orders">주문조회</a><a class="cart-link" href="/cart">장바구니 <span>1</span></a></div></div>
 <nav class="store-nav" aria-label="쇼핑 메뉴"><a href="/catalog#category-all">전체 상품</a><a href="/catalog#category-shoes">슈즈</a><a href="/catalog#category-bags">가방</a><a href="/catalog#category-tech">디지털</a><a href="/catalog#category-home">홈 & 리빙</a><a class="nav-edit" href="/promo/event">이번 주의 혜택 ↗</a></nav></header>'''
 
 
 def footer() -> str:
     return '''<footer class="store-footer"><div><a class="wordmark" href="/">DemoShop</a><p>당신의 매일을 조금 더 좋아지게.<br>쓸수록 좋아지는 물건을 소개합니다.</p></div>
-<div><strong>고객센터</strong><a href="/support/ticket">1:1 문의</a><a href="/orders">주문 및 배송 조회</a><a href="/support/faq">교환 · 반품</a></div>
+<div><strong>고객센터</strong><a href="/support/ticket">1:1 문의</a><a href="/login/orders">주문 및 배송 조회</a><a href="/support/faq">교환 · 반품</a></div>
 <div><strong>쇼핑 안내</strong><a href="/catalog#category-all">전체 상품 보기</a><a href="/product/reviews">상품 리뷰</a><a href="/account/profile">내 정보</a></div>
 <p class="demo-disclosure">VulnSpider 시연용 가상 쇼핑몰입니다. 상품 사진은 AI 생성 이미지이며, 실제 결제·주문·배송은 이루어지지 않습니다.</p></footer>'''
 
@@ -454,6 +454,12 @@ def route_body(
     """
 
     crumb = _breadcrumb(title)
+    if path == "/orders":
+        crumb += (
+            '<section class="member-order"><h2>내 주문 조회</h2>'
+            '<p>로그인하면 주문자, 상품, 결제금액을 확인할 수 있습니다.</p>'
+            '<a class="button dark" href="/login/orders">로그인하고 주문 조회</a></section>'
+        )
     if path in LISTING_ROUTES:
         return crumb + _listing(path, title, blurb, form, input_of) + _results(path, results)
     if path == "/product":

@@ -152,6 +152,10 @@ for legacy input compatibility and regression tests.
 
 ## Git collaboration rules
 
+- Current working-branch override (2026-09-21): continue work directly on the
+  existing `feat/dashboard-improve` branch. Do not create a new branch unless
+  the user explicitly requests one. This overrides the default short-lived
+  branch procedure below for this working copy.
 - Do not commit directly to `prototype/v0.1` or, after promotion, `main`.
 - Use a short-lived branch and PR for every change.
 - Keep one PR focused on one goal.
