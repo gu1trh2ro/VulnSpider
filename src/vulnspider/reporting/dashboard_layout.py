@@ -48,7 +48,6 @@ def shell(body: str, footer: str) -> str:
   <div class="nav-label">WORKSPACE</div>
   <nav aria-label="주 메뉴">
     <a href="#overview" aria-current="page"><span class="nav-icon" aria-hidden="true">▦</span>분석 개요</a>
-    <a href="#presentation"><span class="nav-icon" aria-hidden="true">▷</span>발표 스토리</a>
     <a href="#candidates"><span class="nav-icon" aria-hidden="true">◎</span>취약점 후보</a>
     <a href="#methodology"><span class="nav-icon" aria-hidden="true">▤</span>리포트 읽는 법</a>
   </nav>
@@ -57,7 +56,7 @@ def shell(body: str, footer: str) -> str:
 </aside>
 <div class="workspace">
   <div class="topbar"><div class="crumb">리포트 &nbsp; / &nbsp; <b id="current-page">분석 개요</b></div>
-    <nav class="projector-nav" aria-label="발표 화면 이동"><a href="#overview">개요</a><a href="#presentation">발표 스토리</a><a href="#candidates">후보 목록</a></nav>
+    <nav class="projector-nav" aria-label="발표 화면 이동"><a href="#overview">개요</a><a href="#candidates">후보 목록</a></nav>
     <div class="top-actions"><span class="snapshot-badge">● 저장된 분석 결과</span>
     <button class="button projector-toggle" type="button" data-projector aria-pressed="false">화면 크게</button>
     <button class="button" type="button" data-print>현재 화면 인쇄 ↗</button></div>
@@ -196,7 +195,7 @@ def overview(
     )
     return f"""<section class="report-page overview" id="overview" aria-label="분석 개요">
 <div class="page-heading"><div>{heading}<div class="target-chip">◎ {_esc(target or '분석 대상 정보 미제공')}</div></div>
-<a class="button primary" href="#presentation">발표 스토리 시작 <span aria-hidden="true">→</span></a></div>
+<a class="button primary" href="#candidates">상위 후보 자세히 보기 <span aria-hidden="true">→</span></a></div>
 {metrics}{evidence_summary(rows)}{confidence_comparison(rows)}{warnings_html}
 <div class="overview-grid">{relationship_map(rows)}{family_chart(rows)}</div>
 <section class="panel"><div class="panel-head"><div><h2>상위 취약점 후보</h2>

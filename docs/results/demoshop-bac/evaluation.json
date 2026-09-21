@@ -3,7 +3,7 @@
   "metrics_version": "ranking-metrics-v1",
   "application_id": "demoshop",
   "target": "http://127.0.0.1:8899/portal/",
-  "top_k": 10,
+  "top_k": 20,
   "cutoffs": [
     1,
     3,
@@ -15,7 +15,7 @@
     "candidates": 9,
     "relevant": 2,
     "unlabeled": 0,
-    "verified": 7
+    "verified": 9
   },
   "arms": [
     {
@@ -264,8 +264,8 @@
       "parameter_name": "card_id",
       "parameter_location": "QUERY",
       "family": "SQLI",
-      "prior_probability": 0.552427148135962,
-      "final_confidence": 0.4509826011135243,
+      "prior_probability": 0.549193858664073,
+      "final_confidence": 0.4477490778631567,
       "verified": true,
       "vulnerable": false
     },
@@ -275,31 +275,9 @@
       "parameter_name": "card_id",
       "parameter_location": "QUERY",
       "family": "BROKEN_ACCESS_CONTROL",
-      "prior_probability": 0.5242554763281477,
-      "final_confidence": 0.3536800704588468,
+      "prior_probability": 0.5283057845229459,
+      "final_confidence": 0.3574025654350965,
       "verified": true,
-      "vulnerable": false
-    },
-    {
-      "candidate_id": "cand_a22cd77eec74f0d6",
-      "canonical_path": "/portal/message",
-      "parameter_name": "thread",
-      "parameter_location": "QUERY",
-      "family": "SQLI",
-      "prior_probability": 0.22435523395324974,
-      "final_confidence": 0.22435523395324974,
-      "verified": false,
-      "vulnerable": false
-    },
-    {
-      "candidate_id": "cand_04c23c90c4132562",
-      "canonical_path": "/portal/order",
-      "parameter_name": "ref",
-      "parameter_location": "QUERY",
-      "family": "SQLI",
-      "prior_probability": 0.22426427548000374,
-      "final_confidence": 0.22426427548000374,
-      "verified": false,
       "vulnerable": false
     },
     {
@@ -308,8 +286,8 @@
       "parameter_name": "thread",
       "parameter_location": "QUERY",
       "family": "REFLECTED_XSS",
-      "prior_probability": 0.4318118249764191,
-      "final_confidence": 0.21849425925213523,
+      "prior_probability": 0.431317556277942,
+      "final_confidence": 0.2181504148196721,
       "verified": true,
       "vulnerable": false
     },
@@ -319,8 +297,8 @@
       "parameter_name": "ref",
       "parameter_location": "QUERY",
       "family": "REFLECTED_XSS",
-      "prior_probability": 0.4317682458377255,
-      "final_confidence": 0.21846393097997002,
+      "prior_probability": 0.4312851907432952,
+      "final_confidence": 0.21812790962021944,
       "verified": true,
       "vulnerable": false
     },
@@ -330,8 +308,30 @@
       "parameter_name": "card_id",
       "parameter_location": "QUERY",
       "family": "REFLECTED_XSS",
-      "prior_probability": 0.39091202164249494,
-      "final_confidence": 0.19100699890854683,
+      "prior_probability": 0.38956339623317804,
+      "final_confidence": 0.19013275047698255,
+      "verified": true,
+      "vulnerable": false
+    },
+    {
+      "candidate_id": "cand_a22cd77eec74f0d6",
+      "canonical_path": "/portal/message",
+      "parameter_name": "thread",
+      "parameter_location": "QUERY",
+      "family": "SQLI",
+      "prior_probability": 0.2233255151296538,
+      "final_confidence": 0.1606264273644844,
+      "verified": true,
+      "vulnerable": false
+    },
+    {
+      "candidate_id": "cand_04c23c90c4132562",
+      "canonical_path": "/portal/order",
+      "parameter_name": "ref",
+      "parameter_location": "QUERY",
+      "family": "SQLI",
+      "prior_probability": 0.2232582344066159,
+      "final_confidence": 0.16057413057878583,
       "verified": true,
       "vulnerable": false
     }

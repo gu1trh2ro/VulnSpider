@@ -409,6 +409,79 @@ STYLE += """
 @media print{.cmp-chip,.cmp-clue,.rank-row{break-inside:avoid}.cmp-arrow .cmp-arrow-mark{transform:none}}
 """
 
+STYLE += """
+/* --- v0.2 visual refinement -----------------------------------------------
+   Flatter, editorial surfaces (no template gradients / fuzzy elevation) and
+   stronger, colour-coded data cues so the priority story reads at a glance. */
+:root{--edge:#d5dfe4;--edge-strong:#aebfc7;--surface:#fff;--surface-2:#f3f7f9;
+ --sev-high:#b5473f;--sev-mid:#c08a2a;--sev-low:#5f7280}
+
+/* 1. Strip the soft drop-shadows and card gradients that read as generic. */
+.metric,.panel,.endpoint-node,.comparison-card,.cmp-chip,.spotlight-card,
+.map-root-icon,.finding,.vpanel{box-shadow:none}
+.analysis-journey,.comparison-card,.cmp-chip{background:var(--surface)}
+.cmp-clue{background:#fbfcfd}.cmp-clue.xss{background:#fafbff}
+.evidence-takeaway{background:#f1f7f7}
+
+/* 2. One consistent, crisp card system: hairline edge, calm radius. */
+.panel,.metric,.comparison-card,.endpoint-node,.evidence-item,.payload-card,
+.finding,.reading-guide .panel,.vpanel,.fix,.source-caption{
+ border-color:var(--edge);border-radius:10px}
+
+/* 3. Metric tiles: a deliberate top rule + a bigger, tabular number. */
+.metric{border-top:3px solid var(--edge-strong);padding-top:18px}
+.metric.accent{border-top-color:var(--accent)}
+.metric-value{font-size:40px;font-variant-numeric:tabular-nums}
+
+/* 4. Discovery -> evidence strip: flat, with an accent spine and a solid
+      "focus" endpoint instead of a gradient panel. */
+.analysis-journey{border-left:4px solid var(--accent)}
+.analysis-stage:last-child{background:#0f3d49}
+
+/* 5. Section headings get a hairline divider -- structure without more text. */
+.panel>.panel-head{border-bottom:1px solid var(--line);padding-bottom:15px}
+.family-panel>.panel-head,.evidence-summary>.panel-head{border-bottom:0}
+
+/* 6. Candidate table: colour-code each row by family; heavier score meter. */
+.candidate-table td:first-child{border-left:4px solid var(--edge-strong)}
+.candidate-table tr[data-family="SQLI"] td:first-child{border-left-color:var(--sqli)}
+.candidate-table tr[data-family="REFLECTED_XSS"] td:first-child{border-left-color:var(--xss)}
+.candidate-table tr[data-family="BROKEN_ACCESS_CONTROL"] td:first-child{border-left-color:var(--bac)}
+.candidate-table tbody tr:hover{background:#f5fafb}
+.mini-meter{width:104px;height:7px;background:#e6edf1}
+.mini-meter i{background:var(--accent)}
+.score-cell{color:var(--ink)}
+
+/* 7. Family tag + legend dots: calmer chrome, bigger dots to actually read. */
+.family-tag{background:var(--surface-2);border-color:var(--edge)}
+.family-dot{width:9px;height:9px}
+.map-legend .family-dot,.confidence-legend i{width:10px;height:10px}
+
+/* 8. Comparison cards: a top accent rail, flat body, bolder figures. */
+.comparison-card{border-top:3px solid var(--edge-strong)}
+.confidence-values b{font-size:32px;font-variant-numeric:tabular-nums}
+
+/* 9. Relationship map: firmer container, quieter branch nodes. */
+.map-canvas{border-color:var(--edge);background-color:#fbfdfe}
+.endpoint-node{border-color:var(--edge)}
+
+/* 10. Evidence-summary counts: a real bar, not a whisper. */
+.status-track{height:9px}
+.evidence-count{border-left-width:5px}
+
+/* 11. Primary button / accents: single confident accent, no gloss. */
+.button.primary{background:var(--accent);border-color:var(--accent)}
+.button.primary:hover{background:#0a5b63}
+
+/* 12. Detail finding header: family accent rail so the type is unmissable. */
+.finding{border-left:4px solid var(--accent)}
+
+@media print{
+ .analysis-stage:last-child{background:#fff}
+ .candidate-table td:first-child{border-left-color:var(--edge-strong)!important}}
+"""
+
+
 # No report data is interpolated into JavaScript; all data comes from escaped DOM.
 SCRIPT = """(() => {
   'use strict';

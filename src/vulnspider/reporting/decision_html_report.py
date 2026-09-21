@@ -41,7 +41,6 @@ from vulnspider.reporting import dashboard_layout as layout
 from vulnspider.reporting.dashboard_assets import SCRIPT, STYLE
 from vulnspider.reporting.dashboard_story import source_caption
 from vulnspider.reporting.dashboard_comparison import response_comparison
-from vulnspider.reporting.dashboard_presentation import presentation_page
 from vulnspider.reporting.dashboard_evidence import (
     SIGNAL_EXPLANATIONS,
     explain_candidate,
@@ -242,7 +241,6 @@ def render_decision_html_report(
         '</section>',
     ]
     sections = [
-        presentation_page(rows, input_point_count or len(input_points), len(outcome.selected)),
         layout.overview(
             rows, target=target, endpoint_count=endpoint_count or len(endpoints),
             input_point_count=input_point_count or len(input_points),

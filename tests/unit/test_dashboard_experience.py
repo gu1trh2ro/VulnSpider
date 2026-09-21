@@ -57,7 +57,7 @@ class DashboardExperienceTests(unittest.TestCase):
         rendered = render_decision_html_report(outcome, target=attack, warnings=(attack,))
         parsed = DocumentLinks(rendered)
         self.assertEqual(len(parsed.ids), len(set(parsed.ids)))
-        self.assertTrue({"overview", "presentation", "candidates", "methodology", "candidate-1", "candidate-2"}.issubset(parsed.ids))
+        self.assertTrue({"overview", "candidates", "methodology", "candidate-1", "candidate-2"}.issubset(parsed.ids))
         self.assertTrue(all(link.startswith("#") and link[1:] in parsed.ids for link in parsed.links))
         self.assertEqual(parsed.scripts, [{}])
         self.assertIn(f"<script>{SCRIPT}</script>", rendered)

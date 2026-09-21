@@ -97,6 +97,8 @@ HOST = "127.0.0.1"
 PORT = 8899
 LAB_PATH = "/_lab"
 LAB_GROUND_TRUTH_PATH = "/_lab/ground-truth.json"
+# Marker the human demo flow adds to a request to turn on the PoC verdict.
+VS_CONFIRM_PARAM = "vs_confirm"
 
 SQLI = "SQLI"
 REFLECTED_XSS = "REFLECTED_XSS"
@@ -1336,6 +1338,56 @@ pre.cmd { background: #16181d; color: #e6e9f0; padding: 14px; border-radius: 8px
           overflow-x: auto; font-size: 13px; }
 """
 
+_POC_STYLE = (
+    "<style>"
+    """
+/* Live vulnerability confirmation (Proof of Concept) banner. */
+.poc-banner { display: flex; gap: 18px; align-items: flex-start; margin: 0 0 26px;
+    padding: 22px 26px; border-radius: 14px; border: 1px solid #d4dae0;
+    background: #fff; box-shadow: 0 8px 30px #16181d12; }
+.poc-banner .poc-icon { font-size: 40px; line-height: 1.1; flex-shrink: 0; }
+.poc-banner .poc-body { min-width: 0; }
+.poc-eyebrow { font-size: 12px; font-weight: 800; letter-spacing: 1.4px;
+    text-transform: uppercase; color: #64707d; }
+.poc-banner h2 { font-size: 24px; margin: 6px 0 12px; color: #16181d; }
+.poc-what { margin: 0 0 12px; font-size: 15px; color: #39424e; }
+.poc-what b { color: #16181d; }
+.poc-what code, .poc-foot code { background: #132f40; color: #e7f6f2; padding: 3px 8px;
+    border-radius: 6px; font-family: Consolas, monospace; font-size: 13px;
+    word-break: break-all; }
+.poc-proof { margin: 0; font-size: 16px; line-height: 1.9; color: #2b3540; }
+.poc-evidence { margin-top: 16px; }
+.poc-evidence-cap { font-size: 12px; font-weight: 700; color: #64707d; margin-bottom: 6px; }
+.poc-code { margin: 0; padding: 14px 16px; border-radius: 9px; background: #0f2733;
+    color: #e7f6f2; font: 14px/1.7 Consolas, monospace; white-space: pre-wrap;
+    word-break: break-all; overflow-x: auto; }
+.poc-rows { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 16px; }
+.poc-rows span { background: #eef1f5; border-radius: 9px; padding: 10px 16px; font-weight: 700;
+    font-variant-numeric: tabular-nums; }
+.poc-rows b { display: block; font-size: 12px; color: #64707d; font-weight: 700; margin-bottom: 2px; }
+.poc-rows .hot { background: #fdeae0; color: #8a3d10; }
+.poc-rows .poc-arrow { background: none; padding: 0; color: #9aa0b0; font-size: 22px; }
+.poc-foot { margin: 16px 0 0; font-size: 12px; line-height: 1.7; color: #7a8092; }
+.poc-confirmed { border-color: #1f9d57; border-left: 8px solid #1f9d57;
+    background: linear-gradient(180deg, #f1fbf5, #fff); }
+.poc-confirmed h2 { color: #146b3b; }
+.poc-defended { border-color: #1b4dd1; border-left: 8px solid #1b4dd1;
+    background: linear-gradient(180deg, #f1f5ff, #fff); }
+.poc-defended h2 { color: #1a3ba0; }
+.poc-pending { border-color: #c8971f; border-left: 8px solid #c8971f;
+    background: linear-gradient(180deg, #fffaef, #fff); }
+.poc-pending h2 { color: #856614; }
+.poc-cta { display: inline-block; font-weight: 700; color: #12703c;
+    border: 1px solid #b7e0c6; background: #eef8f1; border-radius: 6px;
+    padding: 2px 9px; white-space: nowrap; }
+.poc-cta:hover { text-decoration: none; background: #e2f2e8; }
+.poc-cta-row { margin-top: 7px; }
+.poc-cta-row small { color: #7a8092; font-size: 11px; }
+@media (max-width: 600px) { .poc-banner { flex-direction: column; gap: 10px; padding: 18px; } }
+"""
+    "</style>"
+)
+
 
 def _nav() -> str:
     sections: dict[str, str] = {}
@@ -1364,7 +1416,7 @@ def _input_of(path: str, name: str) -> str:
     )
 
 
-def _layout(title: str, body: str, *, input_count: int = 0) -> bytes:
+def _layout(title: str, body: str, *, input_count: int = 0, head_extra: str = "") -> bytes:
     # Reveal mode is a viewer preference kept in localStorage; restoring the
     # class before first paint avoids a flash of unmarked controls.
     count = f"<b data-reveal-count>{input_count}</b>" if input_count else ""
@@ -1377,7 +1429,7 @@ def _layout(title: str, body: str, *, input_count: int = 0) -> bytes:
         "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{escape(title)} · DemoShop</title>"
-        f'<style>{_STYLE}</style><link rel="stylesheet" href="/assets/shop.css">'
+        f'<style>{_STYLE}</style>{head_extra}<link rel="stylesheet" href="/assets/shop.css">'
         "<script>try{if(localStorage.getItem('demoshop-reveal-inputs')==='1')"
         "document.documentElement.classList.add('reveal-inputs')}catch(e){}</script>"
         f'<script src="{storefront.PRODUCTS_SCRIPT}" defer></script>'
@@ -1473,6 +1525,246 @@ def _filter_form(page: PageSpec, query: dict[str, str]) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Live vulnerability confirmation (Proof of Concept)
+#
+# A demo-only overlay: when the human demo flow adds the ``vs_confirm`` marker
+# to a request, the route renders a plain-language verdict that a non-expert can
+# read at a glance -- "this input point really is a SQL Injection", with the
+# concrete evidence highlighted. The marker is added only by the lab launch
+# links (which the crawler never reaches), so an ordinary probe -- and the whole
+# scan -- sees a byte-for-byte unchanged response and is never affected.
+# ---------------------------------------------------------------------------
+
+
+def _confirm_link(page: PageSpec, item: InputSpec) -> str:
+    """The lab launch URL that fires the PoC confirmation for one input point."""
+
+    overrides = {item.name: item.info.payload}
+    if item.kind == "bac":
+        overrides[item.name] = str(int(item.seed) + 1)
+    if item.condition is not None:
+        overrides[item.condition[0]] = item.condition[1]
+    overrides[VS_CONFIRM_PARAM] = item.name
+    return _link(page, overrides)
+
+
+def _account_confirm_link(route: AccountRoute) -> str:
+    """The lab launch URL that fires the PoC confirmation for a portal route."""
+
+    substituted = str(int(route.seed) + 1)
+    return f"{route.path}?{urlencode({route.param: substituted, VS_CONFIRM_PARAM: route.param})}"
+
+
+def _poc_source(caption: str, snippet: str) -> str:
+    return (
+        f'<div class="poc-evidence-cap">{escape(caption)}</div>'
+        f'<pre class="poc-code">{escape(snippet)}</pre>'
+    )
+
+
+def _poc_rows(a_label: str, a: int, b_label: str, b: int) -> str:
+    return (
+        '<div class="poc-rows">'
+        f'<span><b>{escape(a_label)}</b>{a}행 조회</span>'
+        '<span class="poc-arrow" aria-hidden="true">→</span>'
+        f'<span class="hot"><b>{escape(b_label)}</b>{b}행 조회</span></div>'
+    )
+
+
+def _poc_banner(tone: str, heading: str, label: str, value: str,
+                proof: str, evidence: str = "") -> str:
+    icons = {"confirmed": "✅", "defended": "\U0001f6e1️", "pending": "⏳"}
+    tags = {"confirmed": "취약점 확인됨", "defended": "방어 확인됨", "pending": "재현 대기"}
+    return (
+        f'<aside class="poc-banner poc-{tone}" role="status" tabindex="-1">'
+        f'<div class="poc-icon" aria-hidden="true">{icons[tone]}</div>'
+        '<div class="poc-body">'
+        f'<div class="poc-eyebrow">취약점 검증 · Proof of Concept · {escape(tags[tone])}</div>'
+        f'<h2>{escape(heading)}</h2>'
+        f'<p class="poc-what"><b>{escape(label)}</b> 입력점에 '
+        f'<code>{escape(value)}</code> 값을 전송했습니다.</p>'
+        f'<p class="poc-proof">{escape(proof)}</p>'
+        + (f'<div class="poc-evidence">{evidence}</div>' if evidence else "")
+        + '<p class="poc-foot">이 확인 화면은 발표용 검증 요청에서만 나타나며, '
+        '스캐너가 관측하는 일반 응답에는 포함되지 않습니다.</p>'
+        '</div></aside>'
+    )
+
+
+_SAFE_REASONS = {
+    "safe_escaped": (
+        "입력한 스크립트가 화면에 되비쳐 나오긴 하지만, 출력할 때 <, >, 따옴표를 HTML 엔티티로 "
+        "이스케이프합니다. 그래서 브라우저가 이를 코드가 아니라 화면에 보이는 '글자'로만 표시합니다. "
+        "실행되지 않으므로 취약점이 아닙니다."
+    ),
+    "safe_type_error": (
+        "500 오류가 보이지만 이것은 SQL 주입이 아닙니다. 값은 바인딩 파라미터로 안전하게 전달된 뒤 "
+        "정수 변환에 실패했을 뿐이고, 그때 드라이버가 낸 캐스팅 오류 메시지가 노출된 것입니다. "
+        "질의문에 값이 끼어들지 않으므로 주입은 불가능합니다(정보 노출일 뿐, 오탐을 유발하는 함정입니다)."
+    ),
+    "safe_stripped": (
+        "출력하기 전에 <, >, 따옴표를 마침표(.)로 치환합니다. 남는 문자만으로는 스크립트를 만들 수 "
+        "없으므로 실제로는 취약하지 않습니다."
+    ),
+    "safe_validated": (
+        "허용된 문자 집합을 벗어난 값은 400으로 거절되어 질의나 화면에 도달하지 못합니다. "
+        "입력 검증이 주입을 차단합니다."
+    ),
+    "safe_dynamic": (
+        "값에 따라 보여주는 결과 개수만 달라질 뿐, 값 자체는 질의문에 들어가지 않습니다. "
+        "블라인드 SQL Injection처럼 보이지만 실제로는 주입이 아닙니다."
+    ),
+    "safe_param": (
+        "파라미터 바인딩으로만 조회하고 값 자체는 화면에 출력하지 않습니다. 관측되는 주입 신호가 없습니다."
+    ),
+    "safe_allowlist": (
+        "허용 목록에 없는 값은 기본값으로 대체되므로 입력이 그대로 반영되지 않습니다."
+    ),
+}
+
+
+def _confirmation(page: PageSpec, item: InputSpec, value: str,
+                  query: dict[str, str]) -> str:
+    """A beginner-friendly PoC verdict for one input point under a demo payload."""
+
+    kind = item.kind
+    label = item.label
+
+    if kind in ("xss_raw", "xss_conditional"):
+        if kind == "xss_conditional":
+            assert item.condition is not None
+            gate_name, gate_value = item.condition
+            if query.get(gate_name, "") != gate_value:
+                return _poc_banner(
+                    "pending", "아직 페이로드가 반영되지 않았습니다", label, value,
+                    f"이 입력점은 다른 조건({gate_name}={gate_value})이 함께 충족될 때만 원문이 "
+                    "그대로 출력됩니다. 그 조건을 같이 보내면 취약점이 드러납니다.",
+                )
+        if "<" in value or ">" in value:
+            return _poc_banner(
+                "confirmed", "Reflected XSS 취약점이 확인되었습니다", label, value,
+                "입력한 HTML/스크립트가 이스케이프 없이 페이지 본문에 그대로 삽입되어, 브라우저가 이를 "
+                "실제 코드로 실행했습니다. 화면에 경고창(alert)이 떴다면 공격자가 넣은 스크립트가 실행된 "
+                "것입니다. 반사형 XSS 취약점이 맞습니다.",
+                _poc_source("페이지 소스에 삽입된 형태", f"<b>{value}</b>"),
+            )
+        return _poc_banner(
+            "pending", "아직 페이로드가 반영되지 않았습니다", label, value,
+            "HTML 특수문자(< 또는 >)가 포함된 값을 보내야 반사형 XSS가 드러납니다.",
+        )
+    if kind == "xss_attr":
+        if '"' in value:
+            return _poc_banner(
+                "confirmed", "Reflected XSS 취약점이 확인되었습니다", label, value,
+                "입력값이 HTML 속성값(value=\"…\") 안에 따옴표 처리 없이 들어가, 큰따옴표로 속성을 "
+                "빠져나와 새로운 <script> 태그를 심을 수 있었습니다. 경고창이 떴다면 실행된 것입니다.",
+                _poc_source("속성에 삽입된 형태", f'<input value="{value}">'),
+            )
+        return _poc_banner(
+            "pending", "아직 페이로드가 반영되지 않았습니다", label, value,
+            "큰따옴표(\")가 포함된 값을 보내야 속성 탈출형 XSS가 드러납니다.",
+        )
+    if kind == "xss_js":
+        if "'" in value:
+            return _poc_banner(
+                "confirmed", "Reflected XSS 취약점이 확인되었습니다", label, value,
+                "입력값이 <script> 내부의 문자열 안에 그대로 들어가, 작은따옴표로 문자열을 끊고 임의의 "
+                "자바스크립트를 실행할 수 있었습니다. 경고창이 떴다면 실행된 것입니다.",
+                _poc_source("스크립트에 삽입된 형태", f"<script>var demoshopLabel0 = '{value}';</script>"),
+            )
+        return _poc_banner(
+            "pending", "아직 페이로드가 반영되지 않았습니다", label, value,
+            "작은따옴표(')가 포함된 값을 보내야 스크립트 문자열 탈출형 XSS가 드러납니다.",
+        )
+    if kind == "sqli_error":
+        if _has_sql_metachar(value):
+            return _poc_banner(
+                "confirmed", "SQL Injection 취약점이 확인되었습니다", label, value,
+                "따옴표(')가 포함된 값을 보내자 서버가 500 오류와 함께 데이터베이스 엔진의 SQL 구문 "
+                "오류 메시지를 그대로 노출했습니다. 입력값이 SQL 질의문에 직접 이어붙는다는 결정적 "
+                "증거이며, 오류 기반(error-based) SQL Injection이 맞습니다.",
+                _poc_source(
+                    "응답에 노출된 DB 오류",
+                    "Database error: "
+                    + _SQL_ERRORS[zlib.crc32(page.path.encode("utf-8")) % len(_SQL_ERRORS)].format(value=value),
+                ),
+            )
+        return _poc_banner(
+            "pending", "아직 페이로드가 반영되지 않았습니다", label, value,
+            "따옴표(') 같은 SQL 특수문자가 포함된 값을 보내야 SQL 오류가 드러납니다.",
+        )
+    if kind == "sqli_blind":
+        if _has_sql_metachar(value):
+            return _poc_banner(
+                "confirmed", "블라인드 SQL Injection 취약점이 확인되었습니다", label, value,
+                "오류 메시지는 없지만, 참/거짓 조건에 따라 조회되는 행 수가 달라졌습니다. 정상 요청은 "
+                "7행, 조건을 담은 페이로드는 1행을 반환합니다. 응답이 입력한 SQL 조건에 반응한다는 "
+                "뜻으로, 화면에 오류를 내지 않는 블라인드 SQL Injection이 맞습니다.",
+                _poc_rows("정상 요청", 7, "페이로드 요청", 1),
+            )
+        return _poc_banner(
+            "pending", "아직 페이로드가 반영되지 않았습니다", label, value,
+            "SQL 조건이 담긴 값을 보내야 결과 행 수의 변화가 드러납니다.",
+        )
+    if kind == "bac":
+        return _poc_banner(
+            "confirmed", "Broken Access Control 취약점이 확인되었습니다", label, value,
+            "인가 확인 없이 식별자만 바꾸자 다른 사용자의 자원이 그대로 조회되었습니다. "
+            "권한 없는 자원 접근(Broken Access Control)이 맞습니다.",
+        )
+
+    reason = _SAFE_REASONS.get(kind)
+    if reason is None:
+        return ""
+    attacky = _has_sql_metachar(value) or "<" in value or ">" in value
+    if not attacky:
+        return ""
+    return _poc_banner(
+        "defended", "이 입력점은 안전하게 방어되어 있습니다", label, value, reason,
+    )
+
+
+def _confirm_banner(page: PageSpec, query: dict[str, str]) -> str:
+    """The PoC verdict for a storefront route, or an empty string otherwise."""
+
+    target_name = query.get(VS_CONFIRM_PARAM)
+    if not target_name:
+        return ""
+    item = next((it for it in page.inputs if it.name == target_name), None)
+    if item is None:
+        return ""
+    return _confirmation(page, item, query.get(item.name, item.seed), query)
+
+
+def _account_confirm_banner(route: AccountRoute, value: str,
+                            query: dict[str, str]) -> str:
+    """The PoC verdict for a portal route, or an empty string otherwise."""
+
+    if VS_CONFIRM_PARAM not in query:
+        return ""
+    label = route.title
+    if route.kind == "idor":
+        if value == route.seed:
+            return _poc_banner(
+                "pending", "아직 페이로드가 반영되지 않았습니다", label, value,
+                "식별자를 다른 사용자의 값으로 바꿔 요청하면 IDOR이 드러납니다.",
+            )
+        return _poc_banner(
+            "confirmed", "Broken Access Control(IDOR) 취약점이 확인되었습니다", label, value,
+            "로그인은 했지만 소유권 확인이 없어, 식별자만 다른 값으로 바꾸자 다른 사용자의 자원이 "
+            "그대로 열렸습니다. 권한 없는 자원 접근 — Broken Access Control(IDOR)이 맞습니다.",
+            _poc_source("인가 없이 조회된 남의 자원", f"{route.param}={value} 소유자 {_fake_holder(value)}"),
+        )
+    if value != route.seed:
+        return _poc_banner(
+            "defended", "이 자원은 접근제어로 보호되어 있습니다", label, value,
+            "소유권을 확인하기 때문에, 다른 사용자의 식별자로 바꾼 요청을 403으로 거부했습니다. "
+            "접근제어가 올바르게 동작하는 안전한 라우트입니다.",
+        )
+    return ""
+
+
 def render_route(page: PageSpec, query: dict[str, str]) -> tuple[int, bytes]:
     """Render one storefront route for the parameters it was given."""
 
@@ -1483,8 +1775,10 @@ def render_route(page: PageSpec, query: dict[str, str]) -> tuple[int, bytes]:
         item_status, html = _fragment(page, item, value, query)
         status = max(status, item_status)
         cards.append(html)
+    banner = _confirm_banner(page, query)
     body = (
-        f'<a class="surface-jump" href="#input-points">⊙ 이 페이지의 입력점 {len(page.inputs)}개 보기</a>'
+        banner
+        + f'<a class="surface-jump" href="#input-points">⊙ 이 페이지의 입력점 {len(page.inputs)}개 보기</a>'
         + storefront.route_body(
             page.path,
             page.title,
@@ -1495,7 +1789,7 @@ def render_route(page: PageSpec, query: dict[str, str]) -> tuple[int, bytes]:
         )
         + _chrome(page)
     )
-    return status, _layout(page.title, body, input_count=len(page.inputs))
+    return status, _layout(page.title, body, input_count=len(page.inputs), head_extra=_POC_STYLE if banner else "")
 
 
 def render_index() -> bytes:
@@ -1577,13 +1871,19 @@ def render_lab() -> bytes:
                     if info.payload or item.kind == "bac"
                     else ""
                 )
+                + (
+                    f' · <a class="poc-cta" href="{escape(_confirm_link(page, item))}">'
+                    "🎯 취약점 검증</a>"
+                    if vulnerable
+                    else ""
+                )
                 + "</td></tr>"
             )
     body = (
         "<h1>DemoShop 입력점 지도</h1>"
         '<p class="blurb">이 사이트의 정답지입니다. 각 입력점이 왜 취약한지 / 왜 '
         "안전한지, 그리고 VulnSpider가 무엇을 관측하는지 보여줍니다. "
-        "‘공격’ 링크를 열면 같은 요청을 브라우저에서 그대로 재현합니다.</p>"
+        "‘공격’ 링크는 같은 요청을 브라우저에서 그대로 재현하고, ‘🎯 취약점 검증’ 링크는 그 결과를 비전공자도 알아볼 수 있는 확인 화면과 함께 보여줍니다.</p>"
         '<div class="summary">'
         f"<div><b>{INPUT_POINTS}</b>전체 입력점</div>"
         f"<div><b>{VULNERABLE_INPUT_POINTS}</b>취약 입력점</div>"
@@ -1607,7 +1907,7 @@ def render_lab() -> bytes:
         f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
         + _account_lab_section()
     )
-    return _layout("입력점 지도", body)
+    return _layout("입력점 지도", body, head_extra=_POC_STYLE)
 
 
 def _account_lab_section() -> str:
@@ -1617,9 +1917,15 @@ def _account_lab_section() -> str:
     for route in ACCOUNT_ROUTES:
         badge = "vuln" if route.vulnerable else "safe"
         verdict = "취약 · IDOR" if route.vulnerable else "안전 · 접근제어"
+        cta_label = "🎯 취약점 검증" if route.vulnerable else "🛡️ 방어 확인"
+        cta = (
+            f'<div class="poc-cta-row"><a class="poc-cta" '
+            f'href="{escape(_account_confirm_link(route))}">{cta_label}</a> '
+            "<small>(admin 로그인 후)</small></div>"
+        )
         rows.append(
             "<tr>"
-            f"<td><code>{escape(route.path)}?{escape(route.param)}</code></td>"
+            f"<td><code>{escape(route.path)}?{escape(route.param)}</code>{cta}</td>"
             f'<td><span class="badge {badge}">{escape(verdict)}</span></td>'
             f"<td>{escape(route.reason)}</td>"
             f"<td>{escape(route.signal)}</td>"
@@ -1716,6 +2022,7 @@ def render_account_route(
         return _forbidden("로그인이 필요합니다. 세션 쿠키가 없습니다.")
     _role, uid = session
     value = query.get(route.param, route.seed)
+    banner = _account_confirm_banner(route, value, query)
 
     if route.kind == "owned":
         # Proper access control: the resource must belong to the session user.
@@ -1724,10 +2031,18 @@ def render_account_route(
         # regardless of which role is logged in. This is the true negative the
         # BAC pipeline should score low.
         if value != route.seed:
-            return _forbidden(
+            message = (
                 f"{escape(route.param)}={escape(value)} 는 현재 사용자의 것이 "
                 "아닙니다."
             )
+            if not banner:
+                return _forbidden(message)
+            body = (
+                banner + "<h1>403</h1>"
+                f'<p class="warn">{message}</p>'
+                f'<p><a href="{LOGIN_PATH}?as=admin">로그인</a></p>'
+            )
+            return 403, _layout("접근 거부", body, head_extra=_POC_STYLE)
         card = _account_form(route, value) + _card(
             route.title,
             '<table class="record">'
@@ -1735,7 +2050,7 @@ def render_account_route(
             "<tr><th>카드</th><td>신한 ****-8842</td></tr>"
             f"<tr><th>소유자 uid</th><td>{uid}</td></tr></table>",
         )
-        return 200, _layout(route.title, f"<h1>{escape(route.title)}</h1>{card}")
+        return 200, _layout(route.title, f"{banner}<h1>{escape(route.title)}</h1>{card}", head_extra=_POC_STYLE if banner else "")
 
     # IDOR: authenticated, but no ownership check -- any id is served.
     holder = _fake_holder(value)
@@ -1749,7 +2064,7 @@ def render_account_route(
         '<p class="hint">소유권을 확인하지 않으므로 남의 자원도 조회됩니다.</p>',
         tone="danger",
     )
-    return 200, _layout(route.title, f"<h1>{escape(route.title)}</h1>{record}")
+    return 200, _layout(route.title, f"{banner}<h1>{escape(route.title)}</h1>{record}", head_extra=_POC_STYLE if banner else "")
 
 
 class DemoShopHandler(BaseHTTPRequestHandler):

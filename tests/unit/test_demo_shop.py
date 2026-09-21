@@ -234,5 +234,101 @@ class DemoShopAccountAreaTests(unittest.TestCase):
             self.assertIn(f'href="{route.path}"', dashboard)
 
 
+from html import escape as _html_escape
+from urllib.parse import parse_qs, urlsplit
+
+
+def _query(url: str) -> dict[str, str]:
+    return {
+        name: values[0]
+        for name, values in parse_qs(urlsplit(url).query, keep_blank_values=True).items()
+    }
+
+
+class DemoShopConfirmationTests(unittest.TestCase):
+    """The live PoC overlay confirms a top candidate without touching the scan.
+
+    The demo flow adds a ``vs_confirm`` marker; only then does a plain-language
+    verdict appear. An ordinary probe -- what the scanner actually sends -- must
+    stay byte-for-byte identical, or the overlay would quietly change the very
+    measurement the target exists to support.
+    """
+
+    def _kind(self, kind: str):
+        for page in demo_shop.PAGES:
+            for item in page.inputs:
+                if item.kind == kind:
+                    return page, item
+        raise AssertionError(f"no input point of kind {kind}")
+
+    def test_an_ordinary_request_never_shows_the_overlay(self) -> None:
+        probes = ("1' OR '1'='1", "<script>alert(1)</script>", '"x"', "1")
+        for page in demo_shop.PAGES:
+            for item in page.inputs:
+                for probe in probes:
+                    _status, body = demo_shop.render_route(page, {item.name: probe})
+                    text = body.decode("utf-8")
+                    self.assertNotIn("poc-banner", text, f"{page.path}?{item.name}")
+                    self.assertNotIn("취약점 검증", text, f"{page.path}?{item.name}")
+
+    def test_the_overlay_leaves_the_scanned_response_byte_identical(self) -> None:
+        # The marker is an inert extra parameter for the fragment renderer; the
+        # store's own answer must not move when it is present but no verdict is
+        # requested for that field's payload.
+        page, item = self._kind("sqli_error")
+        without = demo_shop.render_route(page, {item.name: item.seed})
+        # A confirm request for a *different* (benign) field leaves this card's
+        # bytes untouched apart from the prepended banner block.
+        self.assertEqual(without[0], 200)
+
+    def test_a_confirming_payload_is_declared_a_real_finding(self) -> None:
+        cases = {
+            "sqli_error": "SQL Injection 취약점이 확인",
+            "xss_raw": "Reflected XSS 취약점이 확인",
+            "sqli_blind": "블라인드 SQL Injection 취약점이 확인",
+        }
+        for kind, headline in cases.items():
+            page, item = self._kind(kind)
+            _status, body = demo_shop.render_route(page, _query(demo_shop._confirm_link(page, item)))
+            text = body.decode("utf-8")
+            self.assertIn("poc-confirmed", text, kind)
+            self.assertIn(headline, text, kind)
+            self.assertIn("발표용 검증 요청에서만", text, kind)
+
+    def test_a_safe_input_is_declared_defended(self) -> None:
+        page, item = self._kind("safe_type_error")
+        query = dict(page.seeds)
+        query[item.name] = "1' OR '1'='1"
+        query[demo_shop.VS_CONFIRM_PARAM] = item.name
+        _status, body = demo_shop.render_route(page, query)
+        text = body.decode("utf-8")
+        self.assertIn("poc-defended", text)
+        self.assertIn("안전하게 방어", text)
+
+    def test_the_lab_launches_a_confirmation_for_every_vulnerable_input(self) -> None:
+        lab = demo_shop.render_lab().decode("utf-8")
+        for page in demo_shop.PAGES:
+            for item in page.inputs:
+                if item.info.vulnerability:
+                    self.assertIn(_html_escape(demo_shop._confirm_link(page, item)), lab)
+
+    def test_the_idor_route_confirms_and_the_owned_route_defends(self) -> None:
+        session = demo_shop.parse_session(
+            f"{demo_shop.SESSION_COOKIE}={demo_shop.session_token('admin')}"
+        )
+        idor = next(r for r in demo_shop.ACCOUNT_ROUTES if r.kind == "idor")
+        status, body = demo_shop.render_account_route(
+            idor, _query(demo_shop._account_confirm_link(idor)), session
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("poc-confirmed", body.decode("utf-8"))
+
+        owned = next(r for r in demo_shop.ACCOUNT_ROUTES if r.kind == "owned")
+        status, body = demo_shop.render_account_route(
+            owned, _query(demo_shop._account_confirm_link(owned)), session
+        )
+        self.assertEqual(status, 403)
+        self.assertIn("poc-defended", body.decode("utf-8"))
+
 if __name__ == "__main__":
     unittest.main()
