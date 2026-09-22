@@ -590,6 +590,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     analyze.add_argument(
+        "--verify-links",
+        dest="verify_links",
+        action="store_true",
+        help=(
+            "Add a live '취약점 검증' link to each candidate in the HTML "
+            "dashboard that opens the target's /_verify endpoint (the "
+            "DemoShop demo). No effect on the report without this flag."
+        ),
+    )
+    analyze.add_argument(
         "--cookie",
         action="append",
         default=None,
@@ -911,6 +921,7 @@ def main(
             access_verify_config=access_verify_config,
             evaluation=evaluation_request,
             ranking=ranking,
+            verify_links=getattr(args, "verify_links", False),
         )
         selected_count = len(outcome.selected)
         if verification_run is not None:

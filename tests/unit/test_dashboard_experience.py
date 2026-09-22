@@ -104,6 +104,19 @@ class DashboardExperienceTests(unittest.TestCase):
         self.assertIn('href="#candidate-1"', rendered)
         self.assertNotIn('[None]', rendered)
 
+    def test_verify_links_open_the_target_verify_endpoint_only_when_enabled(self) -> None:
+        target = _target("raw_reflect", "REFLECTED_XSS")
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1:8899", "/search")
+        point = replace(target.input_point, endpoint_id=endpoint.id, endpoint_fingerprint=endpoint.fingerprint)
+        outcome = run_decision_layer((_candidate(subject=point.id or ""),), top_k=1)
+        maps = dict(endpoints={endpoint.id or "": endpoint}, input_points={point.id or "": point},
+                    target="http://127.0.0.1:8899/")
+        enabled = render_decision_html_report(outcome, verify_links=True, **maps)
+        disabled = render_decision_html_report(outcome, verify_links=False, **maps)
+        self.assertIn("/_verify?path=", enabled)
+        self.assertIn("verify-live", enabled)
+        self.assertNotIn("/_verify", disabled)
+
     def test_missing_feature_is_not_explained_as_zero_or_positive_evidence(self) -> None:
         calibrated = CalibratedProbability._from_parts(
             family="SQLI", model_version="unit", probability=0.5,

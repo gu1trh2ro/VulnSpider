@@ -647,6 +647,11 @@ h1.page-title{font-size:34px;line-height:1.35}.subtitle{font-size:18px;max-width
  .risk-card.lead .risk-gauge,.risk-card.lead .risk-gauge svg{width:74px;height:74px}
  .risk-gauge,.risk-gauge svg{width:64px;height:64px}}
 @media print{.risk-card{break-inside:avoid}}
+
+/* The dashboard->DemoShop live "취약점 검증" launcher (demo only). */
+.verify-live{background:#b0500f;border-color:#b0500f;white-space:nowrap}
+.verify-live:hover{background:#933f08;border-color:#933f08}
+.page-heading .verify-live{flex:0 0 auto}
 </style>
 </head>
 <body>
@@ -703,7 +708,7 @@ h1.page-title{font-size:34px;line-height:1.35}.subtitle{font-size:18px;max-width
 <details class="list-foot"><summary>선택되지 않은 후보와 제외 사유</summary><p>선택되지 않은 후보가 없습니다.</p></details>
 </section>
 
-<section class="report-page" id="candidate-1" aria-label="1번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 01 · Broken Access Control</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div></div><article class="finding high">
+<section class="report-page" id="candidate-1" aria-label="1번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 01 · Broken Access Control</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div><a class="button primary verify-live" href="http://127.0.0.1:8899/_verify?path=%2Fportal%2Fmessage&amp;param=" target="_blank" rel="noopener">🎯 DemoShop에서 취약점 검증 <span aria-hidden="true">↗</span></a></div><article class="finding high">
     <div class="fhead">
       <div>
         <div class="rank">#1</div>
@@ -765,7 +770,7 @@ h1.page-title{font-size:34px;line-height:1.35}.subtitle{font-size:18px;max-width
     <div class="missing-note"><b>수정 후 확인할 기준</b><br>본인에게 허용된 요청은 성공하고, 다른 사용자 객체나 권한 없는 요청은 거부되는지 계정·역할별로 확인하세요. HTTP 상태뿐 아니라 응답 본문에 보호 데이터가 없는지도 점검하세요.<br>아래 방어 안내는 권장 조치이며, 이 리포트에서 수정 작업을 수행한 것은 아닙니다.</div></section>
     <div class="ids">candidate acand_aa372664fd28d7ea &middot; feature vector </div>
   </article><nav class="detail-pager" aria-label="후보 간 이동"><span></span><a class="button" href="#candidate-2">다음 후보 →</a></nav></section>
-<section class="report-page" id="candidate-2" aria-label="2번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 02 · Broken Access Control</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div></div><article class="finding high">
+<section class="report-page" id="candidate-2" aria-label="2번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 02 · Broken Access Control</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div><a class="button primary verify-live" href="http://127.0.0.1:8899/_verify?path=%2Fportal%2Forder&amp;param=" target="_blank" rel="noopener">🎯 DemoShop에서 취약점 검증 <span aria-hidden="true">↗</span></a></div><article class="finding high">
     <div class="fhead">
       <div>
         <div class="rank">#2</div>
@@ -827,7 +832,7 @@ h1.page-title{font-size:34px;line-height:1.35}.subtitle{font-size:18px;max-width
     <div class="missing-note"><b>수정 후 확인할 기준</b><br>본인에게 허용된 요청은 성공하고, 다른 사용자 객체나 권한 없는 요청은 거부되는지 계정·역할별로 확인하세요. HTTP 상태뿐 아니라 응답 본문에 보호 데이터가 없는지도 점검하세요.<br>아래 방어 안내는 권장 조치이며, 이 리포트에서 수정 작업을 수행한 것은 아닙니다.</div></section>
     <div class="ids">candidate acand_d0e47503abcdbd8b &middot; feature vector </div>
   </article><nav class="detail-pager" aria-label="후보 간 이동"><a class="button" href="#candidate-1">← 이전 후보</a><a class="button" href="#candidate-3">다음 후보 →</a></nav></section>
-<section class="report-page" id="candidate-3" aria-label="3번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 03 · Broken Access Control</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div></div><article class="finding medium">
+<section class="report-page" id="candidate-3" aria-label="3번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 03 · Broken Access Control</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div><a class="button primary verify-live" href="http://127.0.0.1:8899/_verify?path=%2Fportal%2Fcard&amp;param=" target="_blank" rel="noopener">🎯 DemoShop에서 취약점 검증 <span aria-hidden="true">↗</span></a></div><article class="finding medium">
     <div class="fhead">
       <div>
         <div class="rank">#3</div>
@@ -884,7 +889,7 @@ h1.page-title{font-size:34px;line-height:1.35}.subtitle{font-size:18px;max-width
     <div class="missing-note"><b>수정 후 확인할 기준</b><br>본인에게 허용된 요청은 성공하고, 다른 사용자 객체나 권한 없는 요청은 거부되는지 계정·역할별로 확인하세요. HTTP 상태뿐 아니라 응답 본문에 보호 데이터가 없는지도 점검하세요.<br>아래 방어 안내는 권장 조치이며, 이 리포트에서 수정 작업을 수행한 것은 아닙니다.</div></section>
     <div class="ids">candidate acand_dd8a8d5947bdb89d &middot; feature vector </div>
   </article><nav class="detail-pager" aria-label="후보 간 이동"><a class="button" href="#candidate-2">← 이전 후보</a><a class="button" href="#candidate-4">다음 후보 →</a></nav></section>
-<section class="report-page" id="candidate-4" aria-label="4번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 04 · Broken Access Control</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div></div><article class="finding medium">
+<section class="report-page" id="candidate-4" aria-label="4번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 04 · Broken Access Control</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div><a class="button primary verify-live" href="http://127.0.0.1:8899/_verify?path=%2Fportal%2Fmessage&amp;param=" target="_blank" rel="noopener">🎯 DemoShop에서 취약점 검증 <span aria-hidden="true">↗</span></a></div><article class="finding medium">
     <div class="fhead">
       <div>
         <div class="rank">#4</div>
@@ -941,7 +946,7 @@ h1.page-title{font-size:34px;line-height:1.35}.subtitle{font-size:18px;max-width
     <div class="missing-note"><b>수정 후 확인할 기준</b><br>본인에게 허용된 요청은 성공하고, 다른 사용자 객체나 권한 없는 요청은 거부되는지 계정·역할별로 확인하세요. HTTP 상태뿐 아니라 응답 본문에 보호 데이터가 없는지도 점검하세요.<br>아래 방어 안내는 권장 조치이며, 이 리포트에서 수정 작업을 수행한 것은 아닙니다.</div></section>
     <div class="ids">candidate acand_155951a7d7e518da &middot; feature vector </div>
   </article><nav class="detail-pager" aria-label="후보 간 이동"><a class="button" href="#candidate-3">← 이전 후보</a><a class="button" href="#candidate-5">다음 후보 →</a></nav></section>
-<section class="report-page" id="candidate-5" aria-label="5번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 05 · Broken Access Control</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div></div><article class="finding medium">
+<section class="report-page" id="candidate-5" aria-label="5번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 05 · Broken Access Control</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div><a class="button primary verify-live" href="http://127.0.0.1:8899/_verify?path=%2Fportal%2Forder&amp;param=" target="_blank" rel="noopener">🎯 DemoShop에서 취약점 검증 <span aria-hidden="true">↗</span></a></div><article class="finding medium">
     <div class="fhead">
       <div>
         <div class="rank">#5</div>
@@ -998,7 +1003,7 @@ h1.page-title{font-size:34px;line-height:1.35}.subtitle{font-size:18px;max-width
     <div class="missing-note"><b>수정 후 확인할 기준</b><br>본인에게 허용된 요청은 성공하고, 다른 사용자 객체나 권한 없는 요청은 거부되는지 계정·역할별로 확인하세요. HTTP 상태뿐 아니라 응답 본문에 보호 데이터가 없는지도 점검하세요.<br>아래 방어 안내는 권장 조치이며, 이 리포트에서 수정 작업을 수행한 것은 아닙니다.</div></section>
     <div class="ids">candidate acand_c2e3a8311f51fe6a &middot; feature vector </div>
   </article><nav class="detail-pager" aria-label="후보 간 이동"><a class="button" href="#candidate-4">← 이전 후보</a><a class="button" href="#candidate-6">다음 후보 →</a></nav></section>
-<section class="report-page" id="candidate-6" aria-label="6번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 06 · SQL Injection</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div></div><article class="finding medium">
+<section class="report-page" id="candidate-6" aria-label="6번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 06 · SQL Injection</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div><a class="button primary verify-live" href="http://127.0.0.1:8899/_verify?path=%2Fportal%2Fcard&amp;param=card_id" target="_blank" rel="noopener">🎯 DemoShop에서 취약점 검증 <span aria-hidden="true">↗</span></a></div><article class="finding medium">
     <div class="fhead">
       <div>
         <div class="rank">#6</div>
@@ -1024,7 +1029,7 @@ a { color: #1b4dd1; text-decoration: none; }
 a:hover { text-decoration: underline; }
 header.top { background: #16181d; color: #fff; padding: 14px 24px;
              display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
-header.top .brand…</pre><details class="technical"><summary>요청 주소와 응답 출처</summary><code>GET http://127.0.0.1:8899/portal/card?card_id=5001</code><p>response resp_cca6b6f52e253f39<br>request req_c212cc9881e0cb69<br>plan probe_70144740bb2d5667<br>role baseline</p></details></article><article class="response-card probe"><h3><span>02</span> 한 입력 변경 · Probe</h3><label>card_id에 보낸 값</label><pre class="request-value">VULNSPIDER_78FB1581C85BA71DZ&lt;&gt;&quot;&#x27;Z</pre><div class="response-stats"><b>HTTP 403</b><span>7,307 bytes</span></div><p class="excerpt-label">보관된 응답 원문 발췌 · 일부</p><pre class="response-excerpt">…ad&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;&lt;title&gt;접근 거부 · DemoShop&lt;/title&gt;&lt;style&gt;
+header.top .brand…</pre><details class="technical"><summary>요청 주소와 응답 출처</summary><code>GET http://127.0.0.1:8899/portal/card?card_id=5001</code><p>response resp_25ed483363d39642<br>request req_c212cc9881e0cb69<br>plan probe_70144740bb2d5667<br>role baseline</p></details></article><article class="response-card probe"><h3><span>02</span> 한 입력 변경 · Probe</h3><label>card_id에 보낸 값</label><pre class="request-value">VULNSPIDER_78FB1581C85BA71DZ&lt;&gt;&quot;&#x27;Z</pre><div class="response-stats"><b>HTTP 403</b><span>7,307 bytes</span></div><p class="excerpt-label">보관된 응답 원문 발췌 · 일부</p><pre class="response-excerpt">…ad&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;&lt;title&gt;접근 거부 · DemoShop&lt;/title&gt;&lt;style&gt;
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
 body { margin: 0; font: 15px/1.6 &quot;Malgun Gothic&quot;, system-ui, sans-serif;
@@ -1070,9 +1075,9 @@ header.top .brand…</pre><details class="technical"><summary>요청 주소와 �
 <details class="technical"><summary>원문 근거 · 제안 정보와 실행 출처</summary><ul><li>The re-probe barely moved the feature vector; the prior confidence is kept.</li></ul><div class="payload-meta">
 제안자: deterministic-baseline · deterministic-mutation-v1<br>
 제안 사유 (관찰 근거와 별개): Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.<br>
-proposal prop_62a208ee3fe9b903<br>result vres_93248bf660eb56de<br>
+proposal prop_62a208ee3fe9b903<br>result vres_93472101b3a3aaa9<br>
 검증기 payload-validator-v1 · 신뢰도 규칙 confidence-rule-v2<br>
-probe plan probe_741cfab182c74976<br>baseline response resp_60e050a0ff8aad17<br>probe response resp_cf106977761b2a2b<br>feature vector fv_e8c46c8fabe19e83</div></details></div></section><section class="payload-card">
+probe plan probe_741cfab182c74976<br>baseline response resp_6189cb154ef3ab5f<br>probe response resp_cf106977761b2a2b<br>feature vector fv_81e253e8676a2fbb</div></details></div></section><section class="payload-card">
 <div class="payload-head"><b>추가 페이로드 02 · 검증기 승인 · 실행 기록 있음</b>
 <span class="state UNCHANGED">변화 없음</span></div>
 <div class="payload-body"><div class="payload-values"><div><label>기준 입력값</label><pre>5001</pre></div>
@@ -1082,9 +1087,9 @@ probe plan probe_741cfab182c74976<br>baseline response resp_60e050a0ff8aad17<br>
 <details class="technical"><summary>원문 근거 · 제안 정보와 실행 출처</summary><ul><li>The re-probe barely moved the feature vector; the prior confidence is kept.</li></ul><div class="payload-meta">
 제안자: deterministic-baseline · deterministic-mutation-v1<br>
 제안 사유 (관찰 근거와 별개): Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.<br>
-proposal prop_0af5d535807d6f5b<br>result vres_d211d66ac40a66bb<br>
+proposal prop_0af5d535807d6f5b<br>result vres_333015f525b3032a<br>
 검증기 payload-validator-v1 · 신뢰도 규칙 confidence-rule-v2<br>
-probe plan probe_7b681535270f68c3<br>baseline response resp_28c4fde0e8be25c9<br>probe response resp_88c87b7e758c9ade<br>feature vector fv_1f798962aeac2ee9</div></details></div></section><section class="payload-card">
+probe plan probe_7b681535270f68c3<br>baseline response resp_fb70dccf376c8eb0<br>probe response resp_88c87b7e758c9ade<br>feature vector fv_d817c1908d85164b</div></details></div></section><section class="payload-card">
 <div class="payload-head"><b>추가 페이로드 03 · 검증기 승인 · 실행 기록 있음</b>
 <span class="state UNCHANGED">변화 없음</span></div>
 <div class="payload-body"><div class="payload-values"><div><label>기준 입력값</label><pre>5001</pre></div>
@@ -1094,9 +1099,9 @@ probe plan probe_7b681535270f68c3<br>baseline response resp_28c4fde0e8be25c9<br>
 <details class="technical"><summary>원문 근거 · 제안 정보와 실행 출처</summary><ul><li>The re-probe barely moved the feature vector; the prior confidence is kept.</li></ul><div class="payload-meta">
 제안자: deterministic-baseline · deterministic-mutation-v1<br>
 제안 사유 (관찰 근거와 별개): Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.<br>
-proposal prop_ae4f37d5fd5ce7ac<br>result vres_ecce87e4d5aed8fb<br>
+proposal prop_ae4f37d5fd5ce7ac<br>result vres_cbc2ea8a68de6ee7<br>
 검증기 payload-validator-v1 · 신뢰도 규칙 confidence-rule-v2<br>
-probe plan probe_0995cdc29c3396b3<br>baseline response resp_d0de6eba921fc69a<br>probe response resp_7804d632c6acc036<br>feature vector fv_f7b416743a063ec7</div></details></div></section><section class="payload-card">
+probe plan probe_0995cdc29c3396b3<br>baseline response resp_233946720990a33d<br>probe response resp_7804d632c6acc036<br>feature vector fv_45f99e9e2ba0f8a1</div></details></div></section><section class="payload-card">
 <div class="payload-head"><b>추가 페이로드 04 · 검증기 승인 · 실행 기록 있음</b>
 <span class="state UNCHANGED">변화 없음</span></div>
 <div class="payload-body"><div class="payload-values"><div><label>기준 입력값</label><pre>5001</pre></div>
@@ -1106,9 +1111,9 @@ probe plan probe_0995cdc29c3396b3<br>baseline response resp_d0de6eba921fc69a<br>
 <details class="technical"><summary>원문 근거 · 제안 정보와 실행 출처</summary><ul><li>The re-probe barely moved the feature vector; the prior confidence is kept.</li></ul><div class="payload-meta">
 제안자: deterministic-baseline · deterministic-mutation-v1<br>
 제안 사유 (관찰 근거와 별개): Send an out-of-range integer to distinguish a genuine boundary weakness from generic error handling.<br>
-proposal prop_656faf1a0d82c7a3<br>result vres_20772e469bdf678f<br>
+proposal prop_656faf1a0d82c7a3<br>result vres_b0080752db04e2a0<br>
 검증기 payload-validator-v1 · 신뢰도 규칙 confidence-rule-v2<br>
-probe plan probe_9a1149733ff64f14<br>baseline response resp_bf5cea00b3e6a57b<br>probe response resp_da9426dda5092cef<br>feature vector fv_7b56ef798ad4a032</div></details></div></section></section>
+probe plan probe_9a1149733ff64f14<br>baseline response resp_ed670698b34131cd<br>probe response resp_da9426dda5092cef<br>feature vector fv_503f02d5a35b608f</div></details></div></section></section>
 
     <section class="detail-section"><h2><span>04</span>어떻게 개선할 수 있나요?</h2>
     <div class="fix">
@@ -1124,9 +1129,9 @@ probe plan probe_9a1149733ff64f14<br>baseline response resp_bf5cea00b3e6a57b<br>
     <i class="fixdisc">유형별 일반 대응이며, 이 후보가 실제로 악용 가능하다는 뜻은 아닙니다.</i>
   </div>
     <div class="missing-note"><b>수정 후 확인할 기준</b><br>일반 입력의 기능은 유지되고, SQL 특수 문자가 질의 구조를 바꾸지 않는지 코드와 재검사로 확인하세요. DB 오류 메시지 숨기기만으로 수정이 끝난 것은 아닙니다.<br>아래 방어 안내는 권장 조치이며, 이 리포트에서 수정 작업을 수행한 것은 아닙니다.</div></section>
-    <div class="ids">candidate cand_a44e9b65c96aa368 &middot; feature vector fv_dd7fddd96108b02c</div>
+    <div class="ids">candidate cand_a44e9b65c96aa368 &middot; feature vector fv_2ac8cc17738af50a</div>
   </article><nav class="detail-pager" aria-label="후보 간 이동"><a class="button" href="#candidate-5">← 이전 후보</a><a class="button" href="#candidate-7">다음 후보 →</a></nav></section>
-<section class="report-page" id="candidate-7" aria-label="7번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 07 · Broken Access Control</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div></div><article class="finding low">
+<section class="report-page" id="candidate-7" aria-label="7번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 07 · Broken Access Control</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div><a class="button primary verify-live" href="http://127.0.0.1:8899/_verify?path=%2Fportal%2Fcard&amp;param=" target="_blank" rel="noopener">🎯 DemoShop에서 취약점 검증 <span aria-hidden="true">↗</span></a></div><article class="finding low">
     <div class="fhead">
       <div>
         <div class="rank">#7</div>
@@ -1188,7 +1193,7 @@ probe plan probe_9a1149733ff64f14<br>baseline response resp_bf5cea00b3e6a57b<br>
     <div class="missing-note"><b>수정 후 확인할 기준</b><br>본인에게 허용된 요청은 성공하고, 다른 사용자 객체나 권한 없는 요청은 거부되는지 계정·역할별로 확인하세요. HTTP 상태뿐 아니라 응답 본문에 보호 데이터가 없는지도 점검하세요.<br>아래 방어 안내는 권장 조치이며, 이 리포트에서 수정 작업을 수행한 것은 아닙니다.</div></section>
     <div class="ids">candidate acand_7a7857c8557a8cd3 &middot; feature vector </div>
   </article><nav class="detail-pager" aria-label="후보 간 이동"><a class="button" href="#candidate-6">← 이전 후보</a><a class="button" href="#candidate-8">다음 후보 →</a></nav></section>
-<section class="report-page" id="candidate-8" aria-label="8번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 08 · Reflected XSS</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div></div><article class="finding low">
+<section class="report-page" id="candidate-8" aria-label="8번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 08 · Reflected XSS</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div><a class="button primary verify-live" href="http://127.0.0.1:8899/_verify?path=%2Fportal%2Fmessage&amp;param=thread" target="_blank" rel="noopener">🎯 DemoShop에서 취약점 검증 <span aria-hidden="true">↗</span></a></div><article class="finding low">
     <div class="fhead">
       <div>
         <div class="rank">#8</div>
@@ -1266,9 +1271,9 @@ probe plan probe_4a865a11cece7c03<br>baseline response resp_b7f552075d2bf6fe<br>
 <details class="technical"><summary>원문 근거 · 제안 정보와 실행 출처</summary><ul><li>The re-probe barely moved the feature vector; the prior confidence is kept.</li></ul><div class="payload-meta">
 제안자: deterministic-baseline · deterministic-mutation-v1<br>
 제안 사유 (관찰 근거와 별개): Send an out-of-range integer to distinguish a genuine boundary weakness from generic error handling.<br>
-proposal prop_b4620831e048c495<br>result vres_54debf4ceb69d271<br>
+proposal prop_b4620831e048c495<br>result vres_113d83e6b6208834<br>
 검증기 payload-validator-v1 · 신뢰도 규칙 confidence-rule-v2<br>
-probe plan probe_8e4f4e5938fd097c<br>baseline response resp_ee46303b8adf466d<br>probe response resp_4dea17ae324eea90<br>feature vector fv_b4b040e733a4d03e</div></details></div></section><section class="payload-card">
+probe plan probe_8e4f4e5938fd097c<br>baseline response resp_ee46303b8adf466d<br>probe response resp_5c5fc8a33e3f708e<br>feature vector fv_3ebe35c71dd1ef88</div></details></div></section><section class="payload-card">
 <div class="payload-head"><b>추가 페이로드 04 · 검증기 승인 · 실행 기록 있음</b>
 <span class="state UNCHANGED">변화 없음</span></div>
 <div class="payload-body"><div class="payload-values"><div><label>기준 입력값</label><pre>880</pre></div>
@@ -1298,7 +1303,7 @@ probe plan probe_0a92708e95c807cc<br>baseline response resp_d54ed484ce2be3fa<br>
     <div class="missing-note"><b>수정 후 확인할 기준</b><br>입력이 들어가는 각 출력 문맥에서 특수 문자가 데이터로 표시되고 스크립트로 실행되지 않는지 확인하세요. 정상적인 검색·표시 기능도 함께 점검하세요.<br>아래 방어 안내는 권장 조치이며, 이 리포트에서 수정 작업을 수행한 것은 아닙니다.</div></section>
     <div class="ids">candidate cand_b43142e5d01f35bf &middot; feature vector fv_369d1f1ec5246e6c</div>
   </article><nav class="detail-pager" aria-label="후보 간 이동"><a class="button" href="#candidate-7">← 이전 후보</a><a class="button" href="#candidate-9">다음 후보 →</a></nav></section>
-<section class="report-page" id="candidate-9" aria-label="9번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 09 · Reflected XSS</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div></div><article class="finding low">
+<section class="report-page" id="candidate-9" aria-label="9번 후보 상세"><a class="back-link" href="#candidates">← 취약점 후보 목록</a><div class="page-heading"><div><div class="eyebrow">CANDIDATE DETAIL</div><h1 class="page-title" tabindex="-1">후보 09 · Reflected XSS</h1><p class="subtitle">위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.</p></div><a class="button primary verify-live" href="http://127.0.0.1:8899/_verify?path=%2Fportal%2Forder&amp;param=ref" target="_blank" rel="noopener">🎯 DemoShop에서 취약점 검증 <span aria-hidden="true">↗</span></a></div><article class="finding low">
     <div class="fhead">
       <div>
         <div class="rank">#9</div>
@@ -1452,7 +1457,7 @@ probe plan probe_3a39806806fda2a7<br>baseline response resp_10692edd1e486858<br>
 </div>
 </div>
 <div class="notice small">검증할 <b>후보(Top-K)는 검증 이전 우선순위</b>로 선택했고, 아래 <b>표시 순서와 점수는 검증 이후 최종 신뢰도</b> 기준으로 다시 정렬했습니다. <b>검증 결과</b>는 변형 페이로드 재전송으로 확인한 내용(뒷받침/약화/판정 보류)과 검증 전후 점수 변화를, <b>순위 근거</b>는 검증 이전 확률을 어떤 신호가 올리거나 내렸는지를 보여줍니다.</div>
-</section><footer>decision-html-v5 &middot; top-k-argmax-v1 &middot; 0.33s<br><span class="warn">현재까지의 최종 신뢰도입니다. 추가 검증이 없으면 검증 전 확률을 그대로 사용합니다. 표시 점수는 확정된 취약점 판정이 아닙니다.</span></footer></main>
+</section><footer>decision-html-v5 &middot; top-k-argmax-v1 &middot; 0.27s<br><span class="warn">현재까지의 최종 신뢰도입니다. 추가 검증이 없으면 검증 전 확률을 그대로 사용합니다. 표시 점수는 확정된 취약점 판정이 아닙니다.</span></footer></main>
 </div>
 <noscript><p class="notice">JavaScript가 꺼져 있어 검색·필터·인쇄 버튼은 사용할 수 없습니다. 메뉴와 후보 링크로 화면을 이동할 수 있습니다.</p></noscript>
 <script>(() => {

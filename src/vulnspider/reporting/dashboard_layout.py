@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from html import escape
 from typing import Any
+from urllib.parse import urlencode
 
 from vulnspider.reporting.charts import Slice, donut_chart
 from vulnspider.reporting.dashboard_assets import SPIDER_MARK
@@ -304,13 +305,26 @@ def candidates_page(rows: Sequence[Mapping[str, Any]], selected_count: int, unse
 </section>"""
 
 
-def detail_page(card: str, rank: int, total: int, label: str, row: Mapping[str, Any] | None = None) -> str:
+def _verify_button(row: Mapping[str, Any] | None, verify_base: str) -> str:
+    """A one-click link to send the live confirming payload on DemoShop."""
+
+    if not verify_base or row is None or not row.get("canonical_path"):
+        return ""
+    query = urlencode({"path": row["canonical_path"], "param": row.get("param_name", "")})
+    return (
+        f'<a class="button primary verify-live" href="{_esc(verify_base)}/_verify?{_esc(query)}" '
+        'target="_blank" rel="noopener">\U0001f3af DemoShop에서 취약점 검증 '
+        '<span aria-hidden="true">↗</span></a>'
+    )
+
+
+def detail_page(card: str, rank: int, total: int, label: str, row: Mapping[str, Any] | None = None, *, verify_base: str = "") -> str:
     previous = f'<a class="button" href="#candidate-{rank - 1}">← 이전 후보</a>' if rank > 1 else '<span></span>'
     following = f'<a class="button" href="#candidate-{rank + 1}">다음 후보 →</a>' if rank < total else '<a class="button" href="#candidates">목록으로 →</a>'
     return (
         f'<section class="report-page" id="candidate-{rank}" aria-label="{rank}번 후보 상세">'
         '<a class="back-link" href="#candidates">← 취약점 후보 목록</a>'
-        f'<div class="page-heading"><div>{page_heading(f"후보 {rank:02d} · {label}", "위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.", eyebrow="CANDIDATE DETAIL")}</div></div>'
+        f'<div class="page-heading"><div>{page_heading(f"후보 {rank:02d} · {label}", "위치와 관찰 근거부터 추가 검증, 개선 방법까지 차례로 확인하세요.", eyebrow="CANDIDATE DETAIL")}</div>{_verify_button(row, verify_base)}</div>'
         + (f'<div class="source-caption"><strong>{candidate_caption(row)}</strong>'
            '<p>이름과 번호는 일반 요청의 응답에 표시된 DemoShop 안내입니다. 후보 순위와 입력점 번호는 서로 다릅니다.</p></div>'
            if row is not None and row.get("input_number") else '')

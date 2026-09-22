@@ -99,6 +99,9 @@ LAB_PATH = "/_lab"
 LAB_GROUND_TRUTH_PATH = "/_lab/ground-truth.json"
 # Marker the human demo flow adds to a request to turn on the PoC verdict.
 VS_CONFIRM_PARAM = "vs_confirm"
+# The dashboard's "취약점 검증" links land here; it redirects to the live
+# confirm request for that input point. Not linked from any crawled page.
+VERIFY_PATH = "/_verify"
 
 SQLI = "SQLI"
 REFLECTED_XSS = "REFLECTED_XSS"
@@ -553,9 +556,9 @@ PAGES: tuple[PageSpec, ...] = (
         blurb="등록된 배송지를 확인하고 수정합니다.",
         inputs=(
             _text("address_id", "bac", "77", "배송지 번호"),
-            _text("zipcode", "safe_validated", "06236", "우편번호"),
-            _text("city", "xss_attr", "서울", "도시"),
-            _text("street", "safe_escaped", "테헤란로 231", "상세 주소"),
+            _text("zipcode", "safe_validated", "46241", "우편번호"),
+            _text("city", "xss_attr", "부산", "도시"),
+            _text("street", "safe_escaped", "부산대학로63번길 2", "상세 주소"),
         ),
     ),
     PageSpec(
@@ -1222,10 +1225,11 @@ def _fragment(
             item.label,
             '<table class="record">'
             f"<tr><th>식별자</th><td>{escape(value)}</td></tr>"
-            "<tr><th>이름</th><td>김하늘</td></tr>"
-            "<tr><th>연락처</th><td>010-2211-8842</td></tr>"
-            "<tr><th>주소</th><td>서울 강남구 테헤란로 231</td></tr>"
-            "<tr><th>결제수단</th><td>신한카드 ****-8842</td></tr>"
+            "<tr><th>이름</th><td>한수훈</td></tr>"
+            "<tr><th>연락처</th><td>010-3071-4426</td></tr>"
+            "<tr><th>이메일</th><td>tngns4426@pusan.ac.kr</td></tr>"
+            "<tr><th>주소</th><td>부산광역시 금정구 부산대학로63번길 2</td></tr>"
+            "<tr><th>결제수단</th><td>신한카드 ****-4426</td></tr>"
             "</table>"
             '<p class="hint">로그인 여부와 무관하게 조회됩니다.</p>',
         )
@@ -1412,6 +1416,25 @@ _POC_STYLE = (
 .poc-cta:hover { text-decoration: none; background: #e2f2e8; }
 .poc-cta-row { margin-top: 7px; }
 .poc-cta-row small { color: #7a8092; font-size: 11px; }
+.poc-sql { margin-top: 4px; }
+.poc-sql-query { margin: 0 0 12px; padding: 13px 15px; border-radius: 9px;
+    background: #0f2733; color: #e7f6f2; font: 14px/1.65 Consolas, monospace;
+    white-space: pre-wrap; word-break: break-all; }
+.poc-sql-query mark { background: #ffd24d; color: #3a2a00; border-radius: 3px;
+    padding: 0 3px; font-weight: 700; }
+.poc-sql-note { font-size: 15px; line-height: 1.75; color: #39424e; margin: 0 0 14px; }
+.poc-sql-note code { background: #eef1f5; padding: 2px 6px; border-radius: 5px;
+    font-family: Consolas, monospace; }
+.poc-leak { border: 1px solid #e0b4b4; border-radius: 11px; overflow: hidden; }
+.poc-leak-head { background: #a11; color: #fff; font-weight: 800; font-size: 14px;
+    padding: 10px 15px; letter-spacing: .2px; }
+.poc-leak-wrap { overflow-x: auto; }
+.poc-leak-table { width: 100%; border-collapse: collapse; font-size: 13px;
+    background: #fff; white-space: nowrap; }
+.poc-leak-table th { background: #fbeaea; color: #8a1f1f; text-align: left;
+    padding: 9px 12px; font-weight: 700; }
+.poc-leak-table td { padding: 9px 12px; border-top: 1px solid #f2dede; }
+.poc-leak-table td.hash { font-family: Consolas, monospace; color: #a11; }
 @media (max-width: 600px) { .poc-banner { flex-direction: column; gap: 10px; padding: 18px; } }
 """
     "</style>"
@@ -1585,6 +1608,32 @@ def _account_confirm_link(route: AccountRoute) -> str:
     return f"{route.path}?{urlencode({route.param: substituted, VS_CONFIRM_PARAM: route.param})}"
 
 
+def verify_redirect(query: dict[str, str]) -> tuple[str | None, str | None]:
+    """Resolve a dashboard "취약점 검증" click to a live confirm request.
+
+    Returns ``(location, set_cookie)``. A storefront input point redirects to
+    its confirm URL; a portal (BAC) route additionally issues the ``soohoon``
+    session so the redirect lands logged in and shows another member's order.
+    """
+
+    path = query.get("path", "")
+    param = query.get("param", "")
+    page = PAGES_BY_PATH.get(path)
+    if page is not None:
+        item = next((it for it in page.inputs if it.name == param), None)
+        if item is None:
+            item = next((it for it in page.inputs if it.info.vulnerability), None)
+        if item is not None:
+            return _confirm_link(page, item), None
+    route = ACCOUNT_ROUTES_BY_PATH.get(path)
+    if route is not None:
+        cookie = (
+            f"{SESSION_COOKIE}={session_token('user')}; Path=/; HttpOnly; SameSite=Lax"
+        )
+        return _account_confirm_link(route), cookie
+    return None, None
+
+
 def _poc_source(caption: str, snippet: str) -> str:
     return (
         f'<div class="poc-evidence-cap">{escape(caption)}</div>'
@@ -1598,6 +1647,43 @@ def _poc_rows(a_label: str, a: int, b_label: str, b: int) -> str:
         f'<span><b>{escape(a_label)}</b>{a}행 조회</span>'
         '<span class="poc-arrow" aria-hidden="true">→</span>'
         f'<span class="hot"><b>{escape(b_label)}</b>{b}행 조회</span></div>'
+    )
+
+
+
+# The customer table a "' OR '1'='1'" dump exposes -- the demo's punchline: an
+# error is abstract, a leaked members table (including the presenter's own row)
+# is not. Only ever rendered inside the vs_confirm banner, never during a scan.
+_LEAKED_MEMBERS = (
+    ("한수훈", "tngns4426@pusan.ac.kr", "010-3071-4426", "신한 ****-4426", "$2b$12$Qk8s0…e3P/uZ2r"),
+    ("이상현", "sanghyun@demoshop.test", "010-5540-1043", "국민 ****-1043", "$2b$12$V1cD9…9mA2Rf0k"),
+    ("박서연", "seoyeon@demoshop.test", "010-2277-3388", "우리 ****-3388", "$2b$12$7HdLq…kQ8Xy1Zt"),
+    ("최도윤", "doyoon@demoshop.test", "010-8842-0917", "하나 ****-0917", "$2b$12$Zm3pP…4Nv7Ws5c"),
+)
+
+
+def _sqli_leak_panel(item: InputSpec, value: str) -> str:
+    """Show the impact of the injection: the built query and the dumped table."""
+
+    rows = "".join(
+        f"<tr><td>{escape(name)}</td><td>{escape(email)}</td><td>{escape(phone)}</td>"
+        f'<td>{escape(card)}</td><td class="hash">{escape(pw)}</td></tr>'
+        for name, email, phone, card, pw in _LEAKED_MEMBERS
+    )
+    return (
+        '<div class="poc-sql">'
+        '<div class="poc-evidence-cap">서버가 실행한 질의</div>'
+        '<pre class="poc-sql-query">SELECT * FROM members\n'
+        f"WHERE {escape(item.name)} = '<mark>{escape(value)}</mark>'</pre>"
+        "<p class=\"poc-sql-note\"><code>' OR '1'='1'</code> 은 조건을 <b>항상 참</b>으로 "
+        "만들어 필터를 무력화합니다. 한 건이 아니라 <b>회원 테이블 전체</b>가 그대로 "
+        "반환됩니다.</p>"
+        '<div class="poc-leak"><div class="poc-leak-head">'
+        "\U0001f513 유출된 회원 정보 · 전체 4건</div>"
+        '<div class="poc-leak-wrap"><table class="poc-leak-table">'
+        "<tr><th>이름</th><th>이메일</th><th>연락처</th><th>결제 카드</th>"
+        "<th>비밀번호 해시</th></tr>"
+        f"{rows}</table></div></div></div>"
     )
 
 
@@ -1710,14 +1796,10 @@ def _confirmation(page: PageSpec, item: InputSpec, value: str,
         if _has_sql_metachar(value):
             return _poc_banner(
                 "confirmed", "SQL Injection 취약점이 확인되었습니다", label, value,
-                "따옴표(')가 포함된 값을 보내자 서버가 500 오류와 함께 데이터베이스 엔진의 SQL 구문 "
-                "오류 메시지를 그대로 노출했습니다. 입력값이 SQL 질의문에 직접 이어붙는다는 결정적 "
-                "증거이며, 오류 기반(error-based) SQL Injection이 맞습니다.",
-                _poc_source(
-                    "응답에 노출된 DB 오류",
-                    "Database error: "
-                    + _SQL_ERRORS[zlib.crc32(page.path.encode("utf-8")) % len(_SQL_ERRORS)].format(value=value),
-                ),
+                "입력값이 SQL 질의문에 그대로 들어갑니다. 공격자가 항상 참이 되는 조건을 "
+                "넣으면 필터가 무너져 회원 전체 정보가 유출됩니다. 서버가 낸 500 SQL 구문 "
+                "오류는 입력이 질의에 섞였다는 결정적 증거입니다.",
+                _sqli_leak_panel(item, value),
             )
         return _poc_banner(
             "pending", "아직 페이로드가 반영되지 않았습니다", label, value,
@@ -1727,10 +1809,10 @@ def _confirmation(page: PageSpec, item: InputSpec, value: str,
         if _has_sql_metachar(value):
             return _poc_banner(
                 "confirmed", "블라인드 SQL Injection 취약점이 확인되었습니다", label, value,
-                "오류 메시지는 없지만, 참/거짓 조건에 따라 조회되는 행 수가 달라졌습니다. 정상 요청은 "
-                "7행, 조건을 담은 페이로드는 1행을 반환합니다. 응답이 입력한 SQL 조건에 반응한다는 "
-                "뜻으로, 화면에 오류를 내지 않는 블라인드 SQL Injection이 맞습니다.",
-                _poc_rows("정상 요청", 7, "페이로드 요청", 1),
+                "오류는 없지만 참/거짓 조건에 따라 조회 행 수가 달라집니다(정상 7행 → 페이로드 1행). "
+                "이 참·거짓 반응을 한 글자씩 이용하면 아래처럼 회원 정보를 통째로 빼낼 수 있는 "
+                "블라인드 SQL Injection입니다.",
+                _poc_rows("정상 요청", 7, "페이로드 요청", 1) + _sqli_leak_panel(item, value),
             )
         return _poc_banner(
             "pending", "아직 페이로드가 반영되지 않았습니다", label, value,
@@ -2005,7 +2087,7 @@ def _account_form(route: AccountRoute, value: str) -> str:
 
 
 def _fake_holder(identifier: str) -> str:
-    names = ("김하늘", "이준서", "박서연", "최도윤", "정하은", "강시우")
+    names = ("장민재", "이준서", "박서연", "최도윤", "정하은", "강시우")
     return names[zlib.crc32(identifier.encode("utf-8")) % len(names)]
 
 
@@ -2137,7 +2219,7 @@ def render_account_route(
             route.title,
             '<table class="record">'
             f"<tr><th>{escape(route.param)}</th><td>{escape(value)}</td></tr>"
-            "<tr><th>카드</th><td>신한 ****-8842</td></tr>"
+            "<tr><th>카드</th><td>신한 ****-4426</td></tr>"
             f"<tr><th>소유자 uid</th><td>{uid}</td></tr></table>",
         )
         return 200, _layout(route.title, f"{banner}<h1>{escape(route.title)}</h1>{card}", head_extra=_POC_STYLE if banner else "")
@@ -2183,6 +2265,15 @@ class DemoShopHandler(BaseHTTPRequestHandler):
             name: values[0]
             for name, values in parse_qs(parts.query, keep_blank_values=True).items()
         }
+        if parts.path == VERIFY_PATH:
+            location, cookie = verify_redirect(query)
+            if location is None:
+                self._respond(404, _layout("취약점 검증",
+                    "<h1>검증 대상 입력점을 찾을 수 없습니다</h1>"
+                    '<p class="blurb">path·param 값을 확인하세요.</p>'))
+            else:
+                self._respond(303, b"", location=location, set_cookie=cookie)
+            return
         if parts.path in ("/", "/index.html"):
             self._respond(200, render_index())
             return

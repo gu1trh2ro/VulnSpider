@@ -549,6 +549,14 @@ STYLE += """
 """
 
 
+STYLE += """
+/* The dashboard->DemoShop live "취약점 검증" launcher (demo only). */
+.verify-live{background:#b0500f;border-color:#b0500f;white-space:nowrap}
+.verify-live:hover{background:#933f08;border-color:#933f08}
+.page-heading .verify-live{flex:0 0 auto}
+"""
+
+
 # No report data is interpolated into JavaScript; all data comes from escaped DOM.
 SCRIPT = """(() => {
   'use strict';

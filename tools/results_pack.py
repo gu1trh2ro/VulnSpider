@@ -164,6 +164,7 @@ def _demoshop_public(out: Path, port: int, top_k: int) -> Scenario:
         "--verify-detail-output", str(d / "verification-detail.html"),
         "--ground-truth", DEMO_GROUND_TRUTH,
         "--application-id", "demoshop",
+        "--verify-links",
         "--eval-output", str(d / "evaluation.json"),
         "--random-predictor", "--random-safe-weight", "4",
     ]
@@ -194,6 +195,7 @@ def _demoshop_bac(out: Path, port: int, top_k: int) -> Scenario:
         "--verify-detail-output", str(d / "verification-detail.html"),
         "--ground-truth", DEMO_GROUND_TRUTH,
         "--application-id", "demoshop",
+        "--verify-links",
         "--eval-output", str(d / "evaluation.json"),
         "--random-predictor", "--random-safe-weight", "4",
     ]

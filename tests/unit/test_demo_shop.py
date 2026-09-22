@@ -330,5 +330,33 @@ class DemoShopConfirmationTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertIn("poc-defended", body.decode("utf-8"))
 
+class DemoShopVerifyEndpointTests(unittest.TestCase):
+    """The dashboard "취약점 검증" launcher (/_verify) reaches the live confirm."""
+
+    def test_a_storefront_input_redirects_to_its_confirm_request(self) -> None:
+        location, cookie = demo_shop.verify_redirect({"path": "/search", "param": "q"})
+        self.assertIsNotNone(location)
+        self.assertIn("vs_confirm=q", location)
+        self.assertIsNone(cookie)
+
+    def test_a_portal_route_signs_in_as_soohoon_and_redirects(self) -> None:
+        location, cookie = demo_shop.verify_redirect({"path": "/portal/order", "param": "ref"})
+        self.assertIn("ref=4101", location)
+        self.assertIn("vs_confirm=ref", location)
+        self.assertIsNotNone(cookie)
+        self.assertIn(
+            f"{demo_shop.SESSION_COOKIE}={demo_shop.session_token('user')}", cookie
+        )
+
+    def test_an_unknown_target_is_not_found(self) -> None:
+        location, cookie = demo_shop.verify_redirect({"path": "/nope", "param": "x"})
+        self.assertIsNone(location)
+        self.assertIsNone(cookie)
+
+    def test_the_launcher_is_never_a_crawlable_route(self) -> None:
+        self.assertNotIn(demo_shop.VERIFY_PATH, demo_shop.PAGES_BY_PATH)
+        self.assertNotIn(demo_shop.VERIFY_PATH, demo_shop.render_index().decode("utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -21,6 +21,7 @@ import hashlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from vulnspider.decision.candidate import DecisionCandidate
 from vulnspider.decision.policy import DecisionOutcome
@@ -197,6 +198,7 @@ def render_decision_html_report(
     elapsed_seconds: float = 0.0,
     endpoint_count: int = 0,
     input_point_count: int = 0,
+    verify_links: bool = False,
 ) -> str:
     """결정 계층 결과를 하나의 정적 HTML 문서로 렌더링한다."""
 
@@ -218,6 +220,11 @@ def render_decision_html_report(
         _confidence_ordered(outcome.selected, verification)
     )
     rows = _dashboard_rows(display_selected, input_points, endpoints, verification, access_observations, probe_runs)
+    verify_base = ""
+    if verify_links and target:
+        _origin = urlsplit(target)
+        if _origin.scheme and _origin.netloc:
+            verify_base = f"{_origin.scheme}://{_origin.netloc}"
     methodology = [
         '<section class="report-page" id="methodology" aria-label="리포트 읽는 법">',
         '<div class="page-heading"><div>' + layout.page_heading(
@@ -260,6 +267,7 @@ def render_decision_html_report(
             verification=verification,
             access_observations=access_observations,
             display_rows=rows,
+            verify_base=verify_base,
         ),
         "\n".join(methodology),
     ]
@@ -310,6 +318,8 @@ def _dashboard_rows(
             "path": f"{endpoint.method.value} {endpoint.path}" if endpoint is not None else "엔드포인트 정보 미제공",
             "endpoint_key": endpoint.id if endpoint is not None else f"unknown-{rank}",
             "parameter": parameter, "score": _final_score(candidate, verification),
+            "canonical_path": endpoint.path if endpoint is not None else "",
+            "param_name": point.name if point is not None else "",
             "score_kind": "최종 신뢰도",
             "state": verified.final_outcome.value if verified is not None else "UNVERIFIED",
             "prior": float(verified.prior_probability) if verified is not None else float(candidate.probability),
@@ -597,6 +607,7 @@ def _render_candidates(
     verification: Mapping[str, CandidateVerification] = _EMPTY_VERIFICATION,
     access_observations: Mapping[str, Any] = _EMPTY_ACCESS_OBS,
     display_rows: Sequence[Mapping[str, Any]] = (),
+    verify_base: str = "",
 ) -> str:
     if not selected:
         return ""
@@ -611,7 +622,7 @@ def _render_candidates(
             verified=verification.get(candidate.candidate_id),
             access_observation=access_observations.get(candidate.subject_ref),
         ), rank, len(selected), _family_label(candidate.family),
-            display_rows[rank - 1] if display_rows else None)
+            display_rows[rank - 1] if display_rows else None, verify_base=verify_base)
         for rank, candidate in enumerate(selected, start=1)
     )
     return cards
