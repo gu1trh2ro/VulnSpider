@@ -43,3 +43,9 @@ form.filters{gap:18px 22px;padding:22px 24px 24px}form.filters .actions{grid-col
 @media(max-width:650px){.member-login{margin:32px auto 12px;padding:26px 20px}.member-heading{align-items:flex-start}.member-heading h1{font-size:27px}.member-heading .button{padding:10px 14px}.member-order{padding:20px 16px}.member-order-row{flex-wrap:wrap;gap:16px}.member-order-row img{width:76px;height:76px}.member-order-row>div{flex:1;min-width:140px}.member-order-row>.button{width:100%;margin:0}.member-order-row>strong{margin-left:92px}.member-links{gap:12px}.member-links a{padding:16px}.member-page form.filters{grid-template-columns:1fr}.member-page form.filters .actions{grid-column:1/-1}}
 @media(max-width:1000px){.option-panel form.filters{grid-template-columns:1fr}.results{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}
 @media(max-width:650px){.filter-bar form.filters{grid-template-columns:1fr 1fr;padding:16px}.filter-bar form.filters .actions{grid-column:1/-1}form.filters{padding:18px 16px 20px}.panel-heading{padding:18px 16px 0}.applied{max-width:100%;text-align:left}.route-results .section-heading{flex-direction:column;align-items:flex-start;gap:8px}.results{grid-template-columns:1fr}.tab-bar{overflow-x:auto}.tab-bar button{padding:14px 16px;white-space:nowrap}.pager{flex-wrap:wrap}}
+.ownership-mismatch { border: 3px solid #b45309; border-left-width: 10px; background: #fff4d6; color: #713f12; padding: 20px; margin: 20px 0; font-size: 18px; }
+.ownership-mismatch strong { display: block; font-size: 22px; }
+.ownership-mismatch mark { background: #fde047; color: #422006; font-weight: 800; padding: 3px 6px; }
+
+.member-results { grid-column: 1 / -1; overflow-x: auto; }
+.member-results .record { min-width: 560px; }

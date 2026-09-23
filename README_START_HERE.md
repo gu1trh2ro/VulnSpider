@@ -364,15 +364,15 @@ Storefront HTML sizes have changed. Regenerate reports and ranking evaluations
 against the current target revision rather than treating historical metrics as
 measurements of the same response bytes.
 
-The header's **마이페이지** now opens `/login`, with a single **soohoon으로 로그인**
+The header's **마이페이지** now opens `/login`, with a single **한수훈으로 로그인**
 button. It creates the existing demo `user` session (uid 1042) through an explicit
 POST and redirects to `/portal/`. Returning to My Page keeps that session;
 **로그아웃** clears the browser cookie. No password, email link or destination
 fields are needed for this fixed demo profile.
 
 For the manual BAC example, open **주문 상세** from My Page. Order `4100` belongs
-to `soohoon` (uid 1042). Change the **주문번호** field to `4101` and select **조회**:
-the same signed-in user can now see `sanghyun`'s order (uid 1043), including a
+to `한수훈` (uid 1042). Change the **주문번호** field to `4101` and select **조회**:
+the same signed-in user can now see `전상현`'s order (uid 1043), including a
 different product and amount. The intentional flaw is the missing ownership
 check; requests without a valid session still receive 403. The payment-card
 route remains the safe comparison: `5001` succeeds and `5002` is denied.
@@ -406,3 +406,24 @@ git diff --check
 ```
 
 Windows and Codex setup details remain in `docs/CODEX_SETUP.md`.
+
+### Direct member lookup demo
+
+DemoShop uses three member fixtures: 한수훈 (1042, existing contacts),
+전상현 (1043, sanghyun.jeon@demoshop.test, 010-1234-5678), and
+이석현 (1044, seokhyun.lee@demoshop.test, 010-2345-6789).
+At `/admin/users`, leave the search empty or at its default `soohoon` to
+look up the entered member ID. Unknown IDs return no rows. A different search
+term searches Korean names or English usernames independently of the ID.
+Entering `1' OR '1'='1` returns all three members without `vs_confirm`.
+This one fixture uses a disposable, read-only SQLite SELECT with an instruction
+budget; malformed quotes return SQL errors and multiple statements are rejected.
+The Response section shows one member table and no redundant search-term card.
+The confirmation overlay for this lookup describes the actual result, not a
+fabricated member dump. Other legacy SQL demo overlays remain illustrative.
+
+Protected order and message screens compare the returned owner's UID to the
+current session UID and show an amber notice with both names and IDs on mismatch.
+This works without dashboard navigation. Login requirements and the protected
+payment-card comparison remain unchanged. The fixture response bytes changed;
+regenerate demo reports/ranking measurements against this revision.

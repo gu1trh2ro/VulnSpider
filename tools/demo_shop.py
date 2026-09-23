@@ -76,7 +76,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import zlib
+from contextlib import closing
 from dataclasses import dataclass
 from html import escape
 from http.cookies import SimpleCookie
@@ -815,7 +817,7 @@ LOGIN_PATH = "/login"
 ORDER_LOGIN_PATH = "/login/orders"
 ACCOUNT_INDEX_PATH = "/portal/"
 SESSION_COOKIE = "demoshop_session"
-DEMO_MEMBER = "soohoon"
+DEMO_MEMBER = "한수훈"
 
 # role -> user id. The scan logs in out-of-band as one of these and passes the
 # resulting cookie with --cookie; DemoShop never creates accounts.
@@ -1139,7 +1141,7 @@ def _order_leak(order_id: str) -> str:
         for num, (name, price, date, status) in zip(numbers, items)
     )
     return (
-        '<p class="hint">소유권 확인 없이 다른 회원 <b>sanghyun</b> 님의 '
+        '<p class="hint">소유권 확인 없이 다른 회원 <mark>전상현</mark> 님의 '
         "주문 명세가 조회되었습니다.</p>"
         '<table class="record"><tr>'
         "<th>주문번호</th><th>상품</th><th>결제금액</th><th>주문일</th><th>상태</th>"
@@ -1651,15 +1653,59 @@ def _poc_rows(a_label: str, a: int, b_label: str, b: int) -> str:
 
 
 
-# The customer table a "' OR '1'='1'" dump exposes -- the demo's punchline: an
-# error is abstract, a leaked members table (including the presenter's own row)
-# is not. Only ever rendered inside the vs_confirm banner, never during a scan.
+# Shared demo customer fixtures; IDs are 1042, 1043, and 1044 respectively.
 _LEAKED_MEMBERS = (
     ("한수훈", "tngns4426@pusan.ac.kr", "010-3071-4426", "신한 ****-4426", "$2b$12$Qk8s0…e3P/uZ2r"),
-    ("이상현", "sanghyun@demoshop.test", "010-5540-1043", "국민 ****-1043", "$2b$12$V1cD9…9mA2Rf0k"),
-    ("박서연", "seoyeon@demoshop.test", "010-2277-3388", "우리 ****-3388", "$2b$12$7HdLq…kQ8Xy1Zt"),
-    ("최도윤", "doyoon@demoshop.test", "010-8842-0917", "하나 ****-0917", "$2b$12$Zm3pP…4Nv7Ws5c"),
+    ("전상현", "sanghyun.jeon@demoshop.test", "010-1234-5678", "국민 ****-1043", "$2b$12$V1cD9…9mA2Rf0k"),
+    ("이석현", "seokhyun.lee@demoshop.test", "010-2345-6789", "우리 ****-1044", "$2b$12$7HdLq…kQ8Xy1Zt"),
 )
+
+
+def _member_results(query: dict[str, str]) -> tuple[int, str, int]:
+    """Intentionally injectable, read-only search over three ephemeral demo rows."""
+    value = query.get("q", "soohoon")
+    identifier = query.get("id", "1042")
+    # Default search is neutral so changing only the ID actually selects a member.
+    with closing(sqlite3.connect(":memory:")) as db:
+        db.execute("CREATE TABLE members (id INTEGER, username TEXT, name TEXT, email TEXT, phone TEXT)")
+        db.executemany("INSERT INTO members VALUES (?, ?, ?, ?, ?)", [
+            (1042 + index, username, row[0], row[1], row[2])
+            for index, (username, row) in enumerate(zip(("soohoon", "sanghyun", "seokhyun"), _LEAKED_MEMBERS))
+        ])
+        db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 16384)
+        db.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 4096)
+        db.execute("PRAGMA query_only = ON")
+        db.set_progress_handler(lambda: 1, 10000)
+        try:
+            if value in ("", "soohoon"):
+                rows = db.execute("SELECT id, name, email, phone FROM members WHERE id = ?", (identifier,)).fetchall()
+            else:
+                # Deliberate local teaching flaw. execute rejects multiple statements;
+                # query_only and the instruction budget bound this disposable fixture.
+                rows = db.execute(
+                    "SELECT DISTINCT id, name, email, phone FROM ("
+                    "SELECT id, name, email, phone, username AS term FROM members UNION ALL "
+                    "SELECT id, name, email, phone, name AS term FROM members) WHERE term = '"
+                    + value + "'"
+                ).fetchall()
+        except sqlite3.Error as exc:
+            return 500, _card("회원 목록", f'<p class="error">Database error: SQLite error: {escape(str(exc))}</p>', tone="danger"), 0
+    records = "".join(
+        '<tr>' + ''.join(f'<td>{escape(str(cell))}</td>' for cell in row) + '</tr>'
+        for row in rows
+    )
+    return 200, _card("회원 목록", f'<p>조회 결과 {len(rows)}건</p>'
+        '<table class="record"><tr><th>회원 번호</th><th>이름</th><th>이메일</th><th>연락처</th></tr>'
+        + records + '</table>', tone="member-results"), len(rows)
+
+
+def _ownership_notice(session: tuple[str, int], holder: str, owner_uid: int) -> str:
+    if session[1] == owner_uid:
+        return ""
+    name = DEMO_MEMBER if session[0] == "user" else session[0]
+    return ('<aside class="ownership-mismatch" role="status"><strong>다른 사용자의 정보가 조회되었습니다</strong>'
+            f'<p>현재 사용자: {escape(name)} (회원번호 {session[1]}) → '
+            f'조회된 소유자: <mark>{escape(holder)} (회원번호 {owner_uid})</mark></p></aside>')
 
 
 def _sqli_leak_panel(item: InputSpec, value: str) -> str:
@@ -1679,7 +1725,7 @@ def _sqli_leak_panel(item: InputSpec, value: str) -> str:
         "만들어 필터를 무력화합니다. 한 건이 아니라 <b>회원 테이블 전체</b>가 그대로 "
         "반환됩니다.</p>"
         '<div class="poc-leak"><div class="poc-leak-head">'
-        "\U0001f513 유출된 회원 정보 · 전체 4건</div>"
+        "\U0001f513 유출된 회원 정보 · 전체 3건</div>"
         '<div class="poc-leak-wrap"><table class="poc-leak-table">'
         "<tr><th>이름</th><th>이메일</th><th>연락처</th><th>결제 카드</th>"
         "<th>비밀번호 해시</th></tr>"
@@ -1792,6 +1838,16 @@ def _confirmation(page: PageSpec, item: InputSpec, value: str,
             "pending", "아직 페이로드가 반영되지 않았습니다", label, value,
             "작은따옴표(')가 포함된 값을 보내야 스크립트 문자열 탈출형 XSS가 드러납니다.",
         )
+    if page.path == "/admin/users" and item.name == "q":
+        status, _result, row_count = _member_results(query)
+        if status == 500:
+            return _poc_banner("pending", "SQL 오류가 관찰되었습니다", label, value,
+                               "회원 조회에 실패했습니다. 아래 실제 응답을 확인하세요.")
+        if row_count == len(_LEAKED_MEMBERS):
+            return _poc_banner("confirmed", "SQL Injection 취약점이 확인되었습니다", label, value,
+                               "검색 조건이 우회되어 세 회원이 반환되었습니다. 아래 회원 목록이 실제 조회 결과입니다.")
+        return _poc_banner("pending", "회원 조회 결과를 확인하세요", label, value,
+                           "아래 회원 목록은 입력한 검색 조건의 실제 결과입니다.")
     if kind == "sqli_error":
         if _has_sql_metachar(value):
             return _poc_banner(
@@ -1818,8 +1874,15 @@ def _confirmation(page: PageSpec, item: InputSpec, value: str,
             "pending", "아직 페이로드가 반영되지 않았습니다", label, value,
             "SQL 조건이 담긴 값을 보내야 결과 행 수의 변화가 드러납니다.",
         )
+    if kind == "bac" and page.path == "/admin/users":
+        status, _result, row_count = _member_results(query)
+        if status != 200 or row_count == 0:
+            return _poc_banner("pending", "조회된 회원 정보가 없습니다", label, value,
+                               "입력한 조건으로 회원 정보를 반환하지 않았습니다.")
+        return _poc_banner("confirmed", "인증 없이 회원 정보가 조회되었습니다", label, value,
+                           f"로그인 검사 없이 {row_count}건의 회원 정보가 반환되었습니다. 아래 실제 회원 목록을 확인하세요.")
     if kind == "bac":
-        victim = "sanghyun" if page.path in _IDOR_ORDER_PATHS else _fake_holder(value)
+        victim = "전상현" if page.path in _IDOR_ORDER_PATHS else _fake_holder(value)
         return _poc_banner(
             "confirmed", "Broken Access Control 취약점이 확인되었습니다", label, value,
             "인가 확인 없이 식별자만 바꾸자 다른 사용자의 자원이 그대로 조회되었습니다. "
@@ -1868,7 +1931,7 @@ def _account_confirm_banner(route: AccountRoute, value: str,
             "로그인은 했지만 소유권 확인이 없어, 식별자만 다른 값으로 바꾸자 다른 사용자의 자원이 "
             "그대로 열렸습니다. 권한 없는 자원 접근 — Broken Access Control(IDOR)이 맞습니다.",
             _poc_source("인가 없이 조회된 남의 자원", f"{route.param}={value} 소유자 "
-                        + ("sanghyun" if route.path == "/portal/order" else _fake_holder(value))),
+                        + ("전상현" if route.path == "/portal/order" else _fake_holder(value))),
         )
     if value != route.seed:
         return _poc_banner(
@@ -1884,7 +1947,12 @@ def render_route(page: PageSpec, query: dict[str, str]) -> tuple[int, bytes]:
 
     status = 200
     cards: list[str] = []
+    if page.path == "/admin/users":
+        status, members, _row_count = _member_results(query)
+        cards.append(members)
     for item in page.inputs:
+        if page.path == "/admin/users" and item.name in ("id", "q"):
+            continue
         value = query.get(item.name, item.seed)
         item_status, html = _fragment(page, item, value, query)
         status = max(status, item_status)
@@ -2087,7 +2155,7 @@ def _account_form(route: AccountRoute, value: str) -> str:
 
 
 def _fake_holder(identifier: str) -> str:
-    names = ("장민재", "이준서", "박서연", "최도윤", "정하은", "강시우")
+    names = ("전상현", "이석현")
     return names[zlib.crc32(identifier.encode("utf-8")) % len(names)]
 
 
@@ -2172,7 +2240,7 @@ def render_account_route(
         # Intentionally vulnerable fixture: authentication is enforced above,
         # but changing only ref returns another member's synthetic order.
         own = value == route.seed
-        holder, owner_uid = (DEMO_MEMBER, 1042) if own else ("sanghyun", 1043)
+        holder, owner_uid = (DEMO_MEMBER, 1042) if own else ("전상현", 1043)
         product = "데일리 스웨이드 스니커즈" if own else "무선 오버이어 헤드폰"
         price = "89,000" if own else "149,000"
         photo = "sneakers" if own else "headphones"
@@ -2180,7 +2248,8 @@ def render_account_route(
         body = (
             '<section class="member-page">' + _member_heading(session, route.title)
             + f'<p><a class="text-link" href="{ACCOUNT_INDEX_PATH}">← 마이페이지</a></p>'
-            + banner + '<section class="route-panel"><div class="panel-heading">'
+            + banner + _ownership_notice(session, holder, owner_uid)
+            + '<section class="route-panel"><div class="panel-heading">'
             '<h2>주문 조회</h2><p>주문번호로 주문 내역을 확인하세요.</p></div>'
             + _account_form(route, value) + '</section>'
             '<section class="member-order"><div class="section-heading"><h2>주문 내역</h2>'
@@ -2225,8 +2294,9 @@ def render_account_route(
         return 200, _layout(route.title, f"{banner}<h1>{escape(route.title)}</h1>{card}", head_extra=_POC_STYLE if banner else "")
 
     # IDOR: authenticated, but no ownership check -- any id is served.
-    holder = _fake_holder(value)
-    record = _account_form(route, value) + _card(
+    holder = DEMO_MEMBER if value == route.seed else _fake_holder(value)
+    owner_uid = 1042 if value == route.seed else (1043 if holder == "전상현" else 1044)
+    record = _ownership_notice(session, holder, owner_uid) + _account_form(route, value) + _card(
         route.title,
         '<table class="record">'
         f"<tr><th>{escape(route.param)}</th><td>{escape(value)}</td></tr>"
@@ -2236,7 +2306,7 @@ def render_account_route(
         '<p class="hint">소유권을 확인하지 않으므로 남의 자원도 조회됩니다.</p>',
         tone="danger",
     )
-    return 200, _layout(route.title, f"{banner}<h1>{escape(route.title)}</h1>{record}", head_extra=_POC_STYLE if banner else "")
+    return 200, _layout(route.title, f"{banner}{_member_heading(session, route.title)}{record}", head_extra=_POC_STYLE if banner else "")
 
 
 class DemoShopHandler(BaseHTTPRequestHandler):

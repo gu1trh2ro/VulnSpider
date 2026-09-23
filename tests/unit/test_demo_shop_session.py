@@ -91,7 +91,7 @@ class DemoShopSessionHTTPTests(unittest.TestCase):
         self.assertEqual(controls.forms[0].get("action"), "/login")
         self.assertEqual(controls.forms[0].get("method", "").lower(), "post")
         self.assertEqual(controls.named_controls, [])
-        self.assertIn("soohoon으로 로그인", body)
+        self.assertIn("한수훈으로 로그인", body)
         for text in ("로그인 후 이동", "다음 단계", "로그인 링크 받기", "--cookie"):
             self.assertNotIn(text, body)
         self.assertFalse(any("?as=" in link for link in controls.links))
@@ -103,7 +103,7 @@ class DemoShopSessionHTTPTests(unittest.TestCase):
         status, headers, body = self._request("GET", "/portal/", cookie)
         self.assertEqual(status, 200)
         self.assertNotIn("set-cookie", headers)
-        for value in ("soohoon", "1042", "4100"):
+        for value in ("한수훈", "1042", "4100"):
             self.assertIn(value, body)
         for route in demo_shop.ACCOUNT_ROUTES:
             self.assertIn(route.path, LoginControls(body).links)
@@ -114,17 +114,66 @@ class DemoShopSessionHTTPTests(unittest.TestCase):
 
     def test_one_session_can_read_its_own_and_another_members_order(self) -> None:
         cookie = self._login()
-        for ref, owner, uid in (("4100", "soohoon", "1042"), ("4101", "sanghyun", "1043")):
+        for ref, owner, uid in (("4100", "한수훈", "1042"), ("4101", "전상현", "1043")):
             with self.subTest(ref=ref):
                 status, headers, body = self._request("GET", f"/portal/order?ref={ref}", cookie)
                 self.assertEqual(status, 200)
                 self.assertNotIn("set-cookie", headers)
                 for label, value in (("주문번호", ref), ("주문자", owner), ("소유자 uid", uid)):
                     self.assertIn(f"<th>{label}</th><td>{value}</td>", body)
-                self.assertIn("<strong>soohoon</strong> 님 · 회원번호 1042", body)
+                self.assertIn("<strong>한수훈</strong> 님 · 회원번호 1042", body)
         status, _headers, body = self._request("GET", "/portal/", cookie)
         self.assertEqual(status, 200)
-        self.assertIn("soohoon", body)
+        self.assertIn("한수훈", body)
+
+    def test_ownership_notice_compares_session_uid_without_confirm_marker(self) -> None:
+        cookie = self._login()
+        for path, other in (("/portal/order", "4101"), ("/portal/message", "9999")):
+            route = next(route for route in demo_shop.ACCOUNT_ROUTES if route.path == path)
+            for value in (route.seed, other):
+                status, _, body = self._request("GET", route.path + "?" + urlencode({route.param: value}), cookie)
+                self.assertEqual(status, 200)
+                self.assertEqual('class="ownership-mismatch"' in body, value != route.seed)
+                if value != route.seed:
+                    self.assertIn("현재 사용자: 한수훈 (회원번호 1042)", body)
+                    self.assertIn("조회된 소유자: <mark>", body)
+
+    def test_member_ids_search_and_manual_sql_injection(self) -> None:
+        names = ("한수훈", "전상현", "이석현")
+        for index, name in enumerate(names):
+            status, _, body = self._request("GET", "/admin/users?" + urlencode({"id": str(1042 + index), "q": "soohoon"}))
+            self.assertEqual(status, 200)
+            self.assertIn(f"<td>{name}</td>", body)
+            for other in set(names) - {name}:
+                self.assertNotIn(f"<td>{other}</td>", body)
+            self.assertNotIn("<h3>검색어</h3>", body)
+        for identifier in ("1043", "1044", "9999"):
+            status, _, body = self._request("GET", "/admin/users?" + urlencode({"id": identifier, "vs_confirm": "id"}))
+            self.assertEqual(status, 200)
+            self.assertEqual("인증 없이 회원 정보가 조회되었습니다" in body, identifier != "9999")
+            self.assertNotIn("소유자:", body)
+        for marker in ({}, {"vs_confirm": "q"}):
+            status, _, body = self._request("GET", "/admin/users?" + urlencode({"q": "1' OR '1'='1", **marker}))
+            self.assertEqual(status, 200)
+            self.assertIn("조회 결과 3건", body)
+            for name in names:
+                self.assertIn(f"<td>{name}</td>", body)
+        for query in ({"id": "9999"}, {"q": "nobody"}, {"q": "1' OR '1'='2"}):
+            status, _, body = self._request("GET", "/admin/users?" + urlencode(query))
+            self.assertEqual(status, 200)
+            self.assertIn("조회 결과 0건", body)
+        for term in ("전상현", "sanghyun"):
+            status, _, body = self._request("GET", "/admin/users?" + urlencode({"q": term}))
+            self.assertEqual(status, 200)
+            self.assertIn("조회 결과 1건", body)
+            self.assertIn("<td>전상현</td>", body)
+        for term in ("'", "'; DROP TABLE members; --"):
+            status, _, body = self._request("GET", "/admin/users?" + urlencode({"q": term, "vs_confirm": "q"}))
+            self.assertEqual(status, 500)
+            self.assertNotIn("유출된 회원 정보", body)
+        status, _, body = self._request("GET", "/admin/users")
+        self.assertEqual(status, 200)
+        self.assertIn("<td>한수훈</td>", body)
 
     def test_missing_or_forged_cookies_cannot_open_protected_resources(self) -> None:
         paths = [demo_shop.ACCOUNT_INDEX_PATH] + [route.path for route in demo_shop.ACCOUNT_ROUTES]
@@ -162,7 +211,7 @@ class DemoShopSessionHTTPTests(unittest.TestCase):
         status, headers, body = self._request("GET", "/login")
         self.assertEqual(status, 200)
         self.assertNotIn("set-cookie", headers)
-        self.assertIn("soohoon으로 로그인", body)
+        self.assertIn("한수훈으로 로그인", body)
 
     def test_explicit_legacy_role_login_is_still_available(self) -> None:
         for role in ("admin", "user"):
@@ -220,24 +269,24 @@ class DemoShopSessionHTTPTests(unittest.TestCase):
         self.assertEqual(headers.get("location"), "/portal/order")
         self.assertNotIn("set-cookie", headers)
         for ref, owner, product, price in (
-            ("4100", "soohoon", "데일리 스웨이드 스니커즈", "89,000원"),
-            ("4101", "sanghyun", "무선 오버이어 헤드폰", "149,000원"),
+            ("4100", "한수훈", "데일리 스웨이드 스니커즈", "89,000원"),
+            ("4101", "전상현", "무선 오버이어 헤드폰", "149,000원"),
         ):
             status, _headers, body = self._request("GET", f"/portal/order?ref={ref}", cookie)
             self.assertEqual(status, 200)
             self.assertIn(f"<th>주문자</th><td>{owner}</td>", body)
-            self.assertIn("<strong>soohoon</strong> 님 · 회원번호 1042", body)
+            self.assertIn("<strong>한수훈</strong> 님 · 회원번호 1042", body)
             self.assertIn(product, body)
             self.assertIn(price, body)
 
     def test_legacy_order_forms_forward_numbers_to_the_protected_order_endpoint(self) -> None:
         cookie = self._login()
         cases = (
-            ("/orders", "4100", "soohoon"),
-            ("/orders?order_id=4100", "4100", "soohoon"),
-            ("/orders?order_id=4101", "4101", "sanghyun"),
-            ("/orders?order_id=20240517", "4100", "soohoon"),
-            ("/orders?order_id=20240518&status=all", "4101", "sanghyun"),
+            ("/orders", "4100", "한수훈"),
+            ("/orders?order_id=4100", "4100", "한수훈"),
+            ("/orders?order_id=4101", "4101", "전상현"),
+            ("/orders?order_id=20240517", "4100", "한수훈"),
+            ("/orders?order_id=20240518&status=all", "4101", "전상현"),
         )
         for path, ref, owner in cases:
             with self.subTest(path=path):

@@ -1687,6 +1687,23 @@ unchanged: actual cross-member order records are served by the existing BAC
 endpoint, not duplicated under the public SQLi endpoint. Evaluation runbooks use
 anonymous public scans and separately authenticated portal scans as before.
 
+### Member evidence demo follow-up (2026-09-23)
+
+The three shared demo members are 한수훈 (1042), 전상현 (1043), and 이석현
+(1044). Protected order/message pages compare the actual fixture owner UID to
+the session UID and highlight a mismatch without requiring a confirmation marker.
+
+The `/admin/users` fixture now uses disposable in-memory SQLite for member
+lookup. Empty/default search selects a bound ID; other terms intentionally enter
+a read-only SELECT unsafely, so the manual tautology returns actual member rows.
+This replaces the constant member fragment and confirmation-only illustrated
+SQL disclosure for this route. SQL errors/missing rows do not fabricate a leak.
+The standard-library database is recreated per lookup, has query-only mode,
+statement/string size limits and an instruction budget, and rejects stacked
+statements. No persistent database, new dependency, transport permission,
+canonical input, scanner verdict rule or frozen v0.1 behavior is introduced.
+Preserve labels and seeds; regenerate response-derived evaluation measurements.
+
 ## New Decision Template
 
 ```text

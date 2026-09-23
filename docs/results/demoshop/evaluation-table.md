@@ -27,8 +27,8 @@
 | Arm | K=1 | K=3 | K=5 | K=10 | K=20 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Random predictor | 0.160 | 0.107 | 0.087 | 0.064 | 0.049 |
-| VulnSpider without focused verification | 1.000 | 1.000 | 1.000 | 0.789 | 0.671 |
-| **VulnSpider (full pipeline)** | 1.000 | 1.000 | 1.000 | 0.789 | 0.715 |
+| VulnSpider without focused verification | 1.000 | 1.000 | 1.000 | 0.767 | 0.660 |
+| **VulnSpider (full pipeline)** | 1.000 | 1.000 | 1.000 | 0.767 | 0.705 |
 | Random predictor (per-input-point type guess) | 0.161 | 0.108 | 0.087 | 0.065 | 0.050 |
 
 ## NDCG@K
@@ -36,6 +36,6 @@
 | Arm | K=1 | K=3 | K=5 | K=10 | K=20 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Random predictor | 0.160 | 0.160 | 0.160 | 0.160 | 0.160 |
-| VulnSpider without focused verification | 1.000 | 1.000 | 1.000 | 0.867 | 0.809 |
-| **VulnSpider (full pipeline)** | 1.000 | 1.000 | 1.000 | 0.867 | 0.842 |
+| VulnSpider without focused verification | 1.000 | 1.000 | 1.000 | 0.860 | 0.804 |
+| **VulnSpider (full pipeline)** | 1.000 | 1.000 | 1.000 | 0.860 | 0.838 |
 | Random predictor (per-input-point type guess) | 0.161 | 0.161 | 0.161 | 0.161 | 0.161 |

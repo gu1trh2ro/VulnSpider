@@ -145,7 +145,9 @@ class DemoShopRenderingTests(unittest.TestCase):
         for page in demo_shop.PAGES:
             for item in page.inputs:
                 status, _body = demo_shop.render_route(page, {item.name: payload})
-                if item.kind in ("sqli_error", "safe_type_error"):
+                if page.path == "/admin/users" and item.name == "q":
+                    self.assertEqual(status, 200)  # Valid tautology returns actual demo rows.
+                elif item.kind in ("sqli_error", "safe_type_error"):
                     self.assertEqual(status, 500, f"{page.path}?{item.name}")
                 elif item.kind == "safe_validated":
                     self.assertEqual(status, 400, f"{page.path}?{item.name}")

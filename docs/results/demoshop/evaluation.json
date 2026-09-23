@@ -112,8 +112,8 @@
           "scored_queries": 1,
           "recall_at_k": 0.25,
           "precision_at_k": 0.8,
-          "ndcg_at_k": 0.866947989864271,
-          "map_at_k": 0.788888888888889
+          "ndcg_at_k": 0.8603818544462509,
+          "map_at_k": 0.7675
         },
         {
           "k": 20,
@@ -121,8 +121,8 @@
           "scored_queries": 1,
           "recall_at_k": 0.46875,
           "precision_at_k": 0.75,
-          "ndcg_at_k": 0.8087357274225904,
-          "map_at_k": 0.6709668519904589
+          "ndcg_at_k": 0.8044981580182338,
+          "map_at_k": 0.6602724075460145
         }
       ]
     },
@@ -166,8 +166,8 @@
           "scored_queries": 1,
           "recall_at_k": 0.25,
           "precision_at_k": 0.8,
-          "ndcg_at_k": 0.866947989864271,
-          "map_at_k": 0.788888888888889
+          "ndcg_at_k": 0.8603818544462509,
+          "map_at_k": 0.7675
         },
         {
           "k": 20,
@@ -175,8 +175,8 @@
           "scored_queries": 1,
           "recall_at_k": 0.5,
           "precision_at_k": 0.8,
-          "ndcg_at_k": 0.8421732188073038,
-          "map_at_k": 0.7152650976044941
+          "ndcg_at_k": 0.8379356494029473,
+          "map_at_k": 0.7045706531600496
         }
       ]
     },
@@ -244,17 +244,6 @@
       "family": "SQLI",
       "prior_probability": 0.8810405381957391,
       "final_confidence": 0.9526788654984636,
-      "verified": true,
-      "vulnerable": true
-    },
-    {
-      "candidate_id": "cand_04543ba56a754e9e",
-      "canonical_path": "/admin/users",
-      "parameter_name": "q",
-      "parameter_location": "QUERY",
-      "family": "SQLI",
-      "prior_probability": 0.8806530773132709,
-      "final_confidence": 0.9525121600890772,
       "verified": true,
       "vulnerable": true
     },
@@ -345,6 +334,17 @@
       "final_confidence": 0.9518103315122631,
       "verified": true,
       "vulnerable": false
+    },
+    {
+      "candidate_id": "cand_04543ba56a754e9e",
+      "canonical_path": "/admin/users",
+      "parameter_name": "q",
+      "parameter_location": "QUERY",
+      "family": "SQLI",
+      "prior_probability": 0.8787944876679028,
+      "final_confidence": 0.9517112706047095,
+      "verified": true,
+      "vulnerable": true
     },
     {
       "candidate_id": "cand_561b1928f1517886",
@@ -853,17 +853,6 @@
       "vulnerable": false
     },
     {
-      "candidate_id": "cand_38b7fa7c7deb1555",
-      "canonical_path": "/admin/users",
-      "parameter_name": "q",
-      "parameter_location": "QUERY",
-      "family": "REFLECTED_XSS",
-      "prior_probability": 0.4331358848374107,
-      "final_confidence": 0.4331358848374107,
-      "verified": false,
-      "vulnerable": false
-    },
-    {
       "candidate_id": "cand_137144daa336a8bc",
       "canonical_path": "/seller/product/edit",
       "parameter_name": "product_id",
@@ -990,19 +979,8 @@
       "parameter_name": "order_id",
       "parameter_location": "QUERY",
       "family": "REFLECTED_XSS",
-      "prior_probability": 0.43079446252795267,
-      "final_confidence": 0.43079446252795267,
-      "verified": false,
-      "vulnerable": false
-    },
-    {
-      "candidate_id": "cand_cdb940cd608efdd6",
-      "canonical_path": "/admin/users",
-      "parameter_name": "id",
-      "parameter_location": "QUERY",
-      "family": "REFLECTED_XSS",
-      "prior_probability": 0.43076830334731064,
-      "final_confidence": 0.43076830334731064,
+      "prior_probability": 0.43079384615143834,
+      "final_confidence": 0.43079384615143834,
       "verified": false,
       "vulnerable": false
     },
@@ -1012,8 +990,8 @@
       "parameter_name": "id",
       "parameter_location": "QUERY",
       "family": "REFLECTED_XSS",
-      "prior_probability": 0.4307412676613531,
-      "final_confidence": 0.4307412676613531,
+      "prior_probability": 0.43074071916346857,
+      "final_confidence": 0.43074071916346857,
       "verified": false,
       "vulnerable": false
     },
@@ -1161,6 +1139,17 @@
       "vulnerable": false
     },
     {
+      "candidate_id": "cand_38b7fa7c7deb1555",
+      "canonical_path": "/admin/users",
+      "parameter_name": "q",
+      "parameter_location": "QUERY",
+      "family": "REFLECTED_XSS",
+      "prior_probability": 0.38690190032754274,
+      "final_confidence": 0.38690190032754274,
+      "verified": false,
+      "vulnerable": false
+    },
+    {
       "candidate_id": "cand_767592cd010785dc",
       "canonical_path": "/product/reviews",
       "parameter_name": "rating",
@@ -1267,6 +1256,17 @@
       "family": "REFLECTED_XSS",
       "prior_probability": 0.3863227388161788,
       "final_confidence": 0.3863227388161788,
+      "verified": false,
+      "vulnerable": false
+    },
+    {
+      "candidate_id": "cand_cdb940cd608efdd6",
+      "canonical_path": "/admin/users",
+      "parameter_name": "id",
+      "parameter_location": "QUERY",
+      "family": "REFLECTED_XSS",
+      "prior_probability": 0.386195944226439,
+      "final_confidence": 0.386195944226439,
       "verified": false,
       "vulnerable": false
     },
@@ -1573,19 +1573,8 @@
       "parameter_name": "order_id",
       "parameter_location": "QUERY",
       "family": "SQLI",
-      "prior_probability": 0.22224033569458218,
-      "final_confidence": 0.22224033569458218,
-      "verified": false,
-      "vulnerable": false
-    },
-    {
-      "candidate_id": "cand_9437aeb62fb71672",
-      "canonical_path": "/admin/users",
-      "parameter_name": "id",
-      "parameter_location": "QUERY",
-      "family": "SQLI",
-      "prior_probability": 0.22218619148471844,
-      "final_confidence": 0.22218619148471844,
+      "prior_probability": 0.22223905978390354,
+      "final_confidence": 0.22223905978390354,
       "verified": false,
       "vulnerable": false
     },
@@ -1606,8 +1595,8 @@
       "parameter_name": "id",
       "parameter_location": "QUERY",
       "family": "SQLI",
-      "prior_probability": 0.22213024551323915,
-      "final_confidence": 0.22213024551323915,
+      "prior_probability": 0.22212911061648297,
+      "final_confidence": 0.22212911061648297,
       "verified": false,
       "vulnerable": false
     },
@@ -1762,6 +1751,17 @@
       "family": "SQLI",
       "prior_probability": 0.22136618674736797,
       "final_confidence": 0.22136618674736797,
+      "verified": false,
+      "vulnerable": false
+    },
+    {
+      "candidate_id": "cand_9437aeb62fb71672",
+      "canonical_path": "/admin/users",
+      "parameter_name": "id",
+      "parameter_location": "QUERY",
+      "family": "SQLI",
+      "prior_probability": 0.22134985328785264,
+      "final_confidence": 0.22134985328785264,
       "verified": false,
       "vulnerable": false
     },
@@ -1947,8 +1947,8 @@
       "parameter_name": "format",
       "parameter_location": "QUERY",
       "family": "SQLI",
-      "prior_probability": 0.22051690802009458,
-      "final_confidence": 0.22051690802009458,
+      "prior_probability": 0.2205167691399512,
+      "final_confidence": 0.2205167691399512,
       "verified": false,
       "vulnerable": false
     },
@@ -1964,13 +1964,24 @@
       "vulnerable": false
     },
     {
+      "candidate_id": "cand_52a510cef5e6e8dc",
+      "canonical_path": "/admin/users",
+      "parameter_name": "role",
+      "parameter_location": "QUERY",
+      "family": "SQLI",
+      "prior_probability": 0.22050501054136734,
+      "final_confidence": 0.22050501054136734,
+      "verified": false,
+      "vulnerable": false
+    },
+    {
       "candidate_id": "cand_dbf58d642d633ba7",
       "canonical_path": "/admin/orders",
       "parameter_name": "status",
       "parameter_location": "QUERY",
       "family": "SQLI",
-      "prior_probability": 0.22050492216977408,
-      "final_confidence": 0.22050492216977408,
+      "prior_probability": 0.2205047985809337,
+      "final_confidence": 0.2205047985809337,
       "verified": false,
       "vulnerable": false
     },
@@ -2004,17 +2015,6 @@
       "family": "SQLI",
       "prior_probability": 0.22050334475720343,
       "final_confidence": 0.22050334475720343,
-      "verified": false,
-      "vulnerable": false
-    },
-    {
-      "candidate_id": "cand_52a510cef5e6e8dc",
-      "canonical_path": "/admin/users",
-      "parameter_name": "role",
-      "parameter_location": "QUERY",
-      "family": "SQLI",
-      "prior_probability": 0.22049273080174442,
-      "final_confidence": 0.22049273080174442,
       "verified": false,
       "vulnerable": false
     },
@@ -2156,8 +2156,8 @@
       "parameter_name": "format",
       "parameter_location": "QUERY",
       "family": "REFLECTED_XSS",
-      "prior_probability": 0.22041116556129275,
-      "final_confidence": 0.22041116556129275,
+      "prior_probability": 0.22041109612126347,
+      "final_confidence": 0.22041109612126347,
       "verified": false,
       "vulnerable": false
     },
@@ -2173,13 +2173,24 @@
       "vulnerable": false
     },
     {
+      "candidate_id": "cand_5a4ba4b523405959",
+      "canonical_path": "/admin/users",
+      "parameter_name": "role",
+      "parameter_location": "QUERY",
+      "family": "REFLECTED_XSS",
+      "prior_probability": 0.2204052168254577,
+      "final_confidence": 0.2204052168254577,
+      "verified": false,
+      "vulnerable": false
+    },
+    {
       "candidate_id": "cand_117cd765a2868358",
       "canonical_path": "/admin/orders",
       "parameter_name": "status",
       "parameter_location": "QUERY",
       "family": "REFLECTED_XSS",
-      "prior_probability": 0.22040517263968654,
-      "final_confidence": 0.22040517263968654,
+      "prior_probability": 0.22040511084530195,
+      "final_confidence": 0.22040511084530195,
       "verified": false,
       "vulnerable": false
     },
@@ -2235,17 +2246,6 @@
       "family": "SQLI",
       "prior_probability": 0.22040185304756424,
       "final_confidence": 0.22040185304756424,
-      "verified": false,
-      "vulnerable": false
-    },
-    {
-      "candidate_id": "cand_5a4ba4b523405959",
-      "canonical_path": "/admin/users",
-      "parameter_name": "role",
-      "parameter_location": "QUERY",
-      "family": "REFLECTED_XSS",
-      "prior_probability": 0.22039907695908,
-      "final_confidence": 0.22039907695908,
       "verified": false,
       "vulnerable": false
     },

@@ -237,24 +237,24 @@
   ],
   "candidates": [
     {
-      "candidate_id": "acand_aa372664fd28d7ea",
-      "canonical_path": "/portal/message",
-      "parameter_name": "thread",
-      "parameter_location": "QUERY",
-      "family": "BROKEN_ACCESS_CONTROL",
-      "prior_probability": 0.9533562908188665,
-      "final_confidence": 0.9533562908188665,
-      "verified": true,
-      "vulnerable": true
-    },
-    {
       "candidate_id": "acand_d0e47503abcdbd8b",
       "canonical_path": "/portal/order",
       "parameter_name": "ref",
       "parameter_location": "QUERY",
       "family": "BROKEN_ACCESS_CONTROL",
-      "prior_probability": 0.9533429227171654,
-      "final_confidence": 0.9533429227171654,
+      "prior_probability": 0.9529466945914306,
+      "final_confidence": 0.9529466945914306,
+      "verified": true,
+      "vulnerable": true
+    },
+    {
+      "candidate_id": "acand_aa372664fd28d7ea",
+      "canonical_path": "/portal/message",
+      "parameter_name": "thread",
+      "parameter_location": "QUERY",
+      "family": "BROKEN_ACCESS_CONTROL",
+      "prior_probability": 0.9529025205276623,
+      "final_confidence": 0.9529025205276623,
       "verified": true,
       "vulnerable": true
     },
@@ -286,8 +286,8 @@
       "parameter_name": "thread",
       "parameter_location": "QUERY",
       "family": "REFLECTED_XSS",
-      "prior_probability": 0.43131679471948015,
-      "final_confidence": 0.2181498852595704,
+      "prior_probability": 0.4350699107535104,
+      "final_confidence": 0.2207682043351422,
       "verified": true,
       "vulnerable": false
     },
@@ -297,8 +297,8 @@
       "parameter_name": "ref",
       "parameter_location": "QUERY",
       "family": "REFLECTED_XSS",
-      "prior_probability": 0.43104256603222635,
-      "final_confidence": 0.21795924214871717,
+      "prior_probability": 0.4345978569354425,
+      "final_confidence": 0.22043793957534602,
       "verified": true,
       "vulnerable": false
     },
@@ -319,8 +319,8 @@
       "parameter_name": "thread",
       "parameter_location": "QUERY",
       "family": "SQLI",
-      "prior_probability": 0.22332393181193838,
-      "final_confidence": 0.1606251966346419,
+      "prior_probability": 0.23124784011850535,
+      "final_confidence": 0.16680222507338227,
       "verified": true,
       "vulnerable": false
     },
@@ -330,8 +330,8 @@
       "parameter_name": "ref",
       "parameter_location": "QUERY",
       "family": "SQLI",
-      "prior_probability": 0.22275444754154872,
-      "final_confidence": 0.1601826217635226,
+      "prior_probability": 0.2302379429285601,
+      "final_confidence": 0.16601299413369316,
       "verified": true,
       "vulnerable": false
     }
