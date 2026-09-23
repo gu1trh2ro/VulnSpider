@@ -146,7 +146,7 @@ class DemoShopSessionHTTPTests(unittest.TestCase):
             self.assertIn(f"<td>{name}</td>", body)
             for other in set(names) - {name}:
                 self.assertNotIn(f"<td>{other}</td>", body)
-            self.assertNotIn("<h3>검색어</h3>", body)
+            self.assertNotIn("<h3>이메일 또는 이름</h3>", body)
         for identifier in ("1043", "1044", "9999"):
             status, _, body = self._request("GET", "/admin/users?" + urlencode({"id": identifier, "vs_confirm": "id"}))
             self.assertEqual(status, 200)
@@ -155,18 +155,21 @@ class DemoShopSessionHTTPTests(unittest.TestCase):
         for marker in ({}, {"vs_confirm": "q"}):
             status, _, body = self._request("GET", "/admin/users?" + urlencode({"q": "1' OR '1'='1", **marker}))
             self.assertEqual(status, 200)
-            self.assertIn("조회 결과 3건", body)
+            self.assertIn("member-breach", body)  # the bypass is shown as a breach
+            self.assertIn("$2b$12$", body)  # and leaks password hashes
             for name in names:
                 self.assertIn(f"<td>{name}</td>", body)
         for query in ({"id": "9999"}, {"q": "nobody"}, {"q": "1' OR '1'='2"}):
             status, _, body = self._request("GET", "/admin/users?" + urlencode(query))
             self.assertEqual(status, 200)
-            self.assertIn("조회 결과 0건", body)
+            self.assertIn("일치하는 계정이 없습니다", body)
         for term in ("전상현", "sanghyun"):
             status, _, body = self._request("GET", "/admin/users?" + urlencode({"q": term}))
             self.assertEqual(status, 200)
-            self.assertIn("조회 결과 1건", body)
+            self.assertIn("검색 결과 1건", body)
             self.assertIn("<td>전상현</td>", body)
+            self.assertNotIn("member-breach", body)  # a scoped result never leaks
+            self.assertNotIn("$2b$12$", body)
         for term in ("'", "'; DROP TABLE members; --"):
             status, _, body = self._request("GET", "/admin/users?" + urlencode({"q": term, "vs_confirm": "q"}))
             self.assertEqual(status, 500)

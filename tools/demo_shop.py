@@ -747,14 +747,14 @@ PAGES: tuple[PageSpec, ...] = (
     ),
     PageSpec(
         path="/admin/users",
-        title="회원 관리",
-        section="관리자",
-        blurb="운영자용 회원 조회 화면입니다.",
+        title="아이디·비밀번호 찾기",
+        section="내 계정",
+        blurb="가입한 이메일이나 이름으로 계정을 찾습니다.",
         listing="orders",
         inputs=(
             _text("id", "bac", "1042", "회원 번호"),
             _choice("role", "safe_allowlist", ("member", "seller", "admin"), "역할"),
-            _text("q", "sqli_error", "soohoon", "검색어"),
+            _text("q", "sqli_error", "soohoon", "이메일 또는 이름"),
         ),
     ),
     PageSpec(
@@ -1661,6 +1661,13 @@ _LEAKED_MEMBERS = (
 )
 
 
+def _member_secret(member_id: int, column: int) -> str:
+    index = member_id - 1042
+    if 0 <= index < len(_LEAKED_MEMBERS):
+        return _LEAKED_MEMBERS[index][column]
+    return "-"
+
+
 def _member_results(query: dict[str, str]) -> tuple[int, str, int]:
     """Intentionally injectable, read-only search over three ephemeral demo rows."""
     value = query.get("q", "soohoon")
@@ -1689,14 +1696,40 @@ def _member_results(query: dict[str, str]) -> tuple[int, str, int]:
                     + value + "'"
                 ).fetchall()
         except sqlite3.Error as exc:
-            return 500, _card("회원 목록", f'<p class="error">Database error: SQLite error: {escape(str(exc))}</p>', tone="danger"), 0
-    records = "".join(
-        '<tr>' + ''.join(f'<td>{escape(str(cell))}</td>' for cell in row) + '</tr>'
-        for row in rows
-    )
-    return 200, _card("회원 목록", f'<p>조회 결과 {len(rows)}건</p>'
-        '<table class="record"><tr><th>회원 번호</th><th>이름</th><th>이메일</th><th>연락처</th></tr>'
-        + records + '</table>', tone="member-results"), len(rows)
+            return 500, _card("계정 찾기", f'<p class="error">Database error: SQLite error: {escape(str(exc))}</p>', tone="danger"), 0
+    # A member search matches at most one member. More than one row means
+    # the filter was subverted -- render that as the breach it is, with the
+    # private fields (card, password hash) a lookup must never return.
+    if len(rows) > 1:
+        leaked = "".join(
+            "<tr>"
+            f"<td>{escape(str(rid))}</td><td>{escape(str(name))}</td>"
+            f"<td>{escape(str(email))}</td><td>{escape(str(phone))}</td>"
+            f"<td>{escape(_member_secret(rid, 3))}</td>"
+            f'<td class="hash">{escape(_member_secret(rid, 4))}</td></tr>'
+            for rid, name, email, phone in rows
+        )
+        breach = (
+            '<div class="member-breach"><div class="breach-head">'
+            "\u26a0\ufe0f SQL Injection · 전체 계정 정보가 유출되었습니다</div>"
+            '<div class="member-results-wrap"><table class="record breach-table"><tr>'
+            "<th>회원번호</th><th>이름</th><th>이메일</th><th>연락처</th>"
+            "<th>결제 카드</th><th>비밀번호 해시</th></tr>" + leaked + "</table></div></div>"
+        )
+        return 200, breach, len(rows)
+    if rows:
+        listing = "".join(
+            f"<tr><td>{escape(str(rid))}</td><td>{escape(str(name))}</td></tr>"
+            for rid, name, _email, _phone in rows
+        )
+        card_body = (
+            f"<p>검색 결과 {len(rows)}건 · 계정의 공개 이름만 표시합니다.</p>"
+            '<table class="record"><tr><th>회원번호</th><th>표시 이름</th></tr>'
+            + listing + "</table>"
+        )
+    else:
+        card_body = '<p class="muted">일치하는 계정이 없습니다.</p>'
+    return 200, _card("계정 찾기", card_body, tone="member-results"), len(rows)
 
 
 def _ownership_notice(session: tuple[str, int], holder: str, owner_uid: int) -> str:
@@ -1843,9 +1876,10 @@ def _confirmation(page: PageSpec, item: InputSpec, value: str,
         if status == 500:
             return _poc_banner("pending", "SQL 오류가 관찰되었습니다", label, value,
                                "회원 조회에 실패했습니다. 아래 실제 응답을 확인하세요.")
-        if row_count == len(_LEAKED_MEMBERS):
+        if row_count > 1:
             return _poc_banner("confirmed", "SQL Injection 취약점이 확인되었습니다", label, value,
-                               "검색 조건이 우회되어 세 회원이 반환되었습니다. 아래 회원 목록이 실제 조회 결과입니다.")
+                               f"검색 조건이 우회되어 전체 계정 {row_count}건의 이메일·비밀번호 해시까지 "
+                               "유출되었습니다. 아래가 실제 조회 결과입니다.")
         return _poc_banner("pending", "회원 조회 결과를 확인하세요", label, value,
                            "아래 회원 목록은 입력한 검색 조건의 실제 결과입니다.")
     if kind == "sqli_error":

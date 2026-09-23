@@ -4101,395 +4101,10 @@
       ]
     },
     {
-      "candidate_id": "cand_04543ba56a754e9e",
-      "input_point_id": "inp_b7c7def71a4ebf81",
-      "vulnerability_type": "SQLI",
-      "selection_rank": 10,
-      "prior_probability": 0.8787944876679028,
-      "final_outcome": "SUPPORTED",
-      "final_signal": "SUPPORT_REPRODUCED",
-      "final_confidence": 0.9517112706047095,
-      "confidence_delta": 0.0729167829368067,
-      "results": [
-        {
-          "contract_version": "0.1",
-          "verification_result_id": "vres_185a4a84203dc564",
-          "candidate_id": "cand_04543ba56a754e9e",
-          "selection_rank": 10,
-          "vulnerability_type": "SQLI",
-          "provider": "deterministic-baseline",
-          "proposal_id": "prop_f88f65f84e9e5d5b",
-          "proposer_version": "deterministic-mutation-v1",
-          "mutation_family": "SQL_META",
-          "mutated_value": "VULNSPIDER_69011EB0F38DC1D5'",
-          "based_on_value": "soohoon",
-          "rationale": "Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.",
-          "validator": {
-            "policy_version": "payload-validator-v1",
-            "decision": "ACCEPTED",
-            "rejection_reasons": [],
-            "validated_payload_id": "vpl_9ffd12a761352b43"
-          },
-          "baseline_feature_vector_id": "fv_1c8cf6ec365048c7",
-          "execution": {
-            "probe_plan_id": "probe_e0e9bcf12c8a58d0",
-            "baseline_response_id": "resp_940467d7cb9f4604",
-            "probe_response_id": "resp_075391601f38cf3e",
-            "verification_feature_vector_id": "fv_888545986575af73",
-            "baseline_execution_error": null,
-            "probe_execution_error": null
-          },
-          "feature_delta": {
-            "input_point_id": "inp_b7c7def71a4ebf81",
-            "verification_feature_vector_id": "fv_888545986575af73",
-            "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.002567962454617905,
-            "changed": true,
-            "observability_flips": [
-              "marker_reflected",
-              "reflection_count_norm",
-              "safe_html_encoding_detected"
-            ],
-            "features": [
-              {
-                "feature_name": "marker_reflected",
-                "baseline_value": 1.0,
-                "baseline_observed": true,
-                "verification_value": null,
-                "verification_observed": false,
-                "delta": null,
-                "abs_delta": null,
-                "observability_flip": true
-              },
-              {
-                "feature_name": "reflection_count_norm",
-                "baseline_value": 0.3333333333333333,
-                "baseline_observed": true,
-                "verification_value": null,
-                "verification_observed": false,
-                "delta": null,
-                "abs_delta": null,
-                "observability_flip": true
-              },
-              {
-                "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.009917648100593288,
-                "baseline_observed": true,
-                "verification_value": 0.007349685645975383,
-                "verification_observed": true,
-                "delta": -0.002567962454617905,
-                "abs_delta": 0.002567962454617905,
-                "observability_flip": false
-              },
-              {
-                "feature_name": "safe_html_encoding_detected",
-                "baseline_value": 1.0,
-                "baseline_observed": true,
-                "verification_value": null,
-                "verification_observed": false,
-                "delta": null,
-                "abs_delta": null,
-                "observability_flip": true
-              },
-              {
-                "feature_name": "sql_error_pattern",
-                "baseline_value": 1.0,
-                "baseline_observed": true,
-                "verification_value": 1.0,
-                "verification_observed": true,
-                "delta": 0.0,
-                "abs_delta": 0.0,
-                "observability_flip": false
-              },
-              {
-                "feature_name": "status_code_changed",
-                "baseline_value": 1.0,
-                "baseline_observed": true,
-                "verification_value": 1.0,
-                "verification_observed": true,
-                "delta": 0.0,
-                "abs_delta": 0.0,
-                "observability_flip": false
-              }
-            ]
-          },
-          "confidence": {
-            "rule_version": "confidence-rule-v2",
-            "scale": "probability-0-1-v1",
-            "outcome": "SUPPORTED",
-            "signal": "SUPPORT_REPRODUCED",
-            "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.8787944876679028,
-            "verification_confidence": 0.9517112706047095,
-            "confidence_delta": 0.0729167829368067,
-            "evidence": [
-              {
-                "feature_name": "sql_error_pattern",
-                "baseline_value": 1.0,
-                "verification_value": 1.0,
-                "direction": "flat",
-                "reason": "The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed."
-              }
-            ]
-          },
-          "outcome_status": "SUPPORTED",
-          "warnings": []
-        },
-        {
-          "contract_version": "0.1",
-          "verification_result_id": "vres_847d0520a7c4355b",
-          "candidate_id": "cand_04543ba56a754e9e",
-          "selection_rank": 10,
-          "vulnerability_type": "SQLI",
-          "provider": "deterministic-baseline",
-          "proposal_id": "prop_d359396f262e66ba",
-          "proposer_version": "deterministic-mutation-v1",
-          "mutation_family": "SQL_META",
-          "mutated_value": "VULNSPIDER_836240225435A351\"",
-          "based_on_value": "soohoon",
-          "rationale": "Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.",
-          "validator": {
-            "policy_version": "payload-validator-v1",
-            "decision": "ACCEPTED",
-            "rejection_reasons": [],
-            "validated_payload_id": "vpl_0bd726eb556dfb2f"
-          },
-          "baseline_feature_vector_id": "fv_1c8cf6ec365048c7",
-          "execution": {
-            "probe_plan_id": "probe_fff3c3973011ac37",
-            "baseline_response_id": "resp_f5e9401e37f8c3da",
-            "probe_response_id": "resp_6453ff7a113c256d",
-            "verification_feature_vector_id": "fv_e2f604fd97115b4d",
-            "baseline_execution_error": null,
-            "probe_execution_error": null
-          },
-          "feature_delta": {
-            "input_point_id": "inp_b7c7def71a4ebf81",
-            "verification_feature_vector_id": "fv_e2f604fd97115b4d",
-            "material_delta_threshold": 0.3,
-            "max_abs_delta": 1.0,
-            "changed": true,
-            "observability_flips": [
-              "marker_reflected",
-              "reflection_count_norm",
-              "safe_html_encoding_detected"
-            ],
-            "features": [
-              {
-                "feature_name": "marker_reflected",
-                "baseline_value": 1.0,
-                "baseline_observed": true,
-                "verification_value": null,
-                "verification_observed": false,
-                "delta": null,
-                "abs_delta": null,
-                "observability_flip": true
-              },
-              {
-                "feature_name": "reflection_count_norm",
-                "baseline_value": 0.3333333333333333,
-                "baseline_observed": true,
-                "verification_value": null,
-                "verification_observed": false,
-                "delta": null,
-                "abs_delta": null,
-                "observability_flip": true
-              },
-              {
-                "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.009917648100593288,
-                "baseline_observed": true,
-                "verification_value": 0.005844328344992473,
-                "verification_observed": true,
-                "delta": -0.004073319755600815,
-                "abs_delta": 0.004073319755600815,
-                "observability_flip": false
-              },
-              {
-                "feature_name": "safe_html_encoding_detected",
-                "baseline_value": 1.0,
-                "baseline_observed": true,
-                "verification_value": null,
-                "verification_observed": false,
-                "delta": null,
-                "abs_delta": null,
-                "observability_flip": true
-              },
-              {
-                "feature_name": "sql_error_pattern",
-                "baseline_value": 1.0,
-                "baseline_observed": true,
-                "verification_value": 0.0,
-                "verification_observed": true,
-                "delta": -1.0,
-                "abs_delta": 1.0,
-                "observability_flip": false
-              },
-              {
-                "feature_name": "status_code_changed",
-                "baseline_value": 1.0,
-                "baseline_observed": true,
-                "verification_value": 0.0,
-                "verification_observed": true,
-                "delta": -1.0,
-                "abs_delta": 1.0,
-                "observability_flip": false
-              }
-            ]
-          },
-          "confidence": {
-            "rule_version": "confidence-rule-v2",
-            "scale": "probability-0-1-v1",
-            "outcome": "WEAKENED",
-            "signal": "WEAKEN",
-            "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.8787944876679028,
-            "verification_confidence": 0.7826307556594926,
-            "confidence_delta": -0.09616373200841022,
-            "evidence": [
-              {
-                "feature_name": "sql_error_pattern",
-                "baseline_value": 1.0,
-                "verification_value": 0.0,
-                "direction": "down",
-                "reason": "The baseline SQL error did not reproduce under the metacharacter payload; confidence is lowered."
-              }
-            ]
-          },
-          "outcome_status": "WEAKENED",
-          "warnings": []
-        },
-        {
-          "contract_version": "0.1",
-          "verification_result_id": "vres_8bb67d5f2a700c39",
-          "candidate_id": "cand_04543ba56a754e9e",
-          "selection_rank": 10,
-          "vulnerability_type": "SQLI",
-          "provider": "deterministic-baseline",
-          "proposal_id": "prop_1d65eb6cd4c1b259",
-          "proposer_version": "deterministic-mutation-v1",
-          "mutation_family": "SQL_META",
-          "mutated_value": "VULNSPIDER_F8F8F62A80F80DE4')",
-          "based_on_value": "soohoon",
-          "rationale": "Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.",
-          "validator": {
-            "policy_version": "payload-validator-v1",
-            "decision": "ACCEPTED",
-            "rejection_reasons": [],
-            "validated_payload_id": "vpl_9aea1f5d91677179"
-          },
-          "baseline_feature_vector_id": "fv_1c8cf6ec365048c7",
-          "execution": {
-            "probe_plan_id": "probe_87a6c8ceb8f78e07",
-            "baseline_response_id": "resp_eeb9d9ab6664d2b3",
-            "probe_response_id": "resp_18991876b600774c",
-            "verification_feature_vector_id": "fv_a75fa9faba612d54",
-            "baseline_execution_error": null,
-            "probe_execution_error": null
-          },
-          "feature_delta": {
-            "input_point_id": "inp_b7c7def71a4ebf81",
-            "verification_feature_vector_id": "fv_a75fa9faba612d54",
-            "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.0013282564420437435,
-            "changed": true,
-            "observability_flips": [
-              "marker_reflected",
-              "reflection_count_norm",
-              "safe_html_encoding_detected"
-            ],
-            "features": [
-              {
-                "feature_name": "marker_reflected",
-                "baseline_value": 1.0,
-                "baseline_observed": true,
-                "verification_value": null,
-                "verification_observed": false,
-                "delta": null,
-                "abs_delta": null,
-                "observability_flip": true
-              },
-              {
-                "feature_name": "reflection_count_norm",
-                "baseline_value": 0.3333333333333333,
-                "baseline_observed": true,
-                "verification_value": null,
-                "verification_observed": false,
-                "delta": null,
-                "abs_delta": null,
-                "observability_flip": true
-              },
-              {
-                "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.009917648100593288,
-                "baseline_observed": true,
-                "verification_value": 0.011245904542637032,
-                "verification_observed": true,
-                "delta": 0.0013282564420437435,
-                "abs_delta": 0.0013282564420437435,
-                "observability_flip": false
-              },
-              {
-                "feature_name": "safe_html_encoding_detected",
-                "baseline_value": 1.0,
-                "baseline_observed": true,
-                "verification_value": null,
-                "verification_observed": false,
-                "delta": null,
-                "abs_delta": null,
-                "observability_flip": true
-              },
-              {
-                "feature_name": "sql_error_pattern",
-                "baseline_value": 1.0,
-                "baseline_observed": true,
-                "verification_value": 1.0,
-                "verification_observed": true,
-                "delta": 0.0,
-                "abs_delta": 0.0,
-                "observability_flip": false
-              },
-              {
-                "feature_name": "status_code_changed",
-                "baseline_value": 1.0,
-                "baseline_observed": true,
-                "verification_value": 1.0,
-                "verification_observed": true,
-                "delta": 0.0,
-                "abs_delta": 0.0,
-                "observability_flip": false
-              }
-            ]
-          },
-          "confidence": {
-            "rule_version": "confidence-rule-v2",
-            "scale": "probability-0-1-v1",
-            "outcome": "SUPPORTED",
-            "signal": "SUPPORT_REPRODUCED",
-            "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.8787944876679028,
-            "verification_confidence": 0.9517112706047095,
-            "confidence_delta": 0.0729167829368067,
-            "evidence": [
-              {
-                "feature_name": "sql_error_pattern",
-                "baseline_value": 1.0,
-                "verification_value": 1.0,
-                "direction": "flat",
-                "reason": "The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed."
-              }
-            ]
-          },
-          "outcome_status": "SUPPORTED",
-          "warnings": []
-        }
-      ]
-    },
-    {
       "candidate_id": "cand_561b1928f1517886",
       "input_point_id": "inp_f14a2cc0ec36a33f",
       "vulnerability_type": "SQLI",
-      "selection_rank": 11,
+      "selection_rank": 10,
       "prior_probability": 0.8785911875463411,
       "final_outcome": "SUPPORTED",
       "final_signal": "SUPPORT_REPRODUCED",
@@ -4500,7 +4115,7 @@
           "contract_version": "0.1",
           "verification_result_id": "vres_f6a8d6d599874ee5",
           "candidate_id": "cand_561b1928f1517886",
-          "selection_rank": 11,
+          "selection_rank": 10,
           "vulnerability_type": "SQLI",
           "provider": "deterministic-baseline",
           "proposal_id": "prop_2b487ecf578f73b8",
@@ -4624,7 +4239,7 @@
           "contract_version": "0.1",
           "verification_result_id": "vres_5d5ff6daf3affb0e",
           "candidate_id": "cand_561b1928f1517886",
-          "selection_rank": 11,
+          "selection_rank": 10,
           "vulnerability_type": "SQLI",
           "provider": "deterministic-baseline",
           "proposal_id": "prop_9c76152afea25ede",
@@ -4748,7 +4363,7 @@
           "contract_version": "0.1",
           "verification_result_id": "vres_2dcc49576e83bc71",
           "candidate_id": "cand_561b1928f1517886",
-          "selection_rank": 11,
+          "selection_rank": 10,
           "vulnerability_type": "SQLI",
           "provider": "deterministic-baseline",
           "proposal_id": "prop_51b39933b2a68c8f",
@@ -4872,7 +4487,7 @@
           "contract_version": "0.1",
           "verification_result_id": "vres_32792f01a1363cc1",
           "candidate_id": "cand_561b1928f1517886",
-          "selection_rank": 11,
+          "selection_rank": 10,
           "vulnerability_type": "SQLI",
           "provider": "deterministic-baseline",
           "proposal_id": "prop_08780f86e1fe0b62",
@@ -4979,6 +4594,391 @@
             "prior_probability": 0.8785911875463411,
             "verification_confidence": 0.9516235423722196,
             "confidence_delta": 0.07303235482587844,
+            "evidence": [
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 1.0,
+                "verification_value": 1.0,
+                "direction": "flat",
+                "reason": "The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed."
+              }
+            ]
+          },
+          "outcome_status": "SUPPORTED",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "candidate_id": "cand_04543ba56a754e9e",
+      "input_point_id": "inp_b7c7def71a4ebf81",
+      "vulnerability_type": "SQLI",
+      "selection_rank": 11,
+      "prior_probability": 0.8784456291914275,
+      "final_outcome": "SUPPORTED",
+      "final_signal": "SUPPORT_REPRODUCED",
+      "final_confidence": 0.9515607159093715,
+      "confidence_delta": 0.07311508671794398,
+      "results": [
+        {
+          "contract_version": "0.1",
+          "verification_result_id": "vres_2696e25e876ac470",
+          "candidate_id": "cand_04543ba56a754e9e",
+          "selection_rank": 11,
+          "vulnerability_type": "SQLI",
+          "provider": "deterministic-baseline",
+          "proposal_id": "prop_f88f65f84e9e5d5b",
+          "proposer_version": "deterministic-mutation-v1",
+          "mutation_family": "SQL_META",
+          "mutated_value": "VULNSPIDER_69011EB0F38DC1D5'",
+          "based_on_value": "soohoon",
+          "rationale": "Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.",
+          "validator": {
+            "policy_version": "payload-validator-v1",
+            "decision": "ACCEPTED",
+            "rejection_reasons": [],
+            "validated_payload_id": "vpl_9ffd12a761352b43"
+          },
+          "baseline_feature_vector_id": "fv_f027f27018899498",
+          "execution": {
+            "probe_plan_id": "probe_e0e9bcf12c8a58d0",
+            "baseline_response_id": "resp_7f47afbf84d70463",
+            "probe_response_id": "resp_d6cae0812dde6599",
+            "verification_feature_vector_id": "fv_061dec144ec6332a",
+            "baseline_execution_error": null,
+            "probe_execution_error": null
+          },
+          "feature_delta": {
+            "input_point_id": "inp_b7c7def71a4ebf81",
+            "verification_feature_vector_id": "fv_061dec144ec6332a",
+            "material_delta_threshold": 0.3,
+            "max_abs_delta": 0.0025537160972173307,
+            "changed": true,
+            "observability_flips": [
+              "marker_reflected",
+              "reflection_count_norm",
+              "safe_html_encoding_detected"
+            ],
+            "features": [
+              {
+                "feature_name": "marker_reflected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "reflection_count_norm",
+                "baseline_value": 0.3333333333333333,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.006780556533990842,
+                "baseline_observed": true,
+                "verification_value": 0.004226840436773511,
+                "verification_observed": true,
+                "delta": -0.0025537160972173307,
+                "abs_delta": 0.0025537160972173307,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "safe_html_encoding_detected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": 1.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "status_code_changed",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": 1.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              }
+            ]
+          },
+          "confidence": {
+            "rule_version": "confidence-rule-v2",
+            "scale": "probability-0-1-v1",
+            "outcome": "SUPPORTED",
+            "signal": "SUPPORT_REPRODUCED",
+            "model_version": "verification-confidence-model-v1",
+            "prior_probability": 0.8784456291914275,
+            "verification_confidence": 0.9515607159093715,
+            "confidence_delta": 0.07311508671794398,
+            "evidence": [
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 1.0,
+                "verification_value": 1.0,
+                "direction": "flat",
+                "reason": "The SQL error signature reproduced under an independent metacharacter payload; the baseline suspicion is confirmed."
+              }
+            ]
+          },
+          "outcome_status": "SUPPORTED",
+          "warnings": []
+        },
+        {
+          "contract_version": "0.1",
+          "verification_result_id": "vres_d48299e863f9f027",
+          "candidate_id": "cand_04543ba56a754e9e",
+          "selection_rank": 11,
+          "vulnerability_type": "SQLI",
+          "provider": "deterministic-baseline",
+          "proposal_id": "prop_d359396f262e66ba",
+          "proposer_version": "deterministic-mutation-v1",
+          "mutation_family": "SQL_META",
+          "mutated_value": "VULNSPIDER_836240225435A351\"",
+          "based_on_value": "soohoon",
+          "rationale": "Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.",
+          "validator": {
+            "policy_version": "payload-validator-v1",
+            "decision": "ACCEPTED",
+            "rejection_reasons": [],
+            "validated_payload_id": "vpl_0bd726eb556dfb2f"
+          },
+          "baseline_feature_vector_id": "fv_f027f27018899498",
+          "execution": {
+            "probe_plan_id": "probe_fff3c3973011ac37",
+            "baseline_response_id": "resp_465beb810cec2d4a",
+            "probe_response_id": "resp_cfd73d6a2316259b",
+            "verification_feature_vector_id": "fv_e94e0a3fc978b21e",
+            "baseline_execution_error": null,
+            "probe_execution_error": null
+          },
+          "feature_delta": {
+            "input_point_id": "inp_b7c7def71a4ebf81",
+            "verification_feature_vector_id": "fv_e94e0a3fc978b21e",
+            "material_delta_threshold": 0.3,
+            "max_abs_delta": 1.0,
+            "changed": true,
+            "observability_flips": [
+              "marker_reflected",
+              "reflection_count_norm",
+              "safe_html_encoding_detected"
+            ],
+            "features": [
+              {
+                "feature_name": "marker_reflected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "reflection_count_norm",
+                "baseline_value": 0.3333333333333333,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.006780556533990842,
+                "baseline_observed": true,
+                "verification_value": 0.009774568510038746,
+                "verification_observed": true,
+                "delta": 0.0029940119760479044,
+                "abs_delta": 0.0029940119760479044,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "safe_html_encoding_detected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": -1.0,
+                "abs_delta": 1.0,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "status_code_changed",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": -1.0,
+                "abs_delta": 1.0,
+                "observability_flip": false
+              }
+            ]
+          },
+          "confidence": {
+            "rule_version": "confidence-rule-v2",
+            "scale": "probability-0-1-v1",
+            "outcome": "WEAKENED",
+            "signal": "WEAKEN",
+            "model_version": "verification-confidence-model-v1",
+            "prior_probability": 0.8784456291914275,
+            "verification_confidence": 0.7820737522828427,
+            "confidence_delta": -0.09637187690858484,
+            "evidence": [
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 1.0,
+                "verification_value": 0.0,
+                "direction": "down",
+                "reason": "The baseline SQL error did not reproduce under the metacharacter payload; confidence is lowered."
+              }
+            ]
+          },
+          "outcome_status": "WEAKENED",
+          "warnings": []
+        },
+        {
+          "contract_version": "0.1",
+          "verification_result_id": "vres_96d51945385996d1",
+          "candidate_id": "cand_04543ba56a754e9e",
+          "selection_rank": 11,
+          "vulnerability_type": "SQLI",
+          "provider": "deterministic-baseline",
+          "proposal_id": "prop_1d65eb6cd4c1b259",
+          "proposer_version": "deterministic-mutation-v1",
+          "mutation_family": "SQL_META",
+          "mutated_value": "VULNSPIDER_F8F8F62A80F80DE4')",
+          "based_on_value": "soohoon",
+          "rationale": "Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.",
+          "validator": {
+            "policy_version": "payload-validator-v1",
+            "decision": "ACCEPTED",
+            "rejection_reasons": [],
+            "validated_payload_id": "vpl_9aea1f5d91677179"
+          },
+          "baseline_feature_vector_id": "fv_f027f27018899498",
+          "execution": {
+            "probe_plan_id": "probe_87a6c8ceb8f78e07",
+            "baseline_response_id": "resp_4408bcf0df86d42c",
+            "probe_response_id": "resp_b31cd82dd012a6cf",
+            "verification_feature_vector_id": "fv_3a1975a370695d3a",
+            "baseline_execution_error": null,
+            "probe_execution_error": null
+          },
+          "feature_delta": {
+            "input_point_id": "inp_b7c7def71a4ebf81",
+            "verification_feature_vector_id": "fv_3a1975a370695d3a",
+            "material_delta_threshold": 0.3,
+            "max_abs_delta": 0.0013208876364917228,
+            "changed": true,
+            "observability_flips": [
+              "marker_reflected",
+              "reflection_count_norm",
+              "safe_html_encoding_detected"
+            ],
+            "features": [
+              {
+                "feature_name": "marker_reflected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "reflection_count_norm",
+                "baseline_value": 0.3333333333333333,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.006780556533990842,
+                "baseline_observed": true,
+                "verification_value": 0.008101444170482565,
+                "verification_observed": true,
+                "delta": 0.0013208876364917228,
+                "abs_delta": 0.0013208876364917228,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "safe_html_encoding_detected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": 1.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "status_code_changed",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": 1.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              }
+            ]
+          },
+          "confidence": {
+            "rule_version": "confidence-rule-v2",
+            "scale": "probability-0-1-v1",
+            "outcome": "SUPPORTED",
+            "signal": "SUPPORT_REPRODUCED",
+            "model_version": "verification-confidence-model-v1",
+            "prior_probability": 0.8784456291914275,
+            "verification_confidence": 0.9515607159093715,
+            "confidence_delta": 0.07311508671794398,
             "evidence": [
               {
                 "feature_name": "sql_error_pattern",

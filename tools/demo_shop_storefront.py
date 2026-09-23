@@ -199,7 +199,7 @@ ROUTE_COPY: dict[str, RouteCopy] = {
     "/compare": RouteCopy("비교 조건", "비교하기", "조건별 조회 응답"),
     "/store/locator": RouteCopy("매장 검색", "매장 찾기", "가까운 매장"),
     "/api/suggest": RouteCopy("자동완성 요청", "추천 받기", "추천 검색어"),
-    "/admin/users": RouteCopy("회원 검색", "회원 조회", "회원 목록"),
+    "/admin/users": RouteCopy("계정 검색", "계정 찾기", "검색 결과"),
     "/admin/orders": RouteCopy("주문 검색", "주문 조회", "주문 목록"),
 }
 

@@ -49,3 +49,28 @@ form.filters{gap:18px 22px;padding:22px 24px 24px}form.filters .actions{grid-col
 
 .member-results { grid-column: 1 / -1; overflow-x: auto; }
 .member-results .record { min-width: 560px; }
+
+.member-breach{grid-column:1/-1;border:3px solid #a11;border-left-width:10px;background:#fff5f5;color:#6b1111;border-radius:12px;padding:22px 24px;margin:4px 0}
+.member-breach .breach-head{font-size:22px;font-weight:800;color:#a11;margin-bottom:10px}
+.member-breach p{font-size:17px;line-height:1.75;margin:0 0 16px}
+.member-breach code{background:#ffe0e0;padding:2px 7px;border-radius:5px;font-family:Consolas,monospace}
+.member-results-wrap{overflow-x:auto}
+.breach-table{min-width:660px}
+.breach-table th{background:#fbeaea;color:#8a1f1f}
+.breach-table td.hash{font-family:Consolas,monospace;color:#a11;white-space:nowrap}
+
+/* The RESPONSE block ("...조회 응답") is the scanner's per-input observation
+   surface. It exists in every route's raw HTML because the scan reads bytes,
+   not the rendered page -- so a shopper never needs to see it. Hide the
+   per-parameter filler cards (echo / result lists the scan keys on), and drop
+   the whole section when nothing real is left. Genuine results (account
+   search, an IDOR leak, a SQL error) and the breach panel stay visible.
+   Reveal mode -- the teaching view that maps controls to numbered input
+   points -- brings the surface back so an audience can see what the scan reads.
+   This lives in shop.css (a linked asset), so no route's HTML changes. */
+.route-results>.results>.card:has(ul.rows),
+.route-results>.results>.card:has(.echo),
+.route-results>.results>.card:has(script){display:none}
+.route-results:not(:has(.member-breach)):not(:has(.member-results)):not(:has(.card.danger)):not(:has(.record)):not(:has(.warn)){display:none}
+.reveal-inputs .route-results{display:block!important}
+.reveal-inputs .route-results>.results>.card{display:block!important}

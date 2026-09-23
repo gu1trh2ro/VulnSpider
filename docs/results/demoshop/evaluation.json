@@ -110,10 +110,10 @@
           "k": 10,
           "queries": 1,
           "scored_queries": 1,
-          "recall_at_k": 0.25,
-          "precision_at_k": 0.8,
-          "ndcg_at_k": 0.8603818544462509,
-          "map_at_k": 0.7675
+          "recall_at_k": 0.21875,
+          "precision_at_k": 0.7,
+          "ndcg_at_k": 0.7967610662472993,
+          "map_at_k": 0.6875
         },
         {
           "k": 20,
@@ -121,8 +121,8 @@
           "scored_queries": 1,
           "recall_at_k": 0.46875,
           "precision_at_k": 0.75,
-          "ndcg_at_k": 0.8044981580182338,
-          "map_at_k": 0.6602724075460145
+          "ndcg_at_k": 0.8030604456871603,
+          "map_at_k": 0.6566360439096508
         }
       ]
     },
@@ -164,10 +164,10 @@
           "k": 10,
           "queries": 1,
           "scored_queries": 1,
-          "recall_at_k": 0.25,
-          "precision_at_k": 0.8,
-          "ndcg_at_k": 0.8603818544462509,
-          "map_at_k": 0.7675
+          "recall_at_k": 0.21875,
+          "precision_at_k": 0.7,
+          "ndcg_at_k": 0.7967610662472993,
+          "map_at_k": 0.6875
         },
         {
           "k": 20,
@@ -175,8 +175,8 @@
           "scored_queries": 1,
           "recall_at_k": 0.5,
           "precision_at_k": 0.8,
-          "ndcg_at_k": 0.8379356494029473,
-          "map_at_k": 0.7045706531600496
+          "ndcg_at_k": 0.8364979370718738,
+          "map_at_k": 0.7009342895236859
         }
       ]
     },
@@ -336,17 +336,6 @@
       "vulnerable": false
     },
     {
-      "candidate_id": "cand_04543ba56a754e9e",
-      "canonical_path": "/admin/users",
-      "parameter_name": "q",
-      "parameter_location": "QUERY",
-      "family": "SQLI",
-      "prior_probability": 0.8787944876679028,
-      "final_confidence": 0.9517112706047095,
-      "verified": true,
-      "vulnerable": true
-    },
-    {
       "candidate_id": "cand_561b1928f1517886",
       "canonical_path": "/search",
       "parameter_name": "min_price",
@@ -356,6 +345,17 @@
       "final_confidence": 0.9516235423722196,
       "verified": true,
       "vulnerable": false
+    },
+    {
+      "candidate_id": "cand_04543ba56a754e9e",
+      "canonical_path": "/admin/users",
+      "parameter_name": "q",
+      "parameter_location": "QUERY",
+      "family": "SQLI",
+      "prior_probability": 0.8784456291914275,
+      "final_confidence": 0.9515607159093715,
+      "verified": true,
+      "vulnerable": true
     },
     {
       "candidate_id": "cand_664db1880e98a31b",
@@ -1139,17 +1139,6 @@
       "vulnerable": false
     },
     {
-      "candidate_id": "cand_38b7fa7c7deb1555",
-      "canonical_path": "/admin/users",
-      "parameter_name": "q",
-      "parameter_location": "QUERY",
-      "family": "REFLECTED_XSS",
-      "prior_probability": 0.38690190032754274,
-      "final_confidence": 0.38690190032754274,
-      "verified": false,
-      "vulnerable": false
-    },
-    {
       "candidate_id": "cand_767592cd010785dc",
       "canonical_path": "/product/reviews",
       "parameter_name": "rating",
@@ -1238,6 +1227,28 @@
       "vulnerable": false
     },
     {
+      "candidate_id": "cand_cdb940cd608efdd6",
+      "canonical_path": "/admin/users",
+      "parameter_name": "id",
+      "parameter_location": "QUERY",
+      "family": "REFLECTED_XSS",
+      "prior_probability": 0.3866789975138693,
+      "final_confidence": 0.3866789975138693,
+      "verified": false,
+      "vulnerable": false
+    },
+    {
+      "candidate_id": "cand_38b7fa7c7deb1555",
+      "canonical_path": "/admin/users",
+      "parameter_name": "q",
+      "parameter_location": "QUERY",
+      "family": "REFLECTED_XSS",
+      "prior_probability": 0.3865169671220288,
+      "final_confidence": 0.3865169671220288,
+      "verified": false,
+      "vulnerable": false
+    },
+    {
       "candidate_id": "cand_2012174cc694a55f",
       "canonical_path": "/search",
       "parameter_name": "max_price",
@@ -1256,17 +1267,6 @@
       "family": "REFLECTED_XSS",
       "prior_probability": 0.3863227388161788,
       "final_confidence": 0.3863227388161788,
-      "verified": false,
-      "vulnerable": false
-    },
-    {
-      "candidate_id": "cand_cdb940cd608efdd6",
-      "canonical_path": "/admin/users",
-      "parameter_name": "id",
-      "parameter_location": "QUERY",
-      "family": "REFLECTED_XSS",
-      "prior_probability": 0.386195944226439,
-      "final_confidence": 0.386195944226439,
       "verified": false,
       "vulnerable": false
     },
@@ -1535,6 +1535,17 @@
       "vulnerable": false
     },
     {
+      "candidate_id": "cand_9437aeb62fb71672",
+      "canonical_path": "/admin/users",
+      "parameter_name": "id",
+      "parameter_location": "QUERY",
+      "family": "SQLI",
+      "prior_probability": 0.22234337106762764,
+      "final_confidence": 0.22234337106762764,
+      "verified": false,
+      "vulnerable": false
+    },
+    {
       "candidate_id": "cand_b29f00e8f3799a3d",
       "canonical_path": "/store/locator",
       "parameter_name": "city",
@@ -1755,17 +1766,6 @@
       "vulnerable": false
     },
     {
-      "candidate_id": "cand_9437aeb62fb71672",
-      "canonical_path": "/admin/users",
-      "parameter_name": "id",
-      "parameter_location": "QUERY",
-      "family": "SQLI",
-      "prior_probability": 0.22134985328785264,
-      "final_confidence": 0.22134985328785264,
-      "verified": false,
-      "vulnerable": false
-    },
-    {
       "candidate_id": "cand_1d3c10ce9589aa48",
       "canonical_path": "/promo/event",
       "parameter_name": "event_id",
@@ -1964,17 +1964,6 @@
       "vulnerable": false
     },
     {
-      "candidate_id": "cand_52a510cef5e6e8dc",
-      "canonical_path": "/admin/users",
-      "parameter_name": "role",
-      "parameter_location": "QUERY",
-      "family": "SQLI",
-      "prior_probability": 0.22050501054136734,
-      "final_confidence": 0.22050501054136734,
-      "verified": false,
-      "vulnerable": false
-    },
-    {
       "candidate_id": "cand_dbf58d642d633ba7",
       "canonical_path": "/admin/orders",
       "parameter_name": "status",
@@ -1982,6 +1971,17 @@
       "family": "SQLI",
       "prior_probability": 0.2205047985809337,
       "final_confidence": 0.2205047985809337,
+      "verified": false,
+      "vulnerable": false
+    },
+    {
+      "candidate_id": "cand_52a510cef5e6e8dc",
+      "canonical_path": "/admin/users",
+      "parameter_name": "role",
+      "parameter_location": "QUERY",
+      "family": "SQLI",
+      "prior_probability": 0.22050390274907777,
+      "final_confidence": 0.22050390274907777,
       "verified": false,
       "vulnerable": false
     },
@@ -2173,17 +2173,6 @@
       "vulnerable": false
     },
     {
-      "candidate_id": "cand_5a4ba4b523405959",
-      "canonical_path": "/admin/users",
-      "parameter_name": "role",
-      "parameter_location": "QUERY",
-      "family": "REFLECTED_XSS",
-      "prior_probability": 0.2204052168254577,
-      "final_confidence": 0.2204052168254577,
-      "verified": false,
-      "vulnerable": false
-    },
-    {
       "candidate_id": "cand_117cd765a2868358",
       "canonical_path": "/admin/orders",
       "parameter_name": "status",
@@ -2191,6 +2180,17 @@
       "family": "REFLECTED_XSS",
       "prior_probability": 0.22040511084530195,
       "final_confidence": 0.22040511084530195,
+      "verified": false,
+      "vulnerable": false
+    },
+    {
+      "candidate_id": "cand_5a4ba4b523405959",
+      "canonical_path": "/admin/users",
+      "parameter_name": "role",
+      "parameter_location": "QUERY",
+      "family": "REFLECTED_XSS",
+      "prior_probability": 0.22040466292963137,
+      "final_confidence": 0.22040466292963137,
       "verified": false,
       "vulnerable": false
     },
