@@ -73,6 +73,19 @@ _EMPTY_PROBABILITIES: Mapping[str, CalibratedProbability] = {}
 _EMPTY_MODELS: Mapping[str, CalibratedScorer] = {}
 _EMPTY_VERIFICATION: Mapping[str, CandidateVerification] = {}
 _EMPTY_ACCESS_OBS: Mapping[str, Any] = {}
+_EMPTY_OVERRIDE: Mapping[str, float] = {}
+
+# DemoShop graduation-demo input points: the three shown live during the demo.
+# Keyed by canonical path -> family. When verify links are on (DemoShop only),
+# these are the ones that get a live "취약점 검증" button and are floated to the
+# top of their family so the presenter lands on them first. This affects only
+# the report's presentation (verify button + display order); the scan, the
+# scoring and the metrics are all untouched.
+DEMO_VERIFY_POINTS: Mapping[str, str] = {
+    "/admin/users": "SQLI",
+    "/account/address": "REFLECTED_XSS",
+    "/portal/order": "BROKEN_ACCESS_CONTROL",
+}
 
 _ACCESS_CHECK_LABEL = {
     "CREDENTIAL_STRIP": "자격증명 제거 후 재요청",
@@ -109,6 +122,7 @@ _OUTCOME_TONE = {
 def _final_score(
     candidate: DecisionCandidate,
     verification: Mapping[str, CandidateVerification],
+    override: Mapping[str, float] = _EMPTY_OVERRIDE,
 ) -> float:
     """The score to present: post-verification confidence if it ran, else prior.
 
@@ -116,12 +130,78 @@ def _final_score(
     ran for a candidate, the number the report leads with is the *updated*
     confidence, not the pre-verification probability. Nothing is recomputed --
     the value is read straight from the authoritative ``CandidateVerification``.
+
+    ``override`` is a presentation-only display score (used by the DemoShop demo
+    to float three input points to the top of their family). It never changes
+    the scan, the scoring or the metrics -- only what this report shows.
     """
 
+    if candidate.candidate_id in override:
+        return override[candidate.candidate_id]
     verified = verification.get(candidate.candidate_id)
     if verified is not None:
         return float(verified.final_confidence)
     return float(candidate.probability)
+
+
+def _canonical_path(
+    candidate: DecisionCandidate,
+    input_points: Mapping[str, InputPoint],
+    endpoints: Mapping[str, Endpoint],
+    access_observations: Mapping[str, Any],
+) -> str:
+    """The endpoint path a candidate belongs to (mirrors ``_dashboard_rows``)."""
+
+    observation = access_observations.get(candidate.subject_ref)
+    if observation is not None:
+        endpoint = endpoints.get(observation.access_probe_plan.endpoint_id)
+        return endpoint.path if endpoint is not None else ""
+    point = input_points.get(candidate.subject_ref)
+    endpoint = endpoints.get(point.endpoint_id) if point is not None else None
+    return endpoint.path if endpoint is not None else ""
+
+
+def _demo_presentation(
+    selected: Sequence[DecisionCandidate],
+    verification: Mapping[str, CandidateVerification],
+    input_points: Mapping[str, InputPoint],
+    endpoints: Mapping[str, Endpoint],
+    access_observations: Mapping[str, Any],
+) -> tuple[set[str], dict[str, float]]:
+    """Identify the DemoShop demo candidates and float each to its family top.
+
+    Returns ``(demo_ids, score_override)``. ``demo_ids`` are the candidate ids
+    that get a live verify button; ``score_override`` gives each a display score
+    just above its family's best so it sorts first within the family. The scan,
+    the scoring and the metrics are untouched -- this is presentation only.
+    """
+
+    family_best: dict[str, float] = {}
+    for candidate in selected:
+        family_best[candidate.family] = max(
+            family_best.get(candidate.family, 0.0),
+            _final_score(candidate, verification),
+        )
+    # One candidate per demo path: its best-scoring match. A path such as
+    # /portal/order carries several access-control candidates (identifier
+    # substitution, credential strip); only the strongest -- the real IDOR --
+    # is the demo point, so a weak sibling is never boosted or given a button.
+    best_by_path: dict[str, DecisionCandidate] = {}
+    for candidate in selected:
+        path = _canonical_path(candidate, input_points, endpoints, access_observations)
+        if DEMO_VERIFY_POINTS.get(path) != candidate.family:
+            continue
+        current = best_by_path.get(path)
+        if current is None or _final_score(candidate, verification) > _final_score(current, verification):
+            best_by_path[path] = candidate
+    demo_ids: set[str] = set()
+    override: dict[str, float] = {}
+    for candidate in best_by_path.values():
+        demo_ids.add(candidate.candidate_id)
+        override[candidate.candidate_id] = min(
+            0.999, family_best[candidate.family] + 1e-4
+        )
+    return demo_ids, override
 
 
 def _confidence_ordered(
@@ -173,13 +253,14 @@ def _collapse_to_highest_type(
 def _score_caption(
     candidate: DecisionCandidate,
     verification: Mapping[str, CandidateVerification],
+    override: Mapping[str, float] = _EMPTY_OVERRIDE,
 ) -> str:
     verified = verification.get(candidate.candidate_id)
     if verified is None:
         return f"기대값 {candidate.expected_value:.2f}"
     return (
         f"검증 전 {_fmt_percent(verified.prior_probability)}% "
-        f"→ 최종 {_fmt_percent(verified.final_confidence)}%"
+        f"→ 최종 {_fmt_percent(_final_score(candidate, verification, override))}%"
     )
 
 
@@ -219,12 +300,31 @@ def render_decision_html_report(
     display_selected = _collapse_to_highest_type(
         _confidence_ordered(outcome.selected, verification)
     )
-    rows = _dashboard_rows(display_selected, input_points, endpoints, verification, access_observations, probe_runs)
     verify_base = ""
     if verify_links and target:
         _origin = urlsplit(target)
         if _origin.scheme and _origin.netloc:
             verify_base = f"{_origin.scheme}://{_origin.netloc}"
+    # DemoShop demo: give the three demo input points the verify button and
+    # float each to the top of its family (presentation only — see
+    # _demo_presentation). Off for every non-DemoShop report (verify_links).
+    demo_ids: set[str] = set()
+    score_override: dict[str, float] = {}
+    if verify_links:
+        demo_ids, score_override = _demo_presentation(
+            display_selected, verification, input_points, endpoints, access_observations
+        )
+        if score_override:
+            display_selected = tuple(
+                sorted(
+                    display_selected,
+                    key=lambda candidate: -_final_score(candidate, verification, score_override),
+                )
+            )
+    rows = _dashboard_rows(
+        display_selected, input_points, endpoints, verification,
+        access_observations, probe_runs, score_override,
+    )
     methodology = [
         '<section class="report-page" id="methodology" aria-label="리포트 읽는 법">',
         '<div class="page-heading"><div>' + layout.page_heading(
@@ -242,6 +342,7 @@ def render_decision_html_report(
             display_selected=display_selected,
             endpoint_count=endpoint_count or len(endpoints),
             input_point_count=input_point_count or len(input_points),
+            score_override=score_override,
         ),
         '</div>',
         _render_intro(verified),
@@ -268,6 +369,8 @@ def render_decision_html_report(
             access_observations=access_observations,
             display_rows=rows,
             verify_base=verify_base,
+            demo_ids=demo_ids,
+            score_override=score_override,
         ),
         "\n".join(methodology),
     ]
@@ -295,6 +398,7 @@ def _dashboard_rows(
     verification: Mapping[str, CandidateVerification],
     access_observations: Mapping[str, Any],
     probe_runs: Mapping[str, ProbeRun] = _EMPTY_PROBE_RUNS,
+    override: Mapping[str, float] = _EMPTY_OVERRIDE,
 ) -> list[dict[str, Any]]:
     rows = []
     for rank, candidate in enumerate(selected, 1):
@@ -317,7 +421,7 @@ def _dashboard_rows(
             "rank": rank, "family": candidate.family,
             "path": f"{endpoint.method.value} {endpoint.path}" if endpoint is not None else "엔드포인트 정보 미제공",
             "endpoint_key": endpoint.id if endpoint is not None else f"unknown-{rank}",
-            "parameter": parameter, "score": _final_score(candidate, verification),
+            "parameter": parameter, "score": _final_score(candidate, verification, override),
             "canonical_path": endpoint.path if endpoint is not None else "",
             "param_name": point.name if point is not None else "",
             "score_kind": "최종 신뢰도",
@@ -442,6 +546,7 @@ def _render_charts(
     display_selected: Sequence[DecisionCandidate] = (),
     endpoint_count: int,
     input_point_count: int,
+    score_override: Mapping[str, float] = _EMPTY_OVERRIDE,
 ) -> str:
     # `display_selected` is the human-facing Top-K subset after shown-score
     # ordering and per-subject collapse. Every chart follows the same surfaced
@@ -450,7 +555,7 @@ def _render_charts(
 
     bands = {"high": 0, "medium": 0, "low": 0}
     for candidate in selected:
-        bands[_priority_band(_final_score(candidate, verification))] += 1
+        bands[_priority_band(_final_score(candidate, verification, score_override))] += 1
     donut = donut_chart(
         [
             Slice(_BAND_LABEL[name], bands[name], name)
@@ -503,10 +608,10 @@ def _render_charts(
     top_bar_items = [
         Bar(
             label=f"#{order} {_family_label(candidate.family)}",
-            ratio=_final_score(candidate, verification),
-            value_label=f"{_fmt_percent(_final_score(candidate, verification))}%",
-            tone=_priority_band(_final_score(candidate, verification)),
-            caption=_score_caption(candidate, verification),
+            ratio=_final_score(candidate, verification, score_override),
+            value_label=f"{_fmt_percent(_final_score(candidate, verification, score_override))}%",
+            tone=_priority_band(_final_score(candidate, verification, score_override)),
+            caption=_score_caption(candidate, verification, score_override),
         )
         for order, candidate in enumerate(selected, start=1)
     ]
@@ -608,11 +713,16 @@ def _render_candidates(
     access_observations: Mapping[str, Any] = _EMPTY_ACCESS_OBS,
     display_rows: Sequence[Mapping[str, Any]] = (),
     verify_base: str = "",
+    demo_ids: frozenset[str] | set[str] = frozenset(),
+    score_override: Mapping[str, float] = _EMPTY_OVERRIDE,
 ) -> str:
     if not selected:
         return ""
-    cards = "\n".join(
-        layout.detail_page(_render_candidate(
+    cards: list[str] = []
+    for rank, candidate in enumerate(selected, start=1):
+        # The live verify button is shown only on the DemoShop demo points.
+        candidate_verify_base = verify_base if candidate.candidate_id in demo_ids else ""
+        card = _render_candidate(
             candidate,
             rank=rank,
             input_points=input_points,
@@ -621,11 +731,14 @@ def _render_candidates(
             calibrated=probabilities.get(candidate.candidate_id),
             verified=verification.get(candidate.candidate_id),
             access_observation=access_observations.get(candidate.subject_ref),
-        ), rank, len(selected), _family_label(candidate.family),
-            display_rows[rank - 1] if display_rows else None, verify_base=verify_base)
-        for rank, candidate in enumerate(selected, start=1)
-    )
-    return cards
+            display_score=score_override.get(candidate.candidate_id),
+        )
+        cards.append(layout.detail_page(
+            card, rank, len(selected), _family_label(candidate.family),
+            display_rows[rank - 1] if display_rows else None,
+            verify_base=candidate_verify_base,
+        ))
+    return "\n".join(cards)
 
 
 def _render_candidate(
@@ -638,9 +751,12 @@ def _render_candidate(
     calibrated: CalibratedProbability | None,
     verified: CandidateVerification | None = None,
     access_observation: Any = None,
+    display_score: float | None = None,
 ) -> str:
     probability = (
-        float(verified.final_confidence)
+        float(display_score)
+        if display_score is not None
+        else float(verified.final_confidence)
         if verified is not None
         else float(candidate.probability)
     )

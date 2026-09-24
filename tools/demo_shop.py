@@ -1376,68 +1376,83 @@ pre.cmd { background: #16181d; color: #e6e9f0; padding: 14px; border-radius: 8px
 _POC_STYLE = (
     "<style>"
     """
-/* Live vulnerability confirmation (Proof of Concept) banner. */
-.poc-banner { display: flex; gap: 18px; align-items: flex-start; margin: 0 0 26px;
-    padding: 22px 26px; border-radius: 14px; border: 1px solid #d4dae0;
-    background: #fff; box-shadow: 0 8px 30px #16181d12; }
-.poc-banner .poc-icon { font-size: 40px; line-height: 1.1; flex-shrink: 0; }
+/* Live vulnerability confirmation (Proof of Concept) -- styled to sit inside
+   DemoShop's editorial storefront: flat cards, hairline borders, the shop's
+   own palette (var(--ink)/--line/--sand/--paper) and a restrained warm accent
+   for a confirmed finding, instead of a loud stand-alone alert. */
+.poc-banner { display: flex; gap: 15px; align-items: flex-start; margin: 0 0 30px;
+    padding: 20px 24px; border: 1px solid var(--line); border-left: 3px solid var(--muted);
+    border-radius: 2px; background: var(--paper); }
+.poc-banner .poc-icon { flex-shrink: 0; width: 26px; height: 26px; margin-top: 2px;
+    color: var(--muted); }
+.poc-banner .poc-icon svg { width: 100%; height: 100%; display: block; }
 .poc-banner .poc-body { min-width: 0; }
-.poc-eyebrow { font-size: 12px; font-weight: 800; letter-spacing: 1.4px;
-    text-transform: uppercase; color: #64707d; }
-.poc-banner h2 { font-size: 24px; margin: 6px 0 12px; color: #16181d; }
-.poc-what { margin: 0 0 12px; font-size: 15px; color: #39424e; }
-.poc-what b { color: #16181d; }
-.poc-what code, .poc-foot code { background: #132f40; color: #e7f6f2; padding: 3px 8px;
-    border-radius: 6px; font-family: Consolas, monospace; font-size: 13px;
-    word-break: break-all; }
-.poc-proof { margin: 0; font-size: 16px; line-height: 1.9; color: #2b3540; }
-.poc-evidence { margin-top: 16px; }
-.poc-evidence-cap { font-size: 12px; font-weight: 700; color: #64707d; margin-bottom: 6px; }
-.poc-code { margin: 0; padding: 14px 16px; border-radius: 9px; background: #0f2733;
-    color: #e7f6f2; font: 14px/1.7 Consolas, monospace; white-space: pre-wrap;
+.poc-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.7px;
+    text-transform: uppercase; color: var(--muted); }
+.poc-banner h2 { font-size: 22px; margin: 8px 0 13px; color: var(--ink);
+    letter-spacing: -.035em; font-weight: 700; }
+.poc-what { margin: 0 0 12px; font-size: 14px; color: #4c4f47; }
+.poc-what b { color: var(--ink); }
+.poc-what code, .poc-foot code { background: var(--sand); color: var(--ink); padding: 2px 7px;
+    border-radius: 3px; border: 1px solid var(--line); font-family: Consolas, monospace;
+    font-size: 12.5px; word-break: break-all; }
+.poc-proof { margin: 0; font-size: 15px; line-height: 1.85; color: #3a3d36; }
+.poc-evidence { margin-top: 18px; }
+.poc-evidence-cap { font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+.poc-code { margin: 0; padding: 13px 15px; border-radius: 2px; background: var(--sand);
+    border: 1px solid var(--line); color: var(--ink);
+    font: 13px/1.7 Consolas, monospace; white-space: pre-wrap;
     word-break: break-all; overflow-x: auto; }
-.poc-rows { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 16px; }
-.poc-rows span { background: #eef1f5; border-radius: 9px; padding: 10px 16px; font-weight: 700;
-    font-variant-numeric: tabular-nums; }
-.poc-rows b { display: block; font-size: 12px; color: #64707d; font-weight: 700; margin-bottom: 2px; }
-.poc-rows .hot { background: #fdeae0; color: #8a3d10; }
-.poc-rows .poc-arrow { background: none; padding: 0; color: #9aa0b0; font-size: 22px; }
-.poc-foot { margin: 16px 0 0; font-size: 12px; line-height: 1.7; color: #7a8092; }
-.poc-confirmed { border-color: #1f9d57; border-left: 8px solid #1f9d57;
-    background: linear-gradient(180deg, #f1fbf5, #fff); }
-.poc-confirmed h2 { color: #146b3b; }
-.poc-defended { border-color: #1b4dd1; border-left: 8px solid #1b4dd1;
-    background: linear-gradient(180deg, #f1f5ff, #fff); }
-.poc-defended h2 { color: #1a3ba0; }
-.poc-pending { border-color: #c8971f; border-left: 8px solid #c8971f;
-    background: linear-gradient(180deg, #fffaef, #fff); }
-.poc-pending h2 { color: #856614; }
-.poc-cta { display: inline-block; font-weight: 700; color: #12703c;
-    border: 1px solid #b7e0c6; background: #eef8f1; border-radius: 6px;
+.poc-rows { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 15px; }
+.poc-rows span { background: var(--sand); border: 1px solid var(--line); border-radius: 2px;
+    padding: 9px 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.poc-rows b { display: block; font-size: 10px; letter-spacing: .5px; text-transform: uppercase;
+    color: var(--muted); font-weight: 700; margin-bottom: 3px; }
+.poc-rows .hot { background: #fbf1ec; border-color: #e6c6b8; color: #8a2f16; }
+.poc-rows .poc-arrow { background: none; border: 0; padding: 0; color: #b9bcb2; font-size: 20px; }
+.poc-foot { margin: 17px 0 0; font-size: 11.5px; line-height: 1.7; color: var(--muted); }
+/* State accents: warm terracotta for a confirmed finding (echoes the shop
+   accent), sage for a defended route, amber for pending. */
+.poc-confirmed { border-left-color: #b1442a; }
+.poc-confirmed .poc-icon { color: #b1442a; }
+.poc-confirmed h2 { color: #97381f; }
+.poc-defended { border-left-color: #5c6a4c; }
+.poc-defended .poc-icon { color: #5c6a4c; }
+.poc-defended h2 { color: #46543a; }
+.poc-pending { border-left-color: #9c7b2b; }
+.poc-pending .poc-icon { color: #9c7b2b; }
+.poc-pending h2 { color: #7c611f; }
+.poc-cta { display: inline-block; font-weight: 600; color: #97381f;
+    border: 1px solid #e0c3b7; background: #fbf2ee; border-radius: 3px;
     padding: 2px 9px; white-space: nowrap; }
-.poc-cta:hover { text-decoration: none; background: #e2f2e8; }
+.poc-cta:hover { text-decoration: none; background: #f6e7df; }
 .poc-cta-row { margin-top: 7px; }
-.poc-cta-row small { color: #7a8092; font-size: 11px; }
+.poc-cta-row small { color: var(--muted); font-size: 11px; }
+/* SQL injection impact: the built query, then the dumped table. */
 .poc-sql { margin-top: 4px; }
-.poc-sql-query { margin: 0 0 12px; padding: 13px 15px; border-radius: 9px;
-    background: #0f2733; color: #e7f6f2; font: 14px/1.65 Consolas, monospace;
-    white-space: pre-wrap; word-break: break-all; }
-.poc-sql-query mark { background: #ffd24d; color: #3a2a00; border-radius: 3px;
+.poc-sql-query { margin: 0 0 12px; padding: 12px 14px; border-radius: 2px;
+    background: var(--sand); border: 1px solid var(--line); color: var(--ink);
+    font: 13px/1.65 Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+.poc-sql-query mark { background: #f4dcd1; color: #8a2f16; border-radius: 2px;
     padding: 0 3px; font-weight: 700; }
-.poc-sql-note { font-size: 15px; line-height: 1.75; color: #39424e; margin: 0 0 14px; }
-.poc-sql-note code { background: #eef1f5; padding: 2px 6px; border-radius: 5px;
-    font-family: Consolas, monospace; }
-.poc-leak { border: 1px solid #e0b4b4; border-radius: 11px; overflow: hidden; }
-.poc-leak-head { background: #a11; color: #fff; font-weight: 800; font-size: 14px;
-    padding: 10px 15px; letter-spacing: .2px; }
+.poc-sql-note { font-size: 14px; line-height: 1.75; color: #4c4f47; margin: 0 0 14px; }
+.poc-sql-note code { background: var(--sand); border: 1px solid var(--line); padding: 2px 6px;
+    border-radius: 3px; font-family: Consolas, monospace; }
+.poc-leak { border: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
+.poc-leak-head { background: #fbf2ee; color: #97381f; font-weight: 700; font-size: 13px;
+    padding: 10px 14px; letter-spacing: .2px; border-bottom: 1px solid #ecdfd8; }
 .poc-leak-wrap { overflow-x: auto; }
-.poc-leak-table { width: 100%; border-collapse: collapse; font-size: 13px;
-    background: #fff; white-space: nowrap; }
-.poc-leak-table th { background: #fbeaea; color: #8a1f1f; text-align: left;
-    padding: 9px 12px; font-weight: 700; }
-.poc-leak-table td { padding: 9px 12px; border-top: 1px solid #f2dede; }
-.poc-leak-table td.hash { font-family: Consolas, monospace; color: #a11; }
-@media (max-width: 600px) { .poc-banner { flex-direction: column; gap: 10px; padding: 18px; } }
+.poc-leak-table { width: 100%; border-collapse: collapse; font-size: 12.5px;
+    background: var(--paper); white-space: nowrap; }
+.poc-leak-table th { background: var(--sand); color: #6b4a3f; text-align: left;
+    padding: 9px 12px; font-weight: 600; border-bottom: 1px solid var(--line); }
+.poc-leak-table td { padding: 9px 12px; border-top: 1px solid var(--line); }
+.poc-leak-table td.hash { font-family: Consolas, monospace; color: #a8452b; }
+/* Inline highlight used inside the leaked-record cards (e.g. the IDOR order). */
+.route-results mark, .poc-banner mark { background: #f4dcd1; color: #8a2f16;
+    border-radius: 2px; padding: 0 3px; }
+@media (max-width: 600px) { .poc-banner { padding: 16px 18px; } }
 """
     "</style>"
 )
@@ -1768,7 +1783,18 @@ def _sqli_leak_panel(item: InputSpec, value: str) -> str:
 
 def _poc_banner(tone: str, heading: str, label: str, value: str,
                 proof: str, evidence: str = "") -> str:
-    icons = {"confirmed": "✅", "defended": "\U0001f6e1️", "pending": "⏳"}
+    _svg = (
+        '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" '
+        'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{}</svg>'
+    )
+    icons = {
+        "confirmed": _svg.format('<path d="M4 10.5l3.6 3.6L16 5.4"/>'),
+        "defended": _svg.format(
+            '<path d="M10 2.4 4 4.7v4.4c0 3.7 3 6.5 6 7.9 3-1.4 6-4.2 6-7.9V4.7z"/>'
+            '<path d="M7.6 9.8 9.4 11.6 12.7 8"/>'
+        ),
+        "pending": _svg.format('<circle cx="10" cy="10" r="7"/><path d="M10 6v4.2l2.8 1.8"/>'),
+    }
     tags = {"confirmed": "취약점 확인됨", "defended": "방어 확인됨", "pending": "재현 대기"}
     return (
         f'<aside class="poc-banner poc-{tone}" role="status" tabindex="-1">'

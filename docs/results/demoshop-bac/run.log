@@ -65,7 +65,7 @@ vulnspider: [*] 검증 (focused verification) 시작 -- proposer=deterministic, 
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
-vulnspider:     - 검증 1/6: SQLI rank 1               elapsed time : 0.53s
+vulnspider:     - 검증 1/6: SQLI rank 1               elapsed time : 0.20s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
@@ -73,7 +73,7 @@ vulnspider:     - 검증 1/6: SQLI rank 1               elapsed time : 0.53s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
-vulnspider:     - 검증 2/6: REFLECTED_XSS rank 2      elapsed time : 0.57s
+vulnspider:     - 검증 2/6: REFLECTED_XSS rank 2      elapsed time : 0.25s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
@@ -81,7 +81,7 @@ vulnspider:     - 검증 2/6: REFLECTED_XSS rank 2      elapsed time : 0.57s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
-vulnspider:     - 검증 3/6: REFLECTED_XSS rank 3      elapsed time : 0.53s
+vulnspider:     - 검증 3/6: REFLECTED_XSS rank 3      elapsed time : 0.23s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
@@ -89,7 +89,7 @@ vulnspider:     - 검증 3/6: REFLECTED_XSS rank 3      elapsed time : 0.53s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
-vulnspider:     - 검증 4/6: REFLECTED_XSS rank 4      elapsed time : 0.49s
+vulnspider:     - 검증 4/6: REFLECTED_XSS rank 4      elapsed time : 0.38s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
@@ -97,7 +97,7 @@ vulnspider:     - 검증 4/6: REFLECTED_XSS rank 4      elapsed time : 0.49s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
-vulnspider:     - 검증 5/6: SQLI rank 5               elapsed time : 0.88s
+vulnspider:     - 검증 5/6: SQLI rank 5               elapsed time : 0.42s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
@@ -105,7 +105,7 @@ vulnspider:     - 검증 5/6: SQLI rank 5               elapsed time : 0.88s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
-vulnspider:     - 검증 6/6: SQLI rank 6               elapsed time : 0.52s
+vulnspider:     - 검증 6/6: SQLI rank 6               elapsed time : 0.41s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
