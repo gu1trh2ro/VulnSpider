@@ -66,14 +66,13 @@ form.filters{gap:18px 22px;padding:22px 24px 24px}form.filters .actions{grid-col
    exception is the SQL-injection account dump (.member-breach): that is the
    demo's on-page proof, so it (and only it) is revealed wherever it appears,
    with the section's own "RESPONSE" heading dropped so just the dump shows.
-   Reveal mode -- the teaching view that maps controls to numbered input
-   points -- brings the whole surface back so an audience can see what the scan
-   reads. This lives in shop.css (a linked asset), so no route's HTML changes. */
+   Reveal mode ("입력점 표시") only marks the input CONTROLS with their numbered
+   input points; it does NOT bring the response surface back, so the dummy cards
+   stay hidden in every mode. This lives in shop.css (a linked asset), so no
+   route's HTML changes. */
 .route-results{display:none}
 .route-results:has(.member-breach){display:block}
 .route-results:has(.member-breach) .section-heading{display:none}
 .route-results>.results>.card:has(ul.rows),
 .route-results>.results>.card:has(.echo),
 .route-results>.results>.card:has(script){display:none}
-.reveal-inputs .route-results{display:block!important}
-.reveal-inputs .route-results>.results>.card{display:block!important}

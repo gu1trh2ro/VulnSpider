@@ -245,8 +245,11 @@
     let shownProduct = null;
     const renderProduct = () => {
       const id = value('id');
-      const p = byId[id];
-      if (p) paintProduct(p); else put('[data-product-name]', '등록되지 않은 상품 번호 ' + (id || '(비어 있음)'));
+      // Any id that is not a real catalog product (e.g. the crawl seed 1001)
+      // falls back to the first product, so a bare /product never shows an
+      // "등록되지 않은 상품" placeholder or a 0원 total during the demo.
+      const p = byId[id] || products[0];
+      paintProduct(p);
       if (p && p !== shownProduct) {
         // A new product brings its own options and starts on its own colour.
         // The server-rendered value is kept only for the seed product on a

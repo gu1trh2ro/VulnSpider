@@ -2237,7 +2237,7 @@ def render_member_login(*, action: str = LOGIN_PATH) -> bytes:
     body = (
         '<section class="member-login"><p class="eyebrow">MY DEMOSHOP</p>'
         '<h1>로그인</h1><p>로그인하고 내 주문과 회원 정보를 확인하세요.</p>'
-        '<div class="member-profile"><span class="member-avatar" aria-hidden="true">S</span>'
+        f'<div class="member-profile"><span class="member-avatar" aria-hidden="true">{escape(DEMO_MEMBER[0])}</span>'
         f'<div><strong>{DEMO_MEMBER}</strong><span>기본 프로필 · 일반 회원</span></div></div>'
         f'<form method="post" action="{escape(action)}">'
         f'<button class="button dark" type="submit">{DEMO_MEMBER}으로 로그인</button></form>'
