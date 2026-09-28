@@ -3,15 +3,15 @@
   "contract_version": "0.1",
   "target": "http://127.0.0.1:8899/portal/",
   "counts": {
-    "candidates_verified": 4,
-    "proposals": 16,
-    "accepted": 16,
+    "candidates_verified": 6,
+    "proposals": 24,
+    "accepted": 24,
     "rejected": 0,
-    "executed": 16,
+    "executed": 24,
     "supported": 0,
     "weakened": 6,
     "inconclusive_error": 0,
-    "unchanged": 10
+    "unchanged": 18
   },
   "warnings": [],
   "candidates": [
@@ -20,15 +20,15 @@
       "input_point_id": "inp_f9da04f7fc402cb9",
       "vulnerability_type": "SQLI",
       "selection_rank": 1,
-      "prior_probability": 0.552427148135962,
+      "prior_probability": 0.5495428634774664,
       "final_outcome": "UNCHANGED",
       "final_signal": "UNCHANGED",
-      "final_confidence": 0.4509826011135243,
-      "confidence_delta": -0.10144454702243777,
+      "final_confidence": 0.44809769536022176,
+      "confidence_delta": -0.10144516811724463,
       "results": [
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_c951065d62e1520c",
+          "verification_result_id": "vres_93472101b3a3aaa9",
           "candidate_id": "cand_a44e9b65c96aa368",
           "selection_rank": 1,
           "vulnerability_type": "SQLI",
@@ -45,20 +45,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_db77d0decb9da308"
           },
-          "baseline_feature_vector_id": "fv_a14e36622ffa5c97",
+          "baseline_feature_vector_id": "fv_2ac8cc17738af50a",
           "execution": {
-            "probe_plan_id": "probe_d1b20c736e493a52",
-            "baseline_response_id": "resp_b94592b994f439fc",
-            "probe_response_id": "resp_b9a3712b8e9eaaba",
-            "verification_feature_vector_id": "fv_1eaba2b16c0ebe4b",
+            "probe_plan_id": "probe_741cfab182c74976",
+            "baseline_response_id": "resp_6189cb154ef3ab5f",
+            "probe_response_id": "resp_cf106977761b2a2b",
+            "verification_feature_vector_id": "fv_81e253e8676a2fbb",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_f9da04f7fc402cb9",
-            "verification_feature_vector_id": "fv_1eaba2b16c0ebe4b",
+            "verification_feature_vector_id": "fv_81e253e8676a2fbb",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.0049901978256995175,
+            "max_abs_delta": 0.003706645485835318,
             "changed": true,
             "observability_flips": [
               "marker_reflected",
@@ -88,12 +88,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
+                "baseline_value": 0.03269790839290442,
                 "baseline_observed": true,
-                "verification_value": 0.047406879344145426,
+                "verification_value": 0.03640455387873974,
                 "verification_observed": true,
-                "delta": 0.0049901978256995175,
-                "abs_delta": 0.0049901978256995175,
+                "delta": 0.003706645485835318,
+                "abs_delta": 0.003706645485835318,
                 "observability_flip": false
               },
               {
@@ -134,14 +134,14 @@
             "outcome": "UNCHANGED",
             "signal": "UNCHANGED",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.552427148135962,
-            "verification_confidence": 0.4509826011135243,
-            "confidence_delta": -0.10144454702243777,
+            "prior_probability": 0.5495428634774664,
+            "verification_confidence": 0.44809769536022176,
+            "confidence_delta": -0.10144516811724463,
             "evidence": [
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
-                "verification_value": 0.047406879344145426,
+                "baseline_value": 0.03269790839290442,
+                "verification_value": 0.03640455387873974,
                 "direction": "flat",
                 "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
               }
@@ -152,7 +152,7 @@
         },
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_4466781829feb117",
+          "verification_result_id": "vres_333015f525b3032a",
           "candidate_id": "cand_a44e9b65c96aa368",
           "selection_rank": 1,
           "vulnerability_type": "SQLI",
@@ -169,20 +169,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_1bd93e229506918b"
           },
-          "baseline_feature_vector_id": "fv_a14e36622ffa5c97",
+          "baseline_feature_vector_id": "fv_2ac8cc17738af50a",
           "execution": {
-            "probe_plan_id": "probe_7217924186325adc",
-            "baseline_response_id": "resp_061c4f752d95af74",
-            "probe_response_id": "resp_ea02f7dee09f6351",
-            "verification_feature_vector_id": "fv_5ef2ab7fa7e4c2e8",
+            "probe_plan_id": "probe_7b681535270f68c3",
+            "baseline_response_id": "resp_fb70dccf376c8eb0",
+            "probe_response_id": "resp_88c87b7e758c9ade",
+            "verification_feature_vector_id": "fv_d817c1908d85164b",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_f9da04f7fc402cb9",
-            "verification_feature_vector_id": "fv_5ef2ab7fa7e4c2e8",
+            "verification_feature_vector_id": "fv_d817c1908d85164b",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.0049901978256995175,
+            "max_abs_delta": 0.003706645485835318,
             "changed": true,
             "observability_flips": [
               "marker_reflected",
@@ -212,12 +212,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
+                "baseline_value": 0.03269790839290442,
                 "baseline_observed": true,
-                "verification_value": 0.047406879344145426,
+                "verification_value": 0.03640455387873974,
                 "verification_observed": true,
-                "delta": 0.0049901978256995175,
-                "abs_delta": 0.0049901978256995175,
+                "delta": 0.003706645485835318,
+                "abs_delta": 0.003706645485835318,
                 "observability_flip": false
               },
               {
@@ -258,14 +258,14 @@
             "outcome": "UNCHANGED",
             "signal": "UNCHANGED",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.552427148135962,
-            "verification_confidence": 0.4509826011135243,
-            "confidence_delta": -0.10144454702243777,
+            "prior_probability": 0.5495428634774664,
+            "verification_confidence": 0.44809769536022176,
+            "confidence_delta": -0.10144516811724463,
             "evidence": [
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
-                "verification_value": 0.047406879344145426,
+                "baseline_value": 0.03269790839290442,
+                "verification_value": 0.03640455387873974,
                 "direction": "flat",
                 "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
               }
@@ -276,7 +276,7 @@
         },
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_9ddc5ece21978929",
+          "verification_result_id": "vres_cbc2ea8a68de6ee7",
           "candidate_id": "cand_a44e9b65c96aa368",
           "selection_rank": 1,
           "vulnerability_type": "SQLI",
@@ -293,20 +293,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_f24dd0f0d24c6354"
           },
-          "baseline_feature_vector_id": "fv_a14e36622ffa5c97",
+          "baseline_feature_vector_id": "fv_2ac8cc17738af50a",
           "execution": {
-            "probe_plan_id": "probe_7a4b5476525c809b",
-            "baseline_response_id": "resp_49b4ecaf4eeae6c1",
-            "probe_response_id": "resp_3cbe2639a71d98fe",
-            "verification_feature_vector_id": "fv_d0ba9734e97b2f83",
+            "probe_plan_id": "probe_0995cdc29c3396b3",
+            "baseline_response_id": "resp_233946720990a33d",
+            "probe_response_id": "resp_7804d632c6acc036",
+            "verification_feature_vector_id": "fv_45f99e9e2ba0f8a1",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_f9da04f7fc402cb9",
-            "verification_feature_vector_id": "fv_d0ba9734e97b2f83",
+            "verification_feature_vector_id": "fv_45f99e9e2ba0f8a1",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.004811976474781682,
+            "max_abs_delta": 0.0035742652899126287,
             "changed": true,
             "observability_flips": [
               "marker_reflected",
@@ -336,12 +336,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
+                "baseline_value": 0.03269790839290442,
                 "baseline_observed": true,
-                "verification_value": 0.04722865799322759,
+                "verification_value": 0.03627217368281705,
                 "verification_observed": true,
-                "delta": 0.004811976474781682,
-                "abs_delta": 0.004811976474781682,
+                "delta": 0.0035742652899126287,
+                "abs_delta": 0.0035742652899126287,
                 "observability_flip": false
               },
               {
@@ -382,14 +382,14 @@
             "outcome": "UNCHANGED",
             "signal": "UNCHANGED",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.552427148135962,
-            "verification_confidence": 0.4509826011135243,
-            "confidence_delta": -0.10144454702243777,
+            "prior_probability": 0.5495428634774664,
+            "verification_confidence": 0.44809769536022176,
+            "confidence_delta": -0.10144516811724463,
             "evidence": [
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
-                "verification_value": 0.04722865799322759,
+                "baseline_value": 0.03269790839290442,
+                "verification_value": 0.03627217368281705,
                 "direction": "flat",
                 "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
               }
@@ -400,7 +400,7 @@
         },
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_88423a14a779e46c",
+          "verification_result_id": "vres_b0080752db04e2a0",
           "candidate_id": "cand_a44e9b65c96aa368",
           "selection_rank": 1,
           "vulnerability_type": "SQLI",
@@ -417,20 +417,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_7d2bab1af1453e81"
           },
-          "baseline_feature_vector_id": "fv_a14e36622ffa5c97",
+          "baseline_feature_vector_id": "fv_2ac8cc17738af50a",
           "execution": {
-            "probe_plan_id": "probe_09fc1b024895798c",
-            "baseline_response_id": "resp_9463774fe11acd2e",
-            "probe_response_id": "resp_7d9764d95ced5488",
-            "verification_feature_vector_id": "fv_23605b9c98ec996c",
+            "probe_plan_id": "probe_9a1149733ff64f14",
+            "baseline_response_id": "resp_ed670698b34131cd",
+            "probe_response_id": "resp_da9426dda5092cef",
+            "verification_feature_vector_id": "fv_503f02d5a35b608f",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_f9da04f7fc402cb9",
-            "verification_feature_vector_id": "fv_23605b9c98ec996c",
+            "verification_feature_vector_id": "fv_503f02d5a35b608f",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.01122794510782392,
+            "max_abs_delta": 0.008339952343129467,
             "changed": true,
             "observability_flips": [
               "marker_reflected",
@@ -460,12 +460,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
+                "baseline_value": 0.03269790839290442,
                 "baseline_observed": true,
-                "verification_value": 0.05364462662626983,
+                "verification_value": 0.04103786073603389,
                 "verification_observed": true,
-                "delta": 0.01122794510782392,
-                "abs_delta": 0.01122794510782392,
+                "delta": 0.008339952343129467,
+                "abs_delta": 0.008339952343129467,
                 "observability_flip": false
               },
               {
@@ -506,14 +506,14 @@
             "outcome": "UNCHANGED",
             "signal": "UNCHANGED",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.552427148135962,
-            "verification_confidence": 0.4509826011135243,
-            "confidence_delta": -0.10144454702243777,
+            "prior_probability": 0.5495428634774664,
+            "verification_confidence": 0.44809769536022176,
+            "confidence_delta": -0.10144516811724463,
             "evidence": [
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
-                "verification_value": 0.05364462662626983,
+                "baseline_value": 0.03269790839290442,
+                "verification_value": 0.04103786073603389,
                 "direction": "flat",
                 "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
               }
@@ -529,15 +529,15 @@
       "input_point_id": "inp_2a7f011e22206b0e",
       "vulnerability_type": "REFLECTED_XSS",
       "selection_rank": 2,
-      "prior_probability": 0.4318118249764191,
+      "prior_probability": 0.4350699107535104,
       "final_outcome": "WEAKENED",
       "final_signal": "WEAKEN",
-      "final_confidence": 0.21849425925213523,
-      "confidence_delta": -0.2133175657242839,
+      "final_confidence": 0.2207682043351422,
+      "confidence_delta": -0.21430170641836824,
       "results": [
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_d8cb75dee3d685fa",
+          "verification_result_id": "vres_02d03de8152eb978",
           "candidate_id": "cand_b43142e5d01f35bf",
           "selection_rank": 2,
           "vulnerability_type": "REFLECTED_XSS",
@@ -554,18 +554,18 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_f7f83a742285b8b6"
           },
-          "baseline_feature_vector_id": "fv_3f7cfeae420bb49c",
+          "baseline_feature_vector_id": "fv_9a7fd0c4bf61f339",
           "execution": {
-            "probe_plan_id": "probe_accb698d84dac656",
-            "baseline_response_id": "resp_2cbd024950ddc37d",
-            "probe_response_id": "resp_84410bcfb3b24f9f",
-            "verification_feature_vector_id": "fv_6f76c754b7a89fa6",
+            "probe_plan_id": "probe_293f499706e3a942",
+            "baseline_response_id": "resp_04583c6696e01959",
+            "probe_response_id": "resp_5ff0f9b479611c84",
+            "verification_feature_vector_id": "fv_d53037557f8d77d5",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_2a7f011e22206b0e",
-            "verification_feature_vector_id": "fv_6f76c754b7a89fa6",
+            "verification_feature_vector_id": "fv_d53037557f8d77d5",
             "material_delta_threshold": 0.3,
             "max_abs_delta": 0.0,
             "changed": false,
@@ -593,9 +593,9 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.01602229188436085,
+                "baseline_value": 0.04261220373171962,
                 "baseline_observed": true,
-                "verification_value": 0.01602229188436085,
+                "verification_value": 0.04261220373171962,
                 "verification_observed": true,
                 "delta": 0.0,
                 "abs_delta": 0.0,
@@ -639,9 +639,9 @@
             "outcome": "WEAKENED",
             "signal": "WEAKEN",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.4318118249764191,
-            "verification_confidence": 0.21849425925213523,
-            "confidence_delta": -0.2133175657242839,
+            "prior_probability": 0.4350699107535104,
+            "verification_confidence": 0.2207682043351422,
+            "confidence_delta": -0.21430170641836824,
             "evidence": [
               {
                 "feature_name": "safe_html_encoding_detected",
@@ -657,7 +657,7 @@
         },
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_c862fe9233250b3a",
+          "verification_result_id": "vres_1d03d3e07e531310",
           "candidate_id": "cand_b43142e5d01f35bf",
           "selection_rank": 2,
           "vulnerability_type": "REFLECTED_XSS",
@@ -674,20 +674,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_213286081c96d914"
           },
-          "baseline_feature_vector_id": "fv_3f7cfeae420bb49c",
+          "baseline_feature_vector_id": "fv_9a7fd0c4bf61f339",
           "execution": {
-            "probe_plan_id": "probe_6990036450141350",
-            "baseline_response_id": "resp_92c875892a6a588d",
-            "probe_response_id": "resp_d591cd500f5055f0",
-            "verification_feature_vector_id": "fv_6ec84bbaa6dcabf2",
+            "probe_plan_id": "probe_4a865a11cece7c03",
+            "baseline_response_id": "resp_b1a55f0cd9019830",
+            "probe_response_id": "resp_a2a8e9a9d3ed34a8",
+            "verification_feature_vector_id": "fv_3510583af05f7fde",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_2a7f011e22206b0e",
-            "verification_feature_vector_id": "fv_6ec84bbaa6dcabf2",
+            "verification_feature_vector_id": "fv_3510583af05f7fde",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.0017415534656913985,
+            "max_abs_delta": 0.0012607160867372652,
             "changed": false,
             "observability_flips": [],
             "features": [
@@ -713,12 +713,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.01602229188436085,
+                "baseline_value": 0.04261220373171962,
                 "baseline_observed": true,
-                "verification_value": 0.017763845350052248,
+                "verification_value": 0.04387291981845688,
                 "verification_observed": true,
-                "delta": 0.0017415534656913985,
-                "abs_delta": 0.0017415534656913985,
+                "delta": 0.0012607160867372652,
+                "abs_delta": 0.0012607160867372652,
                 "observability_flip": false
               },
               {
@@ -759,9 +759,9 @@
             "outcome": "WEAKENED",
             "signal": "WEAKEN",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.4318118249764191,
-            "verification_confidence": 0.21849425925213523,
-            "confidence_delta": -0.2133175657242839,
+            "prior_probability": 0.4350699107535104,
+            "verification_confidence": 0.2207682043351422,
+            "confidence_delta": -0.21430170641836824,
             "evidence": [
               {
                 "feature_name": "safe_html_encoding_detected",
@@ -777,7 +777,7 @@
         },
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_1ca11fc70479bccf",
+          "verification_result_id": "vres_bd3c2977f32a996d",
           "candidate_id": "cand_b43142e5d01f35bf",
           "selection_rank": 2,
           "vulnerability_type": "REFLECTED_XSS",
@@ -794,20 +794,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_b0970cfdbf75d08f"
           },
-          "baseline_feature_vector_id": "fv_3f7cfeae420bb49c",
+          "baseline_feature_vector_id": "fv_9a7fd0c4bf61f339",
           "execution": {
-            "probe_plan_id": "probe_78ecdeb8c512bc64",
-            "baseline_response_id": "resp_8efb7da92bd8949c",
-            "probe_response_id": "resp_6fcdfbca03ca1847",
-            "verification_feature_vector_id": "fv_ac6156217401464c",
+            "probe_plan_id": "probe_8e4f4e5938fd097c",
+            "baseline_response_id": "resp_1c843e4c00ecba92",
+            "probe_response_id": "resp_7eabc861b87f7719",
+            "verification_feature_vector_id": "fv_c685cc782d0ecb82",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_2a7f011e22206b0e",
-            "verification_feature_vector_id": "fv_ac6156217401464c",
+            "verification_feature_vector_id": "fv_c685cc782d0ecb82",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.01567398119122257,
+            "max_abs_delta": 0.011850731215330309,
             "changed": true,
             "observability_flips": [
               "marker_reflected",
@@ -837,12 +837,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.01602229188436085,
+                "baseline_value": 0.04261220373171962,
                 "baseline_observed": true,
-                "verification_value": 0.00034831069313827936,
+                "verification_value": 0.030761472516389308,
                 "verification_observed": true,
-                "delta": -0.01567398119122257,
-                "abs_delta": 0.01567398119122257,
+                "delta": -0.011850731215330309,
+                "abs_delta": 0.011850731215330309,
                 "observability_flip": false
               },
               {
@@ -883,14 +883,14 @@
             "outcome": "UNCHANGED",
             "signal": "UNCHANGED",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.4318118249764191,
-            "verification_confidence": 0.21849425925213523,
-            "confidence_delta": -0.2133175657242839,
+            "prior_probability": 0.4350699107535104,
+            "verification_confidence": 0.2207682043351422,
+            "confidence_delta": -0.21430170641836824,
             "evidence": [
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.01602229188436085,
-                "verification_value": 0.00034831069313827936,
+                "baseline_value": 0.04261220373171962,
+                "verification_value": 0.030761472516389308,
                 "direction": "flat",
                 "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
               }
@@ -901,7 +901,7 @@
         },
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_66c45c76fbd7e891",
+          "verification_result_id": "vres_2c3ae37569575eed",
           "candidate_id": "cand_b43142e5d01f35bf",
           "selection_rank": 2,
           "vulnerability_type": "REFLECTED_XSS",
@@ -918,20 +918,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_ac8edcb9ac3a477d"
           },
-          "baseline_feature_vector_id": "fv_3f7cfeae420bb49c",
+          "baseline_feature_vector_id": "fv_9a7fd0c4bf61f339",
           "execution": {
-            "probe_plan_id": "probe_bd741708da1635d2",
-            "baseline_response_id": "resp_2ff6fea323ad9808",
-            "probe_response_id": "resp_224a417b79bf4812",
-            "verification_feature_vector_id": "fv_c186d885b38517c1",
+            "probe_plan_id": "probe_0a92708e95c807cc",
+            "baseline_response_id": "resp_0ff8c63c46e0c9ea",
+            "probe_response_id": "resp_4b6e57b35dbd676c",
+            "verification_feature_vector_id": "fv_88c2b915644cdf07",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_2a7f011e22206b0e",
-            "verification_feature_vector_id": "fv_c186d885b38517c1",
+            "verification_feature_vector_id": "fv_88c2b915644cdf07",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.013584117032392894,
+            "max_abs_delta": 0.00983358547655068,
             "changed": true,
             "observability_flips": [
               "marker_reflected",
@@ -961,12 +961,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.01602229188436085,
+                "baseline_value": 0.04261220373171962,
                 "baseline_observed": true,
-                "verification_value": 0.0024381748519679554,
+                "verification_value": 0.03277861825516894,
                 "verification_observed": true,
-                "delta": -0.013584117032392894,
-                "abs_delta": 0.013584117032392894,
+                "delta": -0.00983358547655068,
+                "abs_delta": 0.00983358547655068,
                 "observability_flip": false
               },
               {
@@ -1007,14 +1007,14 @@
             "outcome": "UNCHANGED",
             "signal": "UNCHANGED",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.4318118249764191,
-            "verification_confidence": 0.21849425925213523,
-            "confidence_delta": -0.2133175657242839,
+            "prior_probability": 0.4350699107535104,
+            "verification_confidence": 0.2207682043351422,
+            "confidence_delta": -0.21430170641836824,
             "evidence": [
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.01602229188436085,
-                "verification_value": 0.0024381748519679554,
+                "baseline_value": 0.04261220373171962,
+                "verification_value": 0.03277861825516894,
                 "direction": "flat",
                 "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
               }
@@ -1030,15 +1030,15 @@
       "input_point_id": "inp_72bb13a27801ec9d",
       "vulnerability_type": "REFLECTED_XSS",
       "selection_rank": 3,
-      "prior_probability": 0.4317682458377255,
+      "prior_probability": 0.4345978569354425,
       "final_outcome": "WEAKENED",
       "final_signal": "WEAKEN",
-      "final_confidence": 0.21846393097997002,
-      "confidence_delta": -0.21330431485775547,
+      "final_confidence": 0.22043793957534602,
+      "confidence_delta": -0.21415991736009649,
       "results": [
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_6148ffa8438bf7f1",
+          "verification_result_id": "vres_f1ab66461d6311f7",
           "candidate_id": "cand_6a59e6cdc7dd5cd1",
           "selection_rank": 3,
           "vulnerability_type": "REFLECTED_XSS",
@@ -1055,18 +1055,18 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_4c676ea33ed82191"
           },
-          "baseline_feature_vector_id": "fv_36c1dabf2688909e",
+          "baseline_feature_vector_id": "fv_300b97e29ab0b08e",
           "execution": {
-            "probe_plan_id": "probe_a042e3a7067803e2",
-            "baseline_response_id": "resp_09d3ea99cfd33bee",
-            "probe_response_id": "resp_cbf8e4244d9578cf",
-            "verification_feature_vector_id": "fv_3709bf3076ca3cb0",
+            "probe_plan_id": "probe_c3aee68b3bf35465",
+            "baseline_response_id": "resp_1686dec7cacb16f7",
+            "probe_response_id": "resp_0e7ab8206c6f40ec",
+            "verification_feature_vector_id": "fv_7b7d6c3ea5a629b7",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_72bb13a27801ec9d",
-            "verification_feature_vector_id": "fv_3709bf3076ca3cb0",
+            "verification_feature_vector_id": "fv_7b7d6c3ea5a629b7",
             "material_delta_threshold": 0.3,
             "max_abs_delta": 0.0,
             "changed": false,
@@ -1094,9 +1094,9 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.015665796344647518,
+                "baseline_value": 0.03876704208654416,
                 "baseline_observed": true,
-                "verification_value": 0.015665796344647518,
+                "verification_value": 0.03876704208654416,
                 "verification_observed": true,
                 "delta": 0.0,
                 "abs_delta": 0.0,
@@ -1140,9 +1140,9 @@
             "outcome": "WEAKENED",
             "signal": "WEAKEN",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.4317682458377255,
-            "verification_confidence": 0.21846393097997002,
-            "confidence_delta": -0.21330431485775547,
+            "prior_probability": 0.4345978569354425,
+            "verification_confidence": 0.22043793957534602,
+            "confidence_delta": -0.21415991736009649,
             "evidence": [
               {
                 "feature_name": "safe_html_encoding_detected",
@@ -1158,7 +1158,7 @@
         },
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_a439ecc9f02a6178",
+          "verification_result_id": "vres_327ec64de098d7f6",
           "candidate_id": "cand_6a59e6cdc7dd5cd1",
           "selection_rank": 3,
           "vulnerability_type": "REFLECTED_XSS",
@@ -1175,20 +1175,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_e30d4a4c1848e639"
           },
-          "baseline_feature_vector_id": "fv_36c1dabf2688909e",
+          "baseline_feature_vector_id": "fv_300b97e29ab0b08e",
           "execution": {
-            "probe_plan_id": "probe_e30d0807ddfbfe8b",
-            "baseline_response_id": "resp_2ac90a6ed4d5e745",
-            "probe_response_id": "resp_57f22bdc6401a56d",
-            "verification_feature_vector_id": "fv_e714476fe0217014",
+            "probe_plan_id": "probe_f7421f989722c94f",
+            "baseline_response_id": "resp_57b3400d54d1d601",
+            "probe_response_id": "resp_4871b9b8187c6921",
+            "verification_feature_vector_id": "fv_704bc6c3cd2a6235",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_72bb13a27801ec9d",
-            "verification_feature_vector_id": "fv_e714476fe0217014",
+            "verification_feature_vector_id": "fv_704bc6c3cd2a6235",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.0017406440382941694,
+            "max_abs_delta": 0.0011855364552459946,
             "changed": false,
             "observability_flips": [],
             "features": [
@@ -1214,12 +1214,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.015665796344647518,
+                "baseline_value": 0.03876704208654416,
                 "baseline_observed": true,
-                "verification_value": 0.017406440382941687,
+                "verification_value": 0.03995257854179016,
                 "verification_observed": true,
-                "delta": 0.0017406440382941694,
-                "abs_delta": 0.0017406440382941694,
+                "delta": 0.0011855364552459946,
+                "abs_delta": 0.0011855364552459946,
                 "observability_flip": false
               },
               {
@@ -1260,9 +1260,9 @@
             "outcome": "WEAKENED",
             "signal": "WEAKEN",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.4317682458377255,
-            "verification_confidence": 0.21846393097997002,
-            "confidence_delta": -0.21330431485775547,
+            "prior_probability": 0.4345978569354425,
+            "verification_confidence": 0.22043793957534602,
+            "confidence_delta": -0.21415991736009649,
             "evidence": [
               {
                 "feature_name": "safe_html_encoding_detected",
@@ -1278,7 +1278,7 @@
         },
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_1365fa79078e21bd",
+          "verification_result_id": "vres_311aa81969cb60fb",
           "candidate_id": "cand_6a59e6cdc7dd5cd1",
           "selection_rank": 3,
           "vulnerability_type": "REFLECTED_XSS",
@@ -1295,20 +1295,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_65b4c522cc5beef2"
           },
-          "baseline_feature_vector_id": "fv_36c1dabf2688909e",
+          "baseline_feature_vector_id": "fv_300b97e29ab0b08e",
           "execution": {
-            "probe_plan_id": "probe_74c0bb69373be2e9",
-            "baseline_response_id": "resp_27e127435c4afe25",
-            "probe_response_id": "resp_51dea0c2292b7c80",
-            "verification_feature_vector_id": "fv_61f9872b5efe1373",
+            "probe_plan_id": "probe_c80dafc211867a7f",
+            "baseline_response_id": "resp_6d3809558a9e2f6c",
+            "probe_response_id": "resp_ae505d5d2c39a461",
+            "verification_feature_vector_id": "fv_6833ccb6597172aa",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_72bb13a27801ec9d",
-            "verification_feature_vector_id": "fv_61f9872b5efe1373",
+            "verification_feature_vector_id": "fv_6833ccb6597172aa",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.014969538729329851,
+            "max_abs_delta": 0.011144042679312391,
             "changed": true,
             "observability_flips": [
               "marker_reflected",
@@ -1338,12 +1338,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.015665796344647518,
+                "baseline_value": 0.03876704208654416,
                 "baseline_observed": true,
-                "verification_value": 0.0006962576153176675,
+                "verification_value": 0.02762299940723177,
                 "verification_observed": true,
-                "delta": -0.014969538729329851,
-                "abs_delta": 0.014969538729329851,
+                "delta": -0.011144042679312391,
+                "abs_delta": 0.011144042679312391,
                 "observability_flip": false
               },
               {
@@ -1384,14 +1384,14 @@
             "outcome": "UNCHANGED",
             "signal": "UNCHANGED",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.4317682458377255,
-            "verification_confidence": 0.21846393097997002,
-            "confidence_delta": -0.21330431485775547,
+            "prior_probability": 0.4345978569354425,
+            "verification_confidence": 0.22043793957534602,
+            "confidence_delta": -0.21415991736009649,
             "evidence": [
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.015665796344647518,
-                "verification_value": 0.0006962576153176675,
+                "baseline_value": 0.03876704208654416,
+                "verification_value": 0.02762299940723177,
                 "direction": "flat",
                 "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
               }
@@ -1402,7 +1402,7 @@
         },
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_63d12f2f854aed47",
+          "verification_result_id": "vres_bcda5c6313c57de0",
           "candidate_id": "cand_6a59e6cdc7dd5cd1",
           "selection_rank": 3,
           "vulnerability_type": "REFLECTED_XSS",
@@ -1419,20 +1419,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_4a74899ca41bf424"
           },
-          "baseline_feature_vector_id": "fv_36c1dabf2688909e",
+          "baseline_feature_vector_id": "fv_300b97e29ab0b08e",
           "execution": {
-            "probe_plan_id": "probe_65ba5e013fa8e22b",
-            "baseline_response_id": "resp_26c3aa5ae9281c91",
-            "probe_response_id": "resp_5d8926d60563f4f2",
-            "verification_feature_vector_id": "fv_50e6ab0f6e447b35",
+            "probe_plan_id": "probe_3a39806806fda2a7",
+            "baseline_response_id": "resp_1cb870c33a5e2023",
+            "probe_response_id": "resp_b47ac60cd115748c",
+            "verification_feature_vector_id": "fv_2071346ef8080961",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_72bb13a27801ec9d",
-            "verification_feature_vector_id": "fv_50e6ab0f6e447b35",
+            "verification_feature_vector_id": "fv_2071346ef8080961",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.013577023498694515,
+            "max_abs_delta": 0.009247184350918793,
             "changed": true,
             "observability_flips": [
               "marker_reflected",
@@ -1462,12 +1462,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.015665796344647518,
+                "baseline_value": 0.03876704208654416,
                 "baseline_observed": true,
-                "verification_value": 0.0020887728459530026,
+                "verification_value": 0.02951985773562537,
                 "verification_observed": true,
-                "delta": -0.013577023498694515,
-                "abs_delta": 0.013577023498694515,
+                "delta": -0.009247184350918793,
+                "abs_delta": 0.009247184350918793,
                 "observability_flip": false
               },
               {
@@ -1508,14 +1508,14 @@
             "outcome": "UNCHANGED",
             "signal": "UNCHANGED",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.4317682458377255,
-            "verification_confidence": 0.21846393097997002,
-            "confidence_delta": -0.21330431485775547,
+            "prior_probability": 0.4345978569354425,
+            "verification_confidence": 0.22043793957534602,
+            "confidence_delta": -0.21415991736009649,
             "evidence": [
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.015665796344647518,
-                "verification_value": 0.0020887728459530026,
+                "baseline_value": 0.03876704208654416,
+                "verification_value": 0.02951985773562537,
                 "direction": "flat",
                 "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
               }
@@ -1531,15 +1531,15 @@
       "input_point_id": "inp_f9da04f7fc402cb9",
       "vulnerability_type": "REFLECTED_XSS",
       "selection_rank": 4,
-      "prior_probability": 0.39091202164249494,
+      "prior_probability": 0.3897086168385822,
       "final_outcome": "WEAKENED",
       "final_signal": "WEAKEN",
-      "final_confidence": 0.19100699890854683,
-      "confidence_delta": -0.1999050227339481,
+      "final_confidence": 0.1902267949320608,
+      "confidence_delta": -0.19948182190652142,
       "results": [
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_ac526a53bbef73eb",
+          "verification_result_id": "vres_e8f1046665bc0984",
           "candidate_id": "cand_170106dd1622a036",
           "selection_rank": 4,
           "vulnerability_type": "REFLECTED_XSS",
@@ -1556,18 +1556,18 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_2c157cc655743baf"
           },
-          "baseline_feature_vector_id": "fv_a14e36622ffa5c97",
+          "baseline_feature_vector_id": "fv_2ac8cc17738af50a",
           "execution": {
-            "probe_plan_id": "probe_59ca59f1d0a3af8c",
-            "baseline_response_id": "resp_3ebbb2705d6dbe84",
-            "probe_response_id": "resp_56144bef97221cfe",
-            "verification_feature_vector_id": "fv_337861a645725e68",
+            "probe_plan_id": "probe_ed6d20da512cc167",
+            "baseline_response_id": "resp_b343d9084ae49a68",
+            "probe_response_id": "resp_9702f53be227f540",
+            "verification_feature_vector_id": "fv_3a31dd8b6349578d",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_f9da04f7fc402cb9",
-            "verification_feature_vector_id": "fv_337861a645725e68",
+            "verification_feature_vector_id": "fv_3a31dd8b6349578d",
             "material_delta_threshold": 0.3,
             "max_abs_delta": 0.0,
             "changed": false,
@@ -1595,9 +1595,9 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
+                "baseline_value": 0.03269790839290442,
                 "baseline_observed": true,
-                "verification_value": 0.04241668151844591,
+                "verification_value": 0.03269790839290442,
                 "verification_observed": true,
                 "delta": 0.0,
                 "abs_delta": 0.0,
@@ -1641,9 +1641,9 @@
             "outcome": "WEAKENED",
             "signal": "WEAKEN",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.39091202164249494,
-            "verification_confidence": 0.19100699890854683,
-            "confidence_delta": -0.1999050227339481,
+            "prior_probability": 0.3897086168385822,
+            "verification_confidence": 0.1902267949320608,
+            "confidence_delta": -0.19948182190652142,
             "evidence": [
               {
                 "feature_name": "safe_html_encoding_detected",
@@ -1659,7 +1659,7 @@
         },
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_9d1053a5a7a125ea",
+          "verification_result_id": "vres_23d9346d6709de04",
           "candidate_id": "cand_170106dd1622a036",
           "selection_rank": 4,
           "vulnerability_type": "REFLECTED_XSS",
@@ -1676,20 +1676,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_5dc4f4158ec31922"
           },
-          "baseline_feature_vector_id": "fv_a14e36622ffa5c97",
+          "baseline_feature_vector_id": "fv_2ac8cc17738af50a",
           "execution": {
-            "probe_plan_id": "probe_6f66064943b8499c",
-            "baseline_response_id": "resp_1a16827ebbdc6011",
-            "probe_response_id": "resp_3d83e82402f61814",
-            "verification_feature_vector_id": "fv_c92dc928ff8e28d3",
+            "probe_plan_id": "probe_30ec6cbb1ae98e81",
+            "baseline_response_id": "resp_7f5eb1bf9c41b9f1",
+            "probe_response_id": "resp_9c65cd27f405d9e7",
+            "verification_feature_vector_id": "fv_e10480d86dc3fbb2",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_f9da04f7fc402cb9",
-            "verification_feature_vector_id": "fv_c92dc928ff8e28d3",
+            "verification_feature_vector_id": "fv_e10480d86dc3fbb2",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.0008911067545891993,
+            "max_abs_delta": 0.0006619009796134528,
             "changed": false,
             "observability_flips": [],
             "features": [
@@ -1715,12 +1715,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
+                "baseline_value": 0.03269790839290442,
                 "baseline_observed": true,
-                "verification_value": 0.04152557476385671,
+                "verification_value": 0.03203600741329097,
                 "verification_observed": true,
-                "delta": -0.0008911067545891993,
-                "abs_delta": 0.0008911067545891993,
+                "delta": -0.0006619009796134528,
+                "abs_delta": 0.0006619009796134528,
                 "observability_flip": false
               },
               {
@@ -1761,9 +1761,9 @@
             "outcome": "WEAKENED",
             "signal": "WEAKEN",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.39091202164249494,
-            "verification_confidence": 0.19100699890854683,
-            "confidence_delta": -0.1999050227339481,
+            "prior_probability": 0.3897086168385822,
+            "verification_confidence": 0.1902267949320608,
+            "confidence_delta": -0.19948182190652142,
             "evidence": [
               {
                 "feature_name": "safe_html_encoding_detected",
@@ -1779,7 +1779,7 @@
         },
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_64b68d4e6aee6152",
+          "verification_result_id": "vres_07bf998f064953a8",
           "candidate_id": "cand_170106dd1622a036",
           "selection_rank": 4,
           "vulnerability_type": "REFLECTED_XSS",
@@ -1796,20 +1796,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_6f35a0cc5bcae237"
           },
-          "baseline_feature_vector_id": "fv_a14e36622ffa5c97",
+          "baseline_feature_vector_id": "fv_2ac8cc17738af50a",
           "execution": {
-            "probe_plan_id": "probe_09fc1b024895798c",
-            "baseline_response_id": "resp_9463774fe11acd2e",
-            "probe_response_id": "resp_7d9764d95ced5488",
-            "verification_feature_vector_id": "fv_23605b9c98ec996c",
+            "probe_plan_id": "probe_9a1149733ff64f14",
+            "baseline_response_id": "resp_ed670698b34131cd",
+            "probe_response_id": "resp_da9426dda5092cef",
+            "verification_feature_vector_id": "fv_503f02d5a35b608f",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_f9da04f7fc402cb9",
-            "verification_feature_vector_id": "fv_23605b9c98ec996c",
+            "verification_feature_vector_id": "fv_503f02d5a35b608f",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.01122794510782392,
+            "max_abs_delta": 0.008339952343129467,
             "changed": true,
             "observability_flips": [
               "marker_reflected",
@@ -1839,12 +1839,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
+                "baseline_value": 0.03269790839290442,
                 "baseline_observed": true,
-                "verification_value": 0.05364462662626983,
+                "verification_value": 0.04103786073603389,
                 "verification_observed": true,
-                "delta": 0.01122794510782392,
-                "abs_delta": 0.01122794510782392,
+                "delta": 0.008339952343129467,
+                "abs_delta": 0.008339952343129467,
                 "observability_flip": false
               },
               {
@@ -1885,14 +1885,14 @@
             "outcome": "UNCHANGED",
             "signal": "UNCHANGED",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.39091202164249494,
-            "verification_confidence": 0.19100699890854683,
-            "confidence_delta": -0.1999050227339481,
+            "prior_probability": 0.3897086168385822,
+            "verification_confidence": 0.1902267949320608,
+            "confidence_delta": -0.19948182190652142,
             "evidence": [
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
-                "verification_value": 0.05364462662626983,
+                "baseline_value": 0.03269790839290442,
+                "verification_value": 0.04103786073603389,
                 "direction": "flat",
                 "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
               }
@@ -1903,7 +1903,7 @@
         },
         {
           "contract_version": "0.1",
-          "verification_result_id": "vres_fe0d6cb5ffd42c36",
+          "verification_result_id": "vres_ed8f3f6a8b6d09d6",
           "candidate_id": "cand_170106dd1622a036",
           "selection_rank": 4,
           "vulnerability_type": "REFLECTED_XSS",
@@ -1920,20 +1920,20 @@
             "rejection_reasons": [],
             "validated_payload_id": "vpl_a7c47a345df44cfb"
           },
-          "baseline_feature_vector_id": "fv_a14e36622ffa5c97",
+          "baseline_feature_vector_id": "fv_2ac8cc17738af50a",
           "execution": {
-            "probe_plan_id": "probe_0e280ec6fce515ca",
-            "baseline_response_id": "resp_6a3cbbff1ee1a853",
-            "probe_response_id": "resp_8b4730fea671c4a8",
-            "verification_feature_vector_id": "fv_bd363e6c4f7016ca",
+            "probe_plan_id": "probe_31de2abd234bea2c",
+            "baseline_response_id": "resp_c48b5ef50233e899",
+            "probe_response_id": "resp_bfc7fdd4bafeca01",
+            "verification_feature_vector_id": "fv_789ecc1276d994e7",
             "baseline_execution_error": null,
             "probe_execution_error": null
           },
           "feature_delta": {
             "input_point_id": "inp_f9da04f7fc402cb9",
-            "verification_feature_vector_id": "fv_bd363e6c4f7016ca",
+            "verification_feature_vector_id": "fv_789ecc1276d994e7",
             "material_delta_threshold": 0.3,
-            "max_abs_delta": 0.0098021743004812,
+            "max_abs_delta": 0.007280910775747947,
             "changed": true,
             "observability_flips": [
               "marker_reflected",
@@ -1963,12 +1963,12 @@
               },
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
+                "baseline_value": 0.03269790839290442,
                 "baseline_observed": true,
-                "verification_value": 0.05221885581892711,
+                "verification_value": 0.03997881916865237,
                 "verification_observed": true,
-                "delta": 0.0098021743004812,
-                "abs_delta": 0.0098021743004812,
+                "delta": 0.007280910775747947,
+                "abs_delta": 0.007280910775747947,
                 "observability_flip": false
               },
               {
@@ -2009,14 +2009,1032 @@
             "outcome": "UNCHANGED",
             "signal": "UNCHANGED",
             "model_version": "verification-confidence-model-v1",
-            "prior_probability": 0.39091202164249494,
-            "verification_confidence": 0.19100699890854683,
-            "confidence_delta": -0.1999050227339481,
+            "prior_probability": 0.3897086168385822,
+            "verification_confidence": 0.1902267949320608,
+            "confidence_delta": -0.19948182190652142,
             "evidence": [
               {
                 "feature_name": "response_length_diff_ratio",
-                "baseline_value": 0.04241668151844591,
-                "verification_value": 0.05221885581892711,
+                "baseline_value": 0.03269790839290442,
+                "verification_value": 0.03997881916865237,
+                "direction": "flat",
+                "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
+              }
+            ]
+          },
+          "outcome_status": "UNCHANGED",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "candidate_id": "cand_a22cd77eec74f0d6",
+      "input_point_id": "inp_2a7f011e22206b0e",
+      "vulnerability_type": "SQLI",
+      "selection_rank": 5,
+      "prior_probability": 0.23124784011850535,
+      "final_outcome": "UNCHANGED",
+      "final_signal": "UNCHANGED",
+      "final_confidence": 0.16680222507338227,
+      "confidence_delta": -0.06444561504512308,
+      "results": [
+        {
+          "contract_version": "0.1",
+          "verification_result_id": "vres_be368c093a411c03",
+          "candidate_id": "cand_a22cd77eec74f0d6",
+          "selection_rank": 5,
+          "vulnerability_type": "SQLI",
+          "provider": "deterministic-baseline",
+          "proposal_id": "prop_1720dad435b72d30",
+          "proposer_version": "deterministic-mutation-v1",
+          "mutation_family": "SQL_META",
+          "mutated_value": "VULNSPIDER_365ED13107BEF369'",
+          "based_on_value": "880",
+          "rationale": "Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.",
+          "validator": {
+            "policy_version": "payload-validator-v1",
+            "decision": "ACCEPTED",
+            "rejection_reasons": [],
+            "validated_payload_id": "vpl_b435d136ed08cf17"
+          },
+          "baseline_feature_vector_id": "fv_9a7fd0c4bf61f339",
+          "execution": {
+            "probe_plan_id": "probe_8c642dcfdaa413f4",
+            "baseline_response_id": "resp_3f77a0524d455631",
+            "probe_response_id": "resp_c4ab2a449f15b3ce",
+            "verification_feature_vector_id": "fv_834d33e12ff1e72b",
+            "baseline_execution_error": null,
+            "probe_execution_error": null
+          },
+          "feature_delta": {
+            "input_point_id": "inp_2a7f011e22206b0e",
+            "verification_feature_vector_id": "fv_834d33e12ff1e72b",
+            "material_delta_threshold": 0.3,
+            "max_abs_delta": 0.0040342914775592514,
+            "changed": true,
+            "observability_flips": [
+              "marker_reflected",
+              "reflection_count_norm",
+              "safe_html_encoding_detected"
+            ],
+            "features": [
+              {
+                "feature_name": "marker_reflected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "reflection_count_norm",
+                "baseline_value": 0.6666666666666666,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.04261220373171962,
+                "baseline_observed": true,
+                "verification_value": 0.038577912254160365,
+                "verification_observed": true,
+                "delta": -0.0040342914775592514,
+                "abs_delta": 0.0040342914775592514,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "safe_html_encoding_detected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "status_code_changed",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              }
+            ]
+          },
+          "confidence": {
+            "rule_version": "confidence-rule-v2",
+            "scale": "probability-0-1-v1",
+            "outcome": "UNCHANGED",
+            "signal": "UNCHANGED",
+            "model_version": "verification-confidence-model-v1",
+            "prior_probability": 0.23124784011850535,
+            "verification_confidence": 0.16680222507338227,
+            "confidence_delta": -0.06444561504512308,
+            "evidence": [
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.04261220373171962,
+                "verification_value": 0.038577912254160365,
+                "direction": "flat",
+                "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
+              }
+            ]
+          },
+          "outcome_status": "UNCHANGED",
+          "warnings": []
+        },
+        {
+          "contract_version": "0.1",
+          "verification_result_id": "vres_0505d77c78c2d0b3",
+          "candidate_id": "cand_a22cd77eec74f0d6",
+          "selection_rank": 5,
+          "vulnerability_type": "SQLI",
+          "provider": "deterministic-baseline",
+          "proposal_id": "prop_5f3532fd37e5ce55",
+          "proposer_version": "deterministic-mutation-v1",
+          "mutation_family": "SQL_META",
+          "mutated_value": "VULNSPIDER_CBC5D0C60DB8F896\"",
+          "based_on_value": "880",
+          "rationale": "Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.",
+          "validator": {
+            "policy_version": "payload-validator-v1",
+            "decision": "ACCEPTED",
+            "rejection_reasons": [],
+            "validated_payload_id": "vpl_0348777599b4ac89"
+          },
+          "baseline_feature_vector_id": "fv_9a7fd0c4bf61f339",
+          "execution": {
+            "probe_plan_id": "probe_b313d719f2e8b773",
+            "baseline_response_id": "resp_6d96e14fec94ca07",
+            "probe_response_id": "resp_0dda8fa918008b20",
+            "verification_feature_vector_id": "fv_eacb17cd4fbdb673",
+            "baseline_execution_error": null,
+            "probe_execution_error": null
+          },
+          "feature_delta": {
+            "input_point_id": "inp_2a7f011e22206b0e",
+            "verification_feature_vector_id": "fv_eacb17cd4fbdb673",
+            "material_delta_threshold": 0.3,
+            "max_abs_delta": 0.0040342914775592514,
+            "changed": true,
+            "observability_flips": [
+              "marker_reflected",
+              "reflection_count_norm",
+              "safe_html_encoding_detected"
+            ],
+            "features": [
+              {
+                "feature_name": "marker_reflected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "reflection_count_norm",
+                "baseline_value": 0.6666666666666666,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.04261220373171962,
+                "baseline_observed": true,
+                "verification_value": 0.038577912254160365,
+                "verification_observed": true,
+                "delta": -0.0040342914775592514,
+                "abs_delta": 0.0040342914775592514,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "safe_html_encoding_detected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "status_code_changed",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              }
+            ]
+          },
+          "confidence": {
+            "rule_version": "confidence-rule-v2",
+            "scale": "probability-0-1-v1",
+            "outcome": "UNCHANGED",
+            "signal": "UNCHANGED",
+            "model_version": "verification-confidence-model-v1",
+            "prior_probability": 0.23124784011850535,
+            "verification_confidence": 0.16680222507338227,
+            "confidence_delta": -0.06444561504512308,
+            "evidence": [
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.04261220373171962,
+                "verification_value": 0.038577912254160365,
+                "direction": "flat",
+                "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
+              }
+            ]
+          },
+          "outcome_status": "UNCHANGED",
+          "warnings": []
+        },
+        {
+          "contract_version": "0.1",
+          "verification_result_id": "vres_ee7b289a81c9f7bb",
+          "candidate_id": "cand_a22cd77eec74f0d6",
+          "selection_rank": 5,
+          "vulnerability_type": "SQLI",
+          "provider": "deterministic-baseline",
+          "proposal_id": "prop_192f808dd066eef6",
+          "proposer_version": "deterministic-mutation-v1",
+          "mutation_family": "SQL_META",
+          "mutated_value": "VULNSPIDER_08AC8F8B229ACDCB')",
+          "based_on_value": "880",
+          "rationale": "Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.",
+          "validator": {
+            "policy_version": "payload-validator-v1",
+            "decision": "ACCEPTED",
+            "rejection_reasons": [],
+            "validated_payload_id": "vpl_ff38c8e91b5c8c4f"
+          },
+          "baseline_feature_vector_id": "fv_9a7fd0c4bf61f339",
+          "execution": {
+            "probe_plan_id": "probe_ae9f38a389909766",
+            "baseline_response_id": "resp_550ef538af0498c5",
+            "probe_response_id": "resp_3d6f274ef40ed649",
+            "verification_feature_vector_id": "fv_03d5309d85652a86",
+            "baseline_execution_error": null,
+            "probe_execution_error": null
+          },
+          "feature_delta": {
+            "input_point_id": "inp_2a7f011e22206b0e",
+            "verification_feature_vector_id": "fv_03d5309d85652a86",
+            "material_delta_threshold": 0.3,
+            "max_abs_delta": 0.0037821482602118026,
+            "changed": true,
+            "observability_flips": [
+              "marker_reflected",
+              "reflection_count_norm",
+              "safe_html_encoding_detected"
+            ],
+            "features": [
+              {
+                "feature_name": "marker_reflected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "reflection_count_norm",
+                "baseline_value": 0.6666666666666666,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.04261220373171962,
+                "baseline_observed": true,
+                "verification_value": 0.038830055471507814,
+                "verification_observed": true,
+                "delta": -0.0037821482602118026,
+                "abs_delta": 0.0037821482602118026,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "safe_html_encoding_detected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "status_code_changed",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              }
+            ]
+          },
+          "confidence": {
+            "rule_version": "confidence-rule-v2",
+            "scale": "probability-0-1-v1",
+            "outcome": "UNCHANGED",
+            "signal": "UNCHANGED",
+            "model_version": "verification-confidence-model-v1",
+            "prior_probability": 0.23124784011850535,
+            "verification_confidence": 0.16680222507338227,
+            "confidence_delta": -0.06444561504512308,
+            "evidence": [
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.04261220373171962,
+                "verification_value": 0.038830055471507814,
+                "direction": "flat",
+                "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
+              }
+            ]
+          },
+          "outcome_status": "UNCHANGED",
+          "warnings": []
+        },
+        {
+          "contract_version": "0.1",
+          "verification_result_id": "vres_a88dc0e75df3bf12",
+          "candidate_id": "cand_a22cd77eec74f0d6",
+          "selection_rank": 5,
+          "vulnerability_type": "SQLI",
+          "provider": "deterministic-baseline",
+          "proposal_id": "prop_9f962897867e3f24",
+          "proposer_version": "deterministic-mutation-v1",
+          "mutation_family": "BOUNDARY",
+          "mutated_value": "-1",
+          "based_on_value": "880",
+          "rationale": "Send an out-of-range integer to distinguish a genuine boundary weakness from generic error handling.",
+          "validator": {
+            "policy_version": "payload-validator-v1",
+            "decision": "ACCEPTED",
+            "rejection_reasons": [],
+            "validated_payload_id": "vpl_9b7f84ccd49a5858"
+          },
+          "baseline_feature_vector_id": "fv_9a7fd0c4bf61f339",
+          "execution": {
+            "probe_plan_id": "probe_8e4f4e5938fd097c",
+            "baseline_response_id": "resp_1c843e4c00ecba92",
+            "probe_response_id": "resp_7eabc861b87f7719",
+            "verification_feature_vector_id": "fv_c685cc782d0ecb82",
+            "baseline_execution_error": null,
+            "probe_execution_error": null
+          },
+          "feature_delta": {
+            "input_point_id": "inp_2a7f011e22206b0e",
+            "verification_feature_vector_id": "fv_c685cc782d0ecb82",
+            "material_delta_threshold": 0.3,
+            "max_abs_delta": 0.011850731215330309,
+            "changed": true,
+            "observability_flips": [
+              "marker_reflected",
+              "reflection_count_norm",
+              "safe_html_encoding_detected"
+            ],
+            "features": [
+              {
+                "feature_name": "marker_reflected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "reflection_count_norm",
+                "baseline_value": 0.6666666666666666,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.04261220373171962,
+                "baseline_observed": true,
+                "verification_value": 0.030761472516389308,
+                "verification_observed": true,
+                "delta": -0.011850731215330309,
+                "abs_delta": 0.011850731215330309,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "safe_html_encoding_detected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "status_code_changed",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              }
+            ]
+          },
+          "confidence": {
+            "rule_version": "confidence-rule-v2",
+            "scale": "probability-0-1-v1",
+            "outcome": "UNCHANGED",
+            "signal": "UNCHANGED",
+            "model_version": "verification-confidence-model-v1",
+            "prior_probability": 0.23124784011850535,
+            "verification_confidence": 0.16680222507338227,
+            "confidence_delta": -0.06444561504512308,
+            "evidence": [
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.04261220373171962,
+                "verification_value": 0.030761472516389308,
+                "direction": "flat",
+                "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
+              }
+            ]
+          },
+          "outcome_status": "UNCHANGED",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "candidate_id": "cand_04c23c90c4132562",
+      "input_point_id": "inp_72bb13a27801ec9d",
+      "vulnerability_type": "SQLI",
+      "selection_rank": 6,
+      "prior_probability": 0.2302379429285601,
+      "final_outcome": "UNCHANGED",
+      "final_signal": "UNCHANGED",
+      "final_confidence": 0.16601299413369316,
+      "confidence_delta": -0.06422494879486693,
+      "results": [
+        {
+          "contract_version": "0.1",
+          "verification_result_id": "vres_57d4ba0a00a1a032",
+          "candidate_id": "cand_04c23c90c4132562",
+          "selection_rank": 6,
+          "vulnerability_type": "SQLI",
+          "provider": "deterministic-baseline",
+          "proposal_id": "prop_ca943eb324163af1",
+          "proposer_version": "deterministic-mutation-v1",
+          "mutation_family": "SQL_META",
+          "mutated_value": "VULNSPIDER_458B65368F9C3BDD'",
+          "based_on_value": "4100",
+          "rationale": "Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.",
+          "validator": {
+            "policy_version": "payload-validator-v1",
+            "decision": "ACCEPTED",
+            "rejection_reasons": [],
+            "validated_payload_id": "vpl_1860165ee1ac59f8"
+          },
+          "baseline_feature_vector_id": "fv_300b97e29ab0b08e",
+          "execution": {
+            "probe_plan_id": "probe_da045d6e453cc043",
+            "baseline_response_id": "resp_697a1e282024705e",
+            "probe_response_id": "resp_2dcc7541d3a48196",
+            "verification_feature_vector_id": "fv_9868c7bd0899fb60",
+            "baseline_execution_error": null,
+            "probe_execution_error": null
+          },
+          "feature_delta": {
+            "input_point_id": "inp_72bb13a27801ec9d",
+            "verification_feature_vector_id": "fv_9868c7bd0899fb60",
+            "material_delta_threshold": 0.3,
+            "max_abs_delta": 0.0037937166567871966,
+            "changed": true,
+            "observability_flips": [
+              "marker_reflected",
+              "reflection_count_norm",
+              "safe_html_encoding_detected"
+            ],
+            "features": [
+              {
+                "feature_name": "marker_reflected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "reflection_count_norm",
+                "baseline_value": 0.6666666666666666,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.03876704208654416,
+                "baseline_observed": true,
+                "verification_value": 0.034973325429756966,
+                "verification_observed": true,
+                "delta": -0.0037937166567871966,
+                "abs_delta": 0.0037937166567871966,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "safe_html_encoding_detected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "status_code_changed",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              }
+            ]
+          },
+          "confidence": {
+            "rule_version": "confidence-rule-v2",
+            "scale": "probability-0-1-v1",
+            "outcome": "UNCHANGED",
+            "signal": "UNCHANGED",
+            "model_version": "verification-confidence-model-v1",
+            "prior_probability": 0.2302379429285601,
+            "verification_confidence": 0.16601299413369316,
+            "confidence_delta": -0.06422494879486693,
+            "evidence": [
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.03876704208654416,
+                "verification_value": 0.034973325429756966,
+                "direction": "flat",
+                "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
+              }
+            ]
+          },
+          "outcome_status": "UNCHANGED",
+          "warnings": []
+        },
+        {
+          "contract_version": "0.1",
+          "verification_result_id": "vres_d2e3728d560c5edf",
+          "candidate_id": "cand_04c23c90c4132562",
+          "selection_rank": 6,
+          "vulnerability_type": "SQLI",
+          "provider": "deterministic-baseline",
+          "proposal_id": "prop_17c51ea4fff2947b",
+          "proposer_version": "deterministic-mutation-v1",
+          "mutation_family": "SQL_META",
+          "mutated_value": "VULNSPIDER_914C9037AD04F9E2\"",
+          "based_on_value": "4100",
+          "rationale": "Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.",
+          "validator": {
+            "policy_version": "payload-validator-v1",
+            "decision": "ACCEPTED",
+            "rejection_reasons": [],
+            "validated_payload_id": "vpl_951b22c5b211af3d"
+          },
+          "baseline_feature_vector_id": "fv_300b97e29ab0b08e",
+          "execution": {
+            "probe_plan_id": "probe_1da1c6e44cf4599b",
+            "baseline_response_id": "resp_ed4cc48a5da371d8",
+            "probe_response_id": "resp_dc15a57e8ed17ed5",
+            "verification_feature_vector_id": "fv_c133bdd2b90f311d",
+            "baseline_execution_error": null,
+            "probe_execution_error": null
+          },
+          "feature_delta": {
+            "input_point_id": "inp_72bb13a27801ec9d",
+            "verification_feature_vector_id": "fv_c133bdd2b90f311d",
+            "material_delta_threshold": 0.3,
+            "max_abs_delta": 0.0037937166567871966,
+            "changed": true,
+            "observability_flips": [
+              "marker_reflected",
+              "reflection_count_norm",
+              "safe_html_encoding_detected"
+            ],
+            "features": [
+              {
+                "feature_name": "marker_reflected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "reflection_count_norm",
+                "baseline_value": 0.6666666666666666,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.03876704208654416,
+                "baseline_observed": true,
+                "verification_value": 0.034973325429756966,
+                "verification_observed": true,
+                "delta": -0.0037937166567871966,
+                "abs_delta": 0.0037937166567871966,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "safe_html_encoding_detected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "status_code_changed",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              }
+            ]
+          },
+          "confidence": {
+            "rule_version": "confidence-rule-v2",
+            "scale": "probability-0-1-v1",
+            "outcome": "UNCHANGED",
+            "signal": "UNCHANGED",
+            "model_version": "verification-confidence-model-v1",
+            "prior_probability": 0.2302379429285601,
+            "verification_confidence": 0.16601299413369316,
+            "confidence_delta": -0.06422494879486693,
+            "evidence": [
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.03876704208654416,
+                "verification_value": 0.034973325429756966,
+                "direction": "flat",
+                "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
+              }
+            ]
+          },
+          "outcome_status": "UNCHANGED",
+          "warnings": []
+        },
+        {
+          "contract_version": "0.1",
+          "verification_result_id": "vres_c9c24fc7d541b32c",
+          "candidate_id": "cand_04c23c90c4132562",
+          "selection_rank": 6,
+          "vulnerability_type": "SQLI",
+          "provider": "deterministic-baseline",
+          "proposal_id": "prop_071f75782443b8f0",
+          "proposer_version": "deterministic-mutation-v1",
+          "mutation_family": "SQL_META",
+          "mutated_value": "VULNSPIDER_F0DEE682E0A935E4')",
+          "based_on_value": "4100",
+          "rationale": "Append a single SQL metacharacter to elicit a database syntax-error signal without any state-changing keyword.",
+          "validator": {
+            "policy_version": "payload-validator-v1",
+            "decision": "ACCEPTED",
+            "rejection_reasons": [],
+            "validated_payload_id": "vpl_1827e278f5ec1107"
+          },
+          "baseline_feature_vector_id": "fv_300b97e29ab0b08e",
+          "execution": {
+            "probe_plan_id": "probe_600c3feb70be3839",
+            "baseline_response_id": "resp_2860f0422fc55aef",
+            "probe_response_id": "resp_673187be0d87acb2",
+            "verification_feature_vector_id": "fv_814062c2cf16d5cf",
+            "baseline_execution_error": null,
+            "probe_execution_error": null
+          },
+          "feature_delta": {
+            "input_point_id": "inp_72bb13a27801ec9d",
+            "verification_feature_vector_id": "fv_814062c2cf16d5cf",
+            "material_delta_threshold": 0.3,
+            "max_abs_delta": 0.0035566093657379977,
+            "changed": true,
+            "observability_flips": [
+              "marker_reflected",
+              "reflection_count_norm",
+              "safe_html_encoding_detected"
+            ],
+            "features": [
+              {
+                "feature_name": "marker_reflected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "reflection_count_norm",
+                "baseline_value": 0.6666666666666666,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.03876704208654416,
+                "baseline_observed": true,
+                "verification_value": 0.035210432720806165,
+                "verification_observed": true,
+                "delta": -0.0035566093657379977,
+                "abs_delta": 0.0035566093657379977,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "safe_html_encoding_detected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "status_code_changed",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              }
+            ]
+          },
+          "confidence": {
+            "rule_version": "confidence-rule-v2",
+            "scale": "probability-0-1-v1",
+            "outcome": "UNCHANGED",
+            "signal": "UNCHANGED",
+            "model_version": "verification-confidence-model-v1",
+            "prior_probability": 0.2302379429285601,
+            "verification_confidence": 0.16601299413369316,
+            "confidence_delta": -0.06422494879486693,
+            "evidence": [
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.03876704208654416,
+                "verification_value": 0.035210432720806165,
+                "direction": "flat",
+                "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
+              }
+            ]
+          },
+          "outcome_status": "UNCHANGED",
+          "warnings": []
+        },
+        {
+          "contract_version": "0.1",
+          "verification_result_id": "vres_edab67600dd776de",
+          "candidate_id": "cand_04c23c90c4132562",
+          "selection_rank": 6,
+          "vulnerability_type": "SQLI",
+          "provider": "deterministic-baseline",
+          "proposal_id": "prop_7fdae752c6dc6cd3",
+          "proposer_version": "deterministic-mutation-v1",
+          "mutation_family": "BOUNDARY",
+          "mutated_value": "-1",
+          "based_on_value": "4100",
+          "rationale": "Send an out-of-range integer to distinguish a genuine boundary weakness from generic error handling.",
+          "validator": {
+            "policy_version": "payload-validator-v1",
+            "decision": "ACCEPTED",
+            "rejection_reasons": [],
+            "validated_payload_id": "vpl_5e81474820379ca4"
+          },
+          "baseline_feature_vector_id": "fv_300b97e29ab0b08e",
+          "execution": {
+            "probe_plan_id": "probe_c80dafc211867a7f",
+            "baseline_response_id": "resp_6d3809558a9e2f6c",
+            "probe_response_id": "resp_ae505d5d2c39a461",
+            "verification_feature_vector_id": "fv_6833ccb6597172aa",
+            "baseline_execution_error": null,
+            "probe_execution_error": null
+          },
+          "feature_delta": {
+            "input_point_id": "inp_72bb13a27801ec9d",
+            "verification_feature_vector_id": "fv_6833ccb6597172aa",
+            "material_delta_threshold": 0.3,
+            "max_abs_delta": 0.011144042679312391,
+            "changed": true,
+            "observability_flips": [
+              "marker_reflected",
+              "reflection_count_norm",
+              "safe_html_encoding_detected"
+            ],
+            "features": [
+              {
+                "feature_name": "marker_reflected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "reflection_count_norm",
+                "baseline_value": 0.6666666666666666,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.03876704208654416,
+                "baseline_observed": true,
+                "verification_value": 0.02762299940723177,
+                "verification_observed": true,
+                "delta": -0.011144042679312391,
+                "abs_delta": 0.011144042679312391,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "safe_html_encoding_detected",
+                "baseline_value": 1.0,
+                "baseline_observed": true,
+                "verification_value": null,
+                "verification_observed": false,
+                "delta": null,
+                "abs_delta": null,
+                "observability_flip": true
+              },
+              {
+                "feature_name": "sql_error_pattern",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              },
+              {
+                "feature_name": "status_code_changed",
+                "baseline_value": 0.0,
+                "baseline_observed": true,
+                "verification_value": 0.0,
+                "verification_observed": true,
+                "delta": 0.0,
+                "abs_delta": 0.0,
+                "observability_flip": false
+              }
+            ]
+          },
+          "confidence": {
+            "rule_version": "confidence-rule-v2",
+            "scale": "probability-0-1-v1",
+            "outcome": "UNCHANGED",
+            "signal": "UNCHANGED",
+            "model_version": "verification-confidence-model-v1",
+            "prior_probability": 0.2302379429285601,
+            "verification_confidence": 0.16601299413369316,
+            "confidence_delta": -0.06422494879486693,
+            "evidence": [
+              {
+                "feature_name": "response_length_diff_ratio",
+                "baseline_value": 0.03876704208654416,
+                "verification_value": 0.02762299940723177,
                 "direction": "flat",
                 "reason": "The re-probe barely moved the feature vector; the prior confidence is kept."
               }

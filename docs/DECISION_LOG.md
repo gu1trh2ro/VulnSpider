@@ -1514,6 +1514,196 @@ DemoShop에서도 지금까지 BAC 후보는 "인증이 아예 없어 아무나 
 
 ---
 
+## ADR-041 — Portable multi-screen result dashboard
+
+Status: Accepted
+Date: 2026-09-13
+
+Decision:
+
+- Replace the v0.2 decision report's long card wall with Korean overview,
+  candidate-list, candidate-detail and reading-guide screens. Keep the existing
+  HTML destination and one-file offline delivery using fragment navigation.
+- Render endpoint/input-point ownership as an explicitly labeled map; no crawl
+  edges or attack paths are inferred. Show selected candidate count separately
+  from the existing highest-type-per-subject representative view.
+- Present supplied calibration evidence, initial request pairs, individual
+  VerificationResult payloads/validator decisions/execution references and
+  final confidence. No score, verdict, request or payload is reconstructed.
+  Missing provenance remains missing; BAC aggregates do not invent individual
+  identifier payloads. Per-payload confidences are not presented as cumulative.
+- Use plain explanations before expandable technical records. Defense guidance
+  is conditional and never reports a successful exploit or a completed fix.
+- Inline a fixed, data-independent script for navigation/focus, local search,
+  filters, history and printing. Escape all dynamic text/attributes and restrict
+  scripts to its SHA-256 CSP hash; default network/resource access is denied.
+  CSS fragment navigation provides a modern-browser no-JavaScript fallback.
+
+Context:
+
+The user requested a service-like final graduation-project report that students
+and professors outside web security can follow, with visual summaries and
+separate detail pages showing why candidates deserve review.
+
+Alternatives:
+
+Separate HTML files would complicate artifact distribution/publication. An
+external frontend framework/CDN would add offline and dependency requirements.
+One long page would preserve the information overload the user asked to fix.
+
+Consequences:
+
+- `decision-html-v4` changes presentation only. CLI, JSON, scoring, selection,
+  payload execution and frozen v0.1 report semantics remain compatible.
+- Fragment addresses are scoped to one generated report. A new scan may reorder
+  candidates. Older stored reports retain their original UI until regenerated.
+- New presentation helpers live in `reporting/dashboard_assets.py`,
+  `dashboard_layout.py`, and `dashboard_evidence.py`.
+- Browser QA and independent Gate Review are recorded in the execution plan.
+
+---
+
+## ADR-042 — DemoShop storefront presentation and unified confidence labels
+
+Status: Accepted
+Date: 2026-09-13
+
+Decision:
+
+Honor the requested dashboard terminology: **상위 취약점 후보**, and **최종
+신뢰도** as the display label for the currently available probability, including
+unverified candidates. Retain source explanations and before/after evidence.
+No `VerificationConfidence` is fabricated, no `RankScore` is relabeled as a
+probability, and no JSON, scoring or verification contract changes.
+
+Present DemoShop through a responsive storefront shell and four locally bundled
+AI-generated product photos. Fixed asset routes map to explicitly allowlisted
+files. Product, quantity and category UI selections use bounded fragments and
+DOM updates; cart/checkout completion is a visual simulation with no persistence
+or actual order/payment operation. Ordinary links retain bare canonical paths.
+
+Context:
+
+Graduation evaluators need recognizable shopping screens and understandable
+report labels. The previous placeholder storefront was unsuitable for demos.
+
+Consequences:
+
+- `PAGES`, 100 query input points, default seeds, ground truth, `_fragment`
+  response semantics, loopback scope and authentication rules remain unchanged.
+- New styles/scripts load from local assets; intentional target vulnerabilities
+  remain in the existing response fragments. Detailed raw responses sit behind
+  a disclosure so ordinary shopping screens stay readable.
+- The HTML presentation changes response-size denominators. Historical ranking
+  measurements require a target revision and a fresh evaluation for comparison.
+- No dependency was added. Static asset routing, canonical forms and navigation
+  are covered by regression tests; browser QA checks the simulated purchase flow.
+
+---
+
+### Dashboard demonstration follow-up (2026-09-14)
+
+The overview now connects discovery/observation/selection counts and compares
+the first three representatives' supplied prior and final confidence on a fixed
+0–100% scale. Selected candidate count remains distinct from collapsed display
+count; missing verification never implies a gain or an executed payload.
+
+DemoShop names and marker numbers are optional descriptive annotations read
+from an existing, attributable baseline response and matching GET form. They
+are escaped and never feed identities, scoring or selection. Missing, duplicate,
+malformed or mismatched annotations retain canonical technical names. No target
+module imports, ground-truth access, new requests or discovery contracts were
+introduced. The implementation remains covered by ADR-041/042.
+
+### Projector and recorded-evidence follow-up (2026-09-21)
+
+`decision-html-v5` extends ADR-041/042 with a presentation story, larger
+high-contrast typography, an opt-in projector view with persistent navigation,
+representative verification-state counts and final-confidence bars. The top
+two displayed representatives link to their recorded evidence, with no manual
+proof or target-execution link. The user explicitly excluded the unfinished
+DemoShop proof feature; its code/assets and fixture changes were removed.
+
+Candidate detail displays bounded, escaped retained Baseline/Probe excerpts,
+actual request values, status/size and provenance. Excerpt matching is only a
+reading aid. Interpretations use supplied calibration evidence, distinguish
+aggregate input-point signals from the displayed pair, and explain false
+positives and missing/error records. A SQL error is not proof of SQL execution;
+reflection alone is not proof of script execution. Status cards count displayed
+representatives, not confirmed vulnerabilities. No score/confidence, JSON,
+selection, feature extraction or network behavior changes.
+
+## ADR-043 — Simple DemoShop member login and order ownership demonstration
+
+**Status:** Accepted
+**Date:** 2026-09-21
+
+**Decision:** The storefront My Page link opens a parameter-free GET `/login`
+screen. A single explicit POST button issues the existing `user` demo session
+(uid 1042, display name `soohoon`) and redirects to fixed `/portal/`. POST
+`/logout` clears that browser cookie and redirects to fixed `/login`. Named
+credentials, role selectors, return URLs and scanner tokens are absent from the
+shopper screen. Cookies use HttpOnly and SameSite=Lax; responses are no-store.
+
+**Context:** `/account/login` is a public injection-evaluation fixture, previously
+linked as My Page. Its destination inputs and email-link wording made the manual
+login/BAC demonstration confusing. The real authenticated portal already exists
+under ADR-037 and can be reused without changing scanner authentication.
+
+**Consequences:**
+- Preserve the 100 public canonical input points, seeds, ground truth, and
+  `/account/login` response semantics. The new anonymous login page has no named
+  input controls, no portal links and does not issue cookies on GET. Explicit
+  legacy `/login?as=admin|user` lab helpers remain compatible.
+- The protected order form still uses `ref` with seed `4100`. The new display
+  identifies its owner as `soohoon` (1042); `4101` displays `sanghyun` (1043).
+  Changing only the order number in the same session demonstrates the deliberate
+  missing ownership check. Non-seed identifiers still produce synthetic records
+  to preserve the existing IDOR fixture. Anonymous/forged sessions still get 403,
+  and the ownership-checked payment-card negative control is unchanged.
+- Login/logout only change a demo browser cookie. Empty POST bodies are required;
+  query values never control the issued role or redirect. No account creation,
+  order mutation, scanner execution, transport authority, dependency, domain
+  contract or frozen v0.1 behavior changes. Deterministic tokens remain lab-only;
+  browser logout is not server-side token revocation.
+- Public navigation now includes a parameter-free login page and its empty POST
+  form endpoint. No named input point is added. Page sizes change, so evaluations
+  and response-size-derived rankings require fresh measurements.
+
+### Order lookup navigation follow-up (2026-09-21)
+
+Header/footer order links now use parameter-free `/login/orders`, which renders
+the same one-button login for anonymous visitors and redirects existing sessions
+to `/portal/order`. Explicit POST login has the same fixed destination; arbitrary
+query values cannot select roles or destinations. Neither anonymous login entry
+authenticates on GET or links protected resources into the public crawl.
+
+Authenticated legacy `/orders?order_id=...` requests are redirect aliases to
+`/portal/order?ref=...`; values are URL encoded, and old fixture examples
+20240517/20240518 map to 4100/4101. The protected endpoint remains responsible for
+displaying records. Anonymous `/orders` retains its four canonical inputs and
+SQLi fixture behavior, with a member-login call to action. Public labels remain
+unchanged: actual cross-member order records are served by the existing BAC
+endpoint, not duplicated under the public SQLi endpoint. Evaluation runbooks use
+anonymous public scans and separately authenticated portal scans as before.
+
+### Member evidence demo follow-up (2026-09-23)
+
+The three shared demo members are 한수훈 (1042), 전상현 (1043), and 이석현
+(1044). Protected order/message pages compare the actual fixture owner UID to
+the session UID and highlight a mismatch without requiring a confirmation marker.
+
+The `/admin/users` fixture now uses disposable in-memory SQLite for member
+lookup. Empty/default search selects a bound ID; other terms intentionally enter
+a read-only SELECT unsafely, so the manual tautology returns actual member rows.
+This replaces the constant member fragment and confirmation-only illustrated
+SQL disclosure for this route. SQL errors/missing rows do not fabricate a leak.
+The standard-library database is recreated per lookup, has query-only mode,
+statement/string size limits and an instruction budget, and rejects stacked
+statements. No persistent database, new dependency, transport permission,
+canonical input, scanner verdict rule or frozen v0.1 behavior is introduced.
+Preserve labels and seeds; regenerate response-derived evaluation measurements.
+
 ## New Decision Template
 
 ```text

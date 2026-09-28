@@ -40,10 +40,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
-sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(SRC))
+sys.path.insert(0, str(ROOT))
 
-import demo_shop  # noqa: E402  (path set above)
+from tools import demo_shop  # noqa: E402  (path set above)
 from vulnspider import __version__  # noqa: E402
 
 DEMO_GROUND_TRUTH = "data/demo/demoshop-ground-truth.json"
@@ -164,6 +164,7 @@ def _demoshop_public(out: Path, port: int, top_k: int) -> Scenario:
         "--verify-detail-output", str(d / "verification-detail.html"),
         "--ground-truth", DEMO_GROUND_TRUTH,
         "--application-id", "demoshop",
+        "--verify-links",
         "--eval-output", str(d / "evaluation.json"),
         "--random-predictor", "--random-safe-weight", "4",
     ]
@@ -194,6 +195,7 @@ def _demoshop_bac(out: Path, port: int, top_k: int) -> Scenario:
         "--verify-detail-output", str(d / "verification-detail.html"),
         "--ground-truth", DEMO_GROUND_TRUTH,
         "--application-id", "demoshop",
+        "--verify-links",
         "--eval-output", str(d / "evaluation.json"),
         "--random-predictor", "--random-safe-weight", "4",
     ]
@@ -275,7 +277,7 @@ def _headline(eval_path: Path) -> tuple[list[int], list[tuple[str, dict[int, dic
 
 def _metric_table(eval_path: Path) -> list[str]:
     cutoffs, arms = _headline(eval_path)
-    shown = [k for k in (1, 5) if k in cutoffs] or cutoffs[:1]
+    shown = [k for k in (1, 5, 10, 20) if k in cutoffs] or cutoffs[:1]
     header = ["Arm"]
     for k in shown:
         header += [f"P@{k}", f"R@{k}", f"MAP@{k}"]
@@ -292,6 +294,31 @@ def _metric_table(eval_path: Path) -> list[str]:
             ]
         lines.append("| " + " | ".join(cells) + " |")
     return lines
+
+
+def _verification_note(eval_path: Path) -> str:
+    """One line on what focused verification changed, read from the numbers."""
+
+    cutoffs, arms = _headline(eval_path)
+    named = dict(arms)
+    before = next((v for k, v in named.items() if "without" in k.lower()), None)
+    after = next((v for k, v in named.items() if "full pipeline" in k.lower()), None)
+    if before is None or after is None:
+        return ""
+    changes: list[str] = []
+    for k in cutoffs:
+        for key, label in (("precision_at_k", "P"), ("recall_at_k", "R"), ("map_at_k", "MAP"), ("ndcg_at_k", "NDCG")):
+            x, y = before[k].get(key), after[k].get(key)
+            if x is None or y is None or abs(x - y) < 0.0005:
+                continue
+            changes.append(f"{label}@{k} {x:.3f}→{y:.3f}")
+    if not changes:
+        return (
+            "- 검증 효과: 검증 전 랭킹이 이미 최적이라 `full pipeline`과 "
+            "`without focused verification`의 랭킹 지표가 **동일**하다. 기여는 각 후보의 "
+            "**confidence 값**(대시보드·`verification-detail.html`)에서 드러난다."
+        )
+    return "- 검증 효과: focused verification이 상위 K 안의 순위를 바로잡았다 — " + ", ".join(changes) + "."
 
 
 def _write_readme(scenarios: list[Scenario], out: Path) -> None:
@@ -315,11 +342,11 @@ def _write_readme(scenarios: list[Scenario], out: Path) -> None:
         "`evaluation-inputs.{md,html}`(입력점별 취약 유형), `command.txt`, "
         "`run.log`가 들어 있다.",
         "",
-        "> 참고: DemoShop에서는 검증 전 랭킹이 이미 최적(MAP@K=1.0)이라 "
-        "`VulnSpider (full pipeline)`과 `without focused verification`의 랭킹 지표가 "
-        "**동일**하다 — 재정렬할 여지가 없기 때문이다. Focused verification의 기여는 "
-        "랭킹 재정렬이 아니라 각 후보의 **confidence 값**(대시보드·`verification-detail.html`)과 "
-        "prior가 오정렬하는 더 어려운 타깃(DVWA: 0.875→0.950)에서 드러난다.",
+        "> 참고: `VulnSpider (full pipeline)`은 `without focused verification`의 상위 K 후보를 "
+        "focused verification으로 재검증한 뒤의 랭킹이다. 두 arm의 지표가 같으면 검증이 "
+        "순위를 바꿀 여지가 없었다는 뜻이고, 다르면 검증이 경계의 후보를 바로잡은 것이다 — "
+        "시나리오별 '검증 효과' 줄이 실제 수치로 말해 준다. 랭킹은 응답 바이트에 민감하므로 "
+        "타깃 HTML이 바뀌면 수치는 이 팩을 다시 생성해서 인용한다.",
         "",
     ]
     for scenario in scenarios:
@@ -337,6 +364,10 @@ def _write_readme(scenarios: list[Scenario], out: Path) -> None:
             lines.append("")
             lines.extend(_metric_table(scenario.eval_path))
             lines.append("")
+            note = _verification_note(scenario.eval_path)
+            if note:
+                lines.append(note)
+                lines.append("")
     (out / "README.md").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 

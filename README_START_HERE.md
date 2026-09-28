@@ -148,6 +148,28 @@ respectively.
 
 Simple `-u` mode produces `vulnspider-report.html` — the single end-to-end web
 dashboard — by default, alongside the machine-readable crawl/analysis JSON.
+The v0.2 dashboard now opens on a Korean overview with discovery counts, a
+candidate ownership map, and a type distribution. Its sidebar leads to a
+searchable/filterable candidate list and a guide for non-specialist readers.
+Selecting a node or row opens a dedicated candidate screen with initial
+observations, actual additional payload records, before/after confidence,
+conditional defensive guidance, and criteria for checking a fix. All screens
+travel in one offline HTML file using fragment links; browser back/forward and
+direct detail links work without companion assets. The map represents
+endpoint/input-point ownership, not discovered navigation or attack paths.
+The displayed representative count remains distinct from the selected
+type-specific candidate count. Missing, rejected, unexecuted, and BAC aggregate
+records are labeled explicitly. A fixed CSP-hashed script supplies navigation,
+search, filters and current-screen printing; modern browsers can still navigate
+the fragment screens using CSS when JavaScript is disabled. Existing generated
+reports must be regenerated to receive this UI (ADR-041).
+The projector update (`decision-html-v5`) adds larger high-contrast text,
+**화면 크게** with persistent navigation, a **발표 스토리** screen, verification
+status cards and final-confidence bars. Candidate detail compares retained,
+escaped Baseline/Probe response excerpts and explains the recorded clues and
+their limits in plain Korean. It remains an offline report with no manual
+target-execution feature. Presentation guidance and the fresh K=20 run command:
+[Projector demo guide](docs/PROJECTOR_DEMO_GUIDE.md).
 With `--verify` it leads with the post-verification confidence. Adding
 `--verify` (on `analyze` or simple `-u` mode) runs focused verification
 after ranking: for each Top-K candidate it proposes same-family variant
@@ -284,6 +306,95 @@ onboarding workflow:
 These files document how v0.1 was built and reviewed. New v0.2 work starts from
 the current code and the v0.2 documents, not by replaying the prompts.
 
+## DemoShop storefront presentation
+
+Run `python demo_target_server.py` and open `http://127.0.0.1:8899/` for the
+responsive lifestyle storefront: twelve products (four locally bundled photos
+plus eight recoloured variants of them), category browsing, product details,
+a cart/checkout simulation and a service page for every route. No real order or payment is
+created. All 100 canonical GET input points, labels and probe response
+behaviors remain available. Photography and asset provenance:
+[DemoShop assets](tools/demo_shop_assets/README.md).
+
+Every route's canonical GET form *is* the page's UI: the catalog and search
+render it as the filter bar above the grid (category, brand, colour, size,
+sort, page), the product page as its option panel (`id`, `variant`, `tab`,
+`qty`), the cart and checkout as their order forms, and each service route
+(orders, tickets, seller tools, admin lookups, …) as its own form with a
+contextual submit label. The page reacts to what was submitted — the grid is
+filtered, sorted and paged from the URL query, the product/cart/checkout
+totals follow `qty`, `coupon`, `shipping` — and the server's per-parameter
+response cards (rows, echoes, database errors, validation warnings) are shown
+in a visible results section. Quick-pick chips and the pager are unnamed
+`type="button"` controls; names, seeds, form actions, response behaviors and
+ground truth are unchanged, and the public evaluation surface retains its 100
+input points. The parameter-free member login entries add pages without adding
+input points. Product data (names, prices, per-product option chips) is served
+as its own script, `/assets/products.js`, not embedded in the page: editing the
+catalog never changes a route's response bytes, so it never moves a scan's
+response-size features or the ranking a dashboard is built from.
+
+Each canonical input has a small `⊙` marker: hover over the field or focus the
+marker to see its display number `#001`–`#100`, parameter name and request
+shape (`GET /search?q=…`). The page's input-point shortcut expands the existing
+form. Hidden inputs have a separate annotation. Numbers follow the authored
+target order and are display identifiers, distinct from scanner-generated
+InputPoint IDs.
+
+The fixed **⊙ 입력점 표시** pill (bottom right) switches on reveal mode for the
+demo: every canonical control gets a solid green outline with its number, and
+the storefront controls that feed a canonical parameter — the header search
+box (`/search q`), category tabs (`category`), the product grid
+(`/product id`), the product tab bar (`tab`) and the catalog pager (`page`) —
+get a dashed outline and a `⊙ #001 검색어 q` tag; quick-pick chips and pager
+buttons turn green as well. The choice is kept in `localStorage`, so it
+survives navigation; click again to return to the plain storefront.
+
+The header search box is a real search: Enter or the magnifier opens
+`/search?q=<term>`, the term narrows the product grid on the client and the
+route echoes it as input point #001. The box has no `name` and no `<form>`, so
+the crawl surface is still the canonical `/search` GET form.
+
+The v0.2 dashboard calls the overview list **상위 취약점 후보** and every
+candidate's displayed probability **최종 신뢰도**. Without focused verification,
+that value is the unchanged pre-verification probability, explicitly explained
+in the report; no verification record is invented and scores are not recomputed.
+
+Storefront HTML sizes have changed. Regenerate reports and ranking evaluations
+against the current target revision rather than treating historical metrics as
+measurements of the same response bytes.
+
+The header's **마이페이지** now opens `/login`, with a single **한수훈으로 로그인**
+button. It creates the existing demo `user` session (uid 1042) through an explicit
+POST and redirects to `/portal/`. Returning to My Page keeps that session;
+**로그아웃** clears the browser cookie. No password, email link or destination
+fields are needed for this fixed demo profile.
+
+For the manual BAC example, open **주문 상세** from My Page. Order `4100` belongs
+to `한수훈` (uid 1042). Change the **주문번호** field to `4101` and select **조회**:
+the same signed-in user can now see `전상현`'s order (uid 1043), including a
+different product and amount. The intentional flaw is the missing ownership
+check; requests without a valid session still receive 403. The payment-card
+route remains the safe comparison: `5001` succeeds and `5002` is denied.
+These are synthetic fixtures; non-seed order identifiers continue to return a
+synthetic other-member record for the existing BAC probe behavior.
+
+The header's **주문조회** and footer's **주문 및 배송 조회** open that same protected
+order screen through `/login/orders`. If needed, the one-button login returns
+directly to the order lookup. Existing signed-in `/orders?order_id=...` URLs also
+redirect to `/portal/order?ref=...`, preserving the entered number; older demo
+numbers `20240517` and `20240518` map to `4100` and `4101`. An anonymous `/orders`
+visit retains the four public evaluation inputs and offers a member-order login
+link. Thus real order data and its BAC label remain on the protected endpoint.
+
+The older `/account/login` GET form remains an evaluation fixture with its three
+canonical inputs; it does not authenticate. `/login?as=admin|user` remains an
+explicit lab helper for the existing scanner runbook. Anonymous GET navigation
+never submits the shopper login form. Session cookies are demo-only signed
+tokens, marked HttpOnly and SameSite=Lax; logout clears the browser cookie rather
+than revoking this deterministic lab token. Responses use `Cache-Control:
+no-store` so a logged-out browser revalidates protected pages.
+
 ## Development checks
 
 ```text
@@ -295,3 +406,24 @@ git diff --check
 ```
 
 Windows and Codex setup details remain in `docs/CODEX_SETUP.md`.
+
+### Direct member lookup demo
+
+DemoShop uses three member fixtures: 한수훈 (1042, existing contacts),
+전상현 (1043, sanghyun.jeon@demoshop.test, 010-1234-5678), and
+이석현 (1044, seokhyun.lee@demoshop.test, 010-2345-6789).
+At `/admin/users`, leave the search empty or at its default `soohoon` to
+look up the entered member ID. Unknown IDs return no rows. A different search
+term searches Korean names or English usernames independently of the ID.
+Entering `1' OR '1'='1` returns all three members without `vs_confirm`.
+This one fixture uses a disposable, read-only SQLite SELECT with an instruction
+budget; malformed quotes return SQL errors and multiple statements are rejected.
+The Response section shows one member table and no redundant search-term card.
+The confirmation overlay for this lookup describes the actual result, not a
+fabricated member dump. Other legacy SQL demo overlays remain illustrative.
+
+Protected order and message screens compare the returned owner's UID to the
+current session UID and show an amber notice with both names and IDs on mismatch.
+This works without dashboard navigation. Login requirements and the protected
+payment-card comparison remain unchanged. The fixture response bytes changed;
+regenerate demo reports/ranking measurements against this revision.

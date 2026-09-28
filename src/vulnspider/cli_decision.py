@@ -664,6 +664,7 @@ def analyze_and_report(
     access_verify_config: Any = None,
     evaluation: EvaluationRequest | None = None,
     ranking: DecisionRanking | None = None,
+    verify_links: bool = False,
 ) -> DecisionOutcome:
     """Score one analysis with the calibrated model, take the Top-K, and report.
 
@@ -759,6 +760,7 @@ def analyze_and_report(
             elapsed_seconds=analysis.elapsed_seconds,
             endpoint_count=len(analysis.endpoints),
             input_point_count=len(analysis.input_points),
+            verify_links=verify_links,
         )
     if evaluation is not None:
         report = run_live_evaluation(
