@@ -67,8 +67,8 @@ Target URL
 
 ### 4.1 Native discovery
 
-**Implemented through Native Dynamic CLI/pipeline Milestone 6; final Dynamic
-loopback E2E acceptance remains planned**
+**Implemented through final Dynamic loopback E2E acceptance, observed GET API
+canonicalization, and blocked POST JSON structural canonicalization**
 
 - Direct authorized target URL input.
 - Scope allowlist and final redirect-target validation.
@@ -78,11 +78,18 @@ loopback E2E acceptance remains planned**
   raw query context, form action/method, and source provenance.
 - Direct production of canonical domain models.
 - A bounded dynamic/browser crawler prototype using the same contract.
+- Transport-free canonicalization of already-authorized, naturally emitted,
+  exact-origin GET fetch/XHR, with credential-bearing values elided before
+  canonical construction.
+- Structural-only canonicalization of primary-page exact-origin POST fetch/XHR
+  JSON attempts while the Guard continues to block their transport. Only
+  bounded top-level member names are retained as NOT_READY JSON_BODY points.
 
 The native Static crawler and explicit opt-in combined Dynamic path are
 implemented against one validated canonical schema. Dynamic collection cannot
-introduce a parallel schema. The final Milestone 7 loopback E2E is still
-pending and this status does not claim its acceptance evidence.
+introduce a parallel schema. Strict real-Chromium loopback gates cover transport
+authority, rendered DOM, bounded navigation, canonical merge, cleanup, and the
+split crawl/analysis pipeline.
 
 ### 4.2 Observation, features, and prioritization
 
@@ -159,6 +166,11 @@ forms, and network-visible input surfaces. It must:
 - Obey the same scope and budget authority.
 - Avoid executing application actions that modify state.
 - Deduplicate against static discovery through canonical identity.
+- Build network-visible canonical surfaces only from the Guard's original GET
+  allow decision or eligible POST block decision, never from audit fingerprints
+  and never through replay.
+- Emit value-bearing READY contexts only for credential-free requests; otherwise
+  retain at most value-free structure with explicit NOT_READY ownership.
 
 ## 7. BAC bounded scope
 
@@ -274,8 +286,8 @@ The whole team reviews confidence rules. 석현 owns their implementation.
 
 - Connect browser collection to the same contract.
 - Demonstrate canonical deduplication and unchanged downstream consumption.
-- Status: implemented through the focused CLI/pipeline Milestone 6; final
-  loopback E2E acceptance remains pending.
+- Status: implemented through strict loopback acceptance, bounded navigation,
+  combined merge, simple CLI E2E, and observed GET API canonicalization.
 
 ### M3 - BAC prioritization
 

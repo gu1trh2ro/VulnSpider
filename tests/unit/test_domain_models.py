@@ -6,6 +6,7 @@ import unittest
 
 from vulnspider.domain import (
     Endpoint,
+    EphemeralRequestMaterial,
     FeatureObservation,
     FeatureVector,
     HttpMethod,
@@ -273,6 +274,88 @@ class DomainModelTests(unittest.TestCase):
         )
         self.assertEqual(first.id, equivalent.id)
         self.assertNotEqual(first.id, different_context.id)
+
+    def test_ephemeral_request_material_does_not_change_template_identity_or_repr(
+        self,
+    ) -> None:
+        endpoint = Endpoint(HttpMethod.POST, "http", "127.0.0.1", "/api/search")
+        common = {
+            "endpoint_id": endpoint.id or "",
+            "endpoint_fingerprint": endpoint.fingerprint,
+            "method": HttpMethod.POST,
+            "url": "http://127.0.0.1/api/search?category=",
+            "query": (("category", ""),),
+            "json_body": (("keyword", "null"),),
+            "completeness": RequestContextCompleteness.COMPLETE,
+            "context_key": "network-post-structure",
+        }
+        first = RequestTemplate(
+            **common,
+            ephemeral_material=EphemeralRequestMaterial(
+                url="http://127.0.0.1/api/search?category=book",
+                query=(("category", "book"),),
+                json_body=(("keyword", '"phone"'),),
+            ),
+        )
+        second = RequestTemplate(
+            **common,
+            ephemeral_material=EphemeralRequestMaterial(
+                url="http://127.0.0.1/api/search?category=other",
+                query=(("category", "other"),),
+                json_body=(("keyword", '"different"'),),
+            ),
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(first.fingerprint, second.fingerprint)
+        self.assertNotIn("phone", repr(first))
+        self.assertNotIn("different", repr(second))
+        self.assertNotEqual(first.execution_json_body, second.execution_json_body)
+
+    def test_ephemeral_request_material_must_match_structural_owner(self) -> None:
+        endpoint = Endpoint(HttpMethod.POST, "http", "127.0.0.1", "/api/search")
+        common = {
+            "endpoint_id": endpoint.id or "",
+            "endpoint_fingerprint": endpoint.fingerprint,
+            "method": HttpMethod.POST,
+            "url": "http://127.0.0.1:8080/api/search?category=",
+            "query": (("category", ""),),
+            "json_body": (("keyword", "null"),),
+            "completeness": RequestContextCompleteness.COMPLETE,
+            "context_key": "network-post-structure",
+        }
+        invalid_materials = (
+            EphemeralRequestMaterial(
+                url="http://example.com/api/search?category=book",
+                query=(("category", "book"),),
+                json_body=(("keyword", '"phone"'),),
+            ),
+            EphemeralRequestMaterial(
+                url="http://127.0.0.1:8080/other?category=book",
+                query=(("category", "book"),),
+                json_body=(("keyword", '"phone"'),),
+            ),
+            EphemeralRequestMaterial(
+                url="http://127.0.0.1:8080/api/search?other=book",
+                query=(("other", "book"),),
+                json_body=(("keyword", '"phone"'),),
+            ),
+            EphemeralRequestMaterial(
+                url="http://127.0.0.1:8080/api/search?category=book",
+                query=(("category", "different"),),
+                json_body=(("keyword", '"phone"'),),
+            ),
+            EphemeralRequestMaterial(
+                url="http://127.0.0.1:8080/api/search?category=book",
+                query=(("category", "book"),),
+                json_body=(("other", '"phone"'),),
+            ),
+        )
+
+        for material in invalid_materials:
+            with self.subTest(material=material), self.assertRaises(ValueError):
+                RequestTemplate(**common, ephemeral_material=material)
 
     def test_request_template_mapping_input_order_is_canonical(self) -> None:
         endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1", "/search")

@@ -85,6 +85,12 @@ COOKIE
 MULTIPART
 ```
 
+v0.2 Dynamic discovery additionally implements `JSON_BODY` for value-free
+top-level member names observed on an eligible blocked POST JSON attempt.
+`JSON_BODY` has no RequestTemplate or request context in this implementation and
+is always owned by `ProbeReadiness.NOT_READY`. The older reserved `JSON` enum
+value remains distinct for compatibility and is not produced by this path.
+
 ### InputPoint identity
 
 권장:
@@ -102,6 +108,7 @@ endpoint_fingerprint
 GET /search :: query.q
 GET /search :: query.page
 POST /login :: form.username
+POST /api/search :: json_body.keyword
 ```
 
 ---

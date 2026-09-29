@@ -26,6 +26,8 @@ from vulnspider.discovery import (
     DynamicCrawlResult,
     DynamicCrawlTerminationReason,
     DynamicIntegrityError,
+    DynamicNetworkDecisionKind,
+    DynamicNetworkReason,
     DynamicPageResult,
     DynamicRequestAuthority,
     DynamicResourceKind,
@@ -139,6 +141,7 @@ def _empty_audit() -> BrowserAuditSummary:
         "child_frame_completion_kinds",
         "cleanup_error_codes",
         "events",
+        "network_observations",
     }
     values = {
         item.name: (
@@ -361,10 +364,28 @@ class CombinedPipelineTests(unittest.TestCase):
             analysis.warnings,
         )
         self.assertTrue(probe_transport.requests)
+        get_requests = [
+            request
+            for request in probe_transport.requests
+            if request.method == HttpMethod.GET
+        ]
+        post_requests = [
+            request
+            for request in probe_transport.requests
+            if request.method == HttpMethod.POST
+        ]
+        self.assertEqual(len(get_requests), 6)
+        self.assertEqual(len(post_requests), 2)
         self.assertEqual(
             {request.method for request in probe_transport.requests},
-            {HttpMethod.GET},
+            {HttpMethod.GET, HttpMethod.POST},
         )
+        self.assertTrue(
+            all(request.url == "http://127.0.0.1/submit" for request in post_requests)
+        )
+        self.assertEqual(post_requests[0].form, (("token", "one"),))
+        self.assertTrue(post_requests[1].form[0][1].startswith("VULNSPIDER_"))
+        self.assertNotIn(SENTINEL, repr(probe_transport.requests))
         serialized = json.dumps(combined.to_dict(), ensure_ascii=False)
         self.assertNotIn(SENTINEL, serialized)
         self.assertNotIn(SENTINEL, "\n".join(analysis.warnings))
@@ -456,6 +477,153 @@ class CombinedCliTests(unittest.TestCase):
             str(output),
         ]
 
+    def _advanced_dynamic_authority(
+        self,
+        *extra: str,
+    ) -> DynamicRequestAuthority:
+        args = cli.build_parser().parse_args(
+            [
+                "analyze",
+                "--url",
+                ROOT_URL,
+                "--top-k",
+                "1",
+                "--output",
+                "unused.json",
+                "--dynamic",
+                *extra,
+            ]
+        )
+        return cli._dynamic_authority_from_args(args)
+
+    def test_dynamic_default_constructs_strict_authority(self) -> None:
+        authority = self._advanced_dynamic_authority()
+
+        self.assertEqual(authority.navigation_urls, (ROOT_URL,))
+        self.assertEqual(authority.resource_grants, ())
+        self.assertFalse(authority.allow_rendered_navigation)
+        self.assertFalse(authority.allow_passive_same_origin_resources)
+        self.assertFalse(authority.allow_passive_same_origin_fetch_xhr)
+        self.assertFalse(authority.allows_rendered_navigation(f"{ROOT_URL}dashboard"))
+        for resource_type, url in (
+            ("document", f"{ROOT_URL}dashboard"),
+            ("script", f"{ROOT_URL}app.js"),
+            ("fetch", f"{ROOT_URL}api/items"),
+        ):
+            with self.subTest(resource_type=resource_type):
+                decision = authority.decide_http(
+                    method="GET",
+                    url=url,
+                    resource_type=resource_type,
+                    is_primary_page=True,
+                    is_main_frame=resource_type == "document",
+                )
+                self.assertEqual(
+                    decision.decision,
+                    DynamicNetworkDecisionKind.BLOCK,
+                )
+
+    def test_dynamic_passive_capture_constructs_bounded_authority(self) -> None:
+        authority = self._advanced_dynamic_authority(
+            "--dynamic-passive-capture",
+        )
+
+        self.assertTrue(authority.allow_rendered_navigation)
+        self.assertTrue(authority.allow_passive_same_origin_resources)
+        self.assertTrue(authority.allow_passive_same_origin_fetch_xhr)
+        self.assertTrue(authority.allows_rendered_navigation(f"{ROOT_URL}dashboard"))
+        self.assertFalse(
+            authority.allows_rendered_navigation(
+                "http://127.0.0.1:8080/dashboard"
+            )
+        )
+
+        cases = (
+            (
+                "GET",
+                f"{ROOT_URL}app.js",
+                "script",
+                DynamicNetworkDecisionKind.ALLOW,
+                DynamicNetworkReason.AUTHORIZED_RESOURCE,
+            ),
+            (
+                "GET",
+                f"{ROOT_URL}api/items",
+                "fetch",
+                DynamicNetworkDecisionKind.ALLOW,
+                DynamicNetworkReason.PASSIVE_SAME_ORIGIN_FETCH_XHR,
+            ),
+            (
+                "HEAD",
+                f"{ROOT_URL}api/items",
+                "xhr",
+                DynamicNetworkDecisionKind.ALLOW,
+                DynamicNetworkReason.PASSIVE_SAME_ORIGIN_FETCH_XHR,
+            ),
+            (
+                "POST",
+                f"{ROOT_URL}api/items",
+                "fetch",
+                DynamicNetworkDecisionKind.BLOCK,
+                DynamicNetworkReason.NON_GET_METHOD,
+            ),
+            (
+                "GET",
+                "http://127.0.0.1:8080/api/items",
+                "fetch",
+                DynamicNetworkDecisionKind.BLOCK,
+                DynamicNetworkReason.REQUEST_NOT_AUTHORIZED,
+            ),
+        )
+        for method, url, resource_type, expected_decision, expected_reason in cases:
+            with self.subTest(method=method, url=url, resource_type=resource_type):
+                decision = authority.decide_http(
+                    method=method,
+                    url=url,
+                    resource_type=resource_type,
+                    is_primary_page=True,
+                    is_main_frame=False,
+                )
+                self.assertEqual(decision.decision, expected_decision)
+                self.assertEqual(decision.reason, expected_reason)
+
+    def test_dynamic_navigation_grant_remains_exact_and_strict(self) -> None:
+        granted_url = f"{ROOT_URL}dashboard"
+        authority = self._advanced_dynamic_authority(
+            "--dynamic-allow-navigation",
+            granted_url,
+        )
+
+        self.assertEqual(authority.navigation_urls, (ROOT_URL, granted_url))
+        self.assertEqual(authority.resource_grants, ())
+        self.assertTrue(authority.allows_navigation(granted_url))
+        self.assertFalse(authority.allows_navigation(f"{ROOT_URL}other"))
+        self.assertFalse(authority.allow_rendered_navigation)
+        self.assertFalse(authority.allow_passive_same_origin_resources)
+        self.assertFalse(authority.allow_passive_same_origin_fetch_xhr)
+
+    def test_dynamic_resource_grants_remain_exact_and_strict(self) -> None:
+        grants = {
+            DynamicResourceKind.SCRIPT: f"{ROOT_URL}app.js",
+            DynamicResourceKind.STYLE: f"{ROOT_URL}app.css",
+            DynamicResourceKind.FETCH_XHR: f"{ROOT_URL}api/items",
+        }
+        resource_args = tuple(
+            value
+            for kind, url in grants.items()
+            for value in ("--dynamic-allow-resource", f"{kind.value}={url}")
+        )
+        authority = self._advanced_dynamic_authority(*resource_args)
+
+        self.assertEqual(authority.navigation_urls, (ROOT_URL,))
+        self.assertEqual(
+            {(grant.kind, grant.url) for grant in authority.resource_grants},
+            set(grants.items()),
+        )
+        self.assertFalse(authority.allow_rendered_navigation)
+        self.assertFalse(authority.allow_passive_same_origin_resources)
+        self.assertFalse(authority.allow_passive_same_origin_fetch_xhr)
+
     def test_dynamic_opt_in_constructs_exact_authority_and_policy(self) -> None:
         dynamic_crawler = RecordingDynamicCrawler(_dynamic_result())
         with TemporaryDirectory() as temporary_directory:
@@ -496,6 +664,9 @@ class CombinedCliTests(unittest.TestCase):
         self.assertEqual(policy.request_decision_budget, 12)
         self.assertIn(f"{ROOT_URL}surface?q=one&q=two", authority.navigation_urls)
         self.assertEqual(len(authority.resource_grants), 1)
+        self.assertFalse(authority.allow_rendered_navigation)
+        self.assertFalse(authority.allow_passive_same_origin_resources)
+        self.assertFalse(authority.allow_passive_same_origin_fetch_xhr)
         self.assertEqual(
             authority.resource_grants[0].kind,
             DynamicResourceKind.SCRIPT,
@@ -519,6 +690,7 @@ class CombinedCliTests(unittest.TestCase):
                     "INVALID_AUTHORITY",
                 ),
                 (["--dynamic-max-pages", "1"], "require --dynamic"),
+                (["--dynamic-passive-capture"], "require --dynamic"),
                 (
                     ["--dynamic", "--dynamic-allow-resource", "bogus=/x"],
                     "category must be one of",

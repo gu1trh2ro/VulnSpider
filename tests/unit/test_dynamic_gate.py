@@ -27,7 +27,7 @@ class DynamicGateManifestTests(unittest.TestCase):
         gate.validate_manifest(cases)
         suite, missing = gate.load_manifest_suite(cases)
 
-        self.assertEqual(len(cases), 15)
+        self.assertEqual(len(cases), 19)
         self.assertEqual(missing, ())
         self.assertEqual(suite.countTestCases(), len(cases))
         self.assertEqual(
@@ -261,8 +261,8 @@ class DynamicGateDecisionTests(unittest.TestCase):
         self.assertIn("PLAYWRIGHT_VERSION=1.61.0", output.getvalue())
         self.assertIn("PREFLIGHT=PASS", output.getvalue())
         self.assertIn("SUITE=browser-loopback", output.getvalue())
-        self.assertIn("REQUIRED_EXPECTED=15", output.getvalue())
-        self.assertIn("REQUIRED_EXECUTED=15", output.getvalue())
+        self.assertIn("REQUIRED_EXPECTED=19", output.getvalue())
+        self.assertIn("REQUIRED_EXECUTED=19", output.getvalue())
         self.assertIn("REQUIRED_SKIPPED=0", output.getvalue())
         self.assertIn("REQUIRED_FAILED=0", output.getvalue())
         self.assertIn("MANIFEST_MISSING=0", output.getvalue())

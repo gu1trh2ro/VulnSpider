@@ -12,8 +12,11 @@ from unittest.mock import patch
 
 import vulnspider.cli as cli_module
 from vulnspider.discovery import (
+    CanonicalDiscoveryResult,
     CombinedDiscoveryResult,
+    DiscoveryWarning,
     DiscoveryMergePolicy,
+    DynamicCrawlTerminationReason,
     DynamicCrawlPolicy,
     DynamicCrawlCompletion,
     DynamicResourceKind,
@@ -99,8 +102,21 @@ def _pipeline_stub(analysis: AnalysisResult):
 
 
 class SimpleCliTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Simple mode now writes vulnspider-report.html to the CWD by default;
+        # run every test from a throwaway CWD so the default report never lands
+        # in the repo root when a test only pins --crawl-output/-o.
+        self._original_cwd = os.getcwd()
+        self._cwd = TemporaryDirectory(prefix="vulnspider-simple-cli-cwd-")
+        os.chdir(self._cwd.name)
+
+    def tearDown(self) -> None:
+        os.chdir(self._original_cwd)
+        self._cwd.cleanup()
+
     def test_simple_url_calls_dynamic_pipeline_and_writes_both_defaults(self) -> None:
         stdout = StringIO()
+        stderr = StringIO()
         analysis = _native_analysis()
         with TemporaryDirectory() as temporary_directory:
             original_cwd = Path.cwd()
@@ -113,6 +129,7 @@ class SimpleCliTests(unittest.TestCase):
                         side_effect=_pipeline_stub(analysis),
                     ) as analyze,
                     redirect_stdout(stdout),
+                    redirect_stderr(stderr),
                 ):
                     exit_code = cli_module.main(["-u", ROOT_URL])
                 crawl_path = Path("vulnspider-crawl.json")
@@ -137,6 +154,13 @@ class SimpleCliTests(unittest.TestCase):
         authority = kwargs["dynamic_authority"]
         self.assertTrue(authority.allow_rendered_navigation)
         self.assertTrue(authority.allow_passive_same_origin_resources)
+        self.assertTrue(authority.allow_passive_same_origin_fetch_xhr)
+        self.assertNotIn("진행 상태:", stdout.getvalue())
+        self.assertIn("진행 상태:", stderr.getvalue())
+        self.assertEqual(
+            len([line for line in stdout.getvalue().splitlines() if line]),
+            4,
+        )
         self.assertIn("mode=dynamic", stdout.getvalue())
         self.assertIn("vulnspider-crawl.json", stdout.getvalue())
         self.assertIn("vulnspider-analysis.json", stdout.getvalue())
@@ -400,6 +424,109 @@ class SimpleCliTests(unittest.TestCase):
         self.assertFalse(analysis_exists)
         self.assertIn("crawl=created", stdout.getvalue())
         self.assertIn("DYNAMIC_INCOMPLETE", stderr.getvalue())
+
+    def test_degraded_dynamic_reports_safe_redirect_failure_cause(self) -> None:
+        from tests.unit.test_combined_pipeline_cli import (
+            _dynamic_result,
+            _static_result,
+        )
+
+        static = _static_result()
+        dynamic = _dynamic_result(completion=DynamicCrawlCompletion.DEGRADED)
+        warning = DiscoveryWarning(
+            code="DYNAMIC_OPERATIONAL_FAILURE",
+            message="A bounded Dynamic browser operation failed safely.",
+            details={
+                "error_code": "NAVIGATION_FAILED",
+                "private_provider_diagnostic": "must-not-reach-cli",
+            },
+        )
+        source = dynamic.discovery
+        dynamic_discovery = CanonicalDiscoveryResult.create(
+            discovery_metadata=source.discovery_metadata,
+            scope_metadata=source.scope_metadata,
+            crawl_statistics=source.crawl_statistics,
+            endpoints=source.endpoints,
+            input_points=source.input_points,
+            request_templates=source.request_templates,
+            input_point_request_contexts=source.input_point_request_contexts,
+            probe_readiness=source.probe_readiness,
+            crawl_provenance=source.crawl_provenance,
+            bac_static_hints=source.bac_static_hints,
+            warnings=(warning,),
+            safety_invariants=source.safety_invariants,
+        )
+        dynamic = replace(
+            dynamic,
+            termination_reason=DynamicCrawlTerminationReason.OPERATIONAL_FAILURE,
+            discovery=dynamic_discovery,
+            browser_audit=replace(
+                dynamic.browser_audit,
+                redirect_attempt_count=1,
+                redirect_block_count=1,
+            ),
+        )
+        combined = CombinedDiscoveryResult(
+            root_url=static.root_url,
+            static_crawl=static,
+            dynamic_crawl=dynamic,
+            discovery=merge_discovery_results(
+                static.discovery,
+                dynamic.discovery,
+                DiscoveryMergePolicy(),
+            ),
+        )
+        base_analysis = pipeline_analyze_url(
+            ROOT_URL,
+            top_k=10,
+            crawler_transport=_CrawlerTransport(),
+            transport=_ProbeTransport(),
+        )
+        analysis = replace(
+            base_analysis,
+            discovery_result=combined.discovery,
+            crawl_result=combined.static_crawl,
+            combined_result=combined,
+        )
+        stdout = StringIO()
+        stderr = StringIO()
+        with TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            crawl_output = directory / "crawl.json"
+            analysis_output = directory / "analysis.json"
+            with (
+                patch.object(
+                    cli_module,
+                    "analyze_url",
+                    side_effect=_pipeline_stub(analysis),
+                ),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                exit_code = cli_module.main(
+                    [
+                        "-u",
+                        ROOT_URL,
+                        "--crawl-output",
+                        str(crawl_output),
+                        "-o",
+                        str(analysis_output),
+                    ]
+                )
+            analysis_exists = analysis_output.exists()
+
+        diagnostic = stderr.getvalue()
+        self.assertEqual(exit_code, 4)
+        self.assertFalse(analysis_exists)
+        self.assertIn("crawl=created", stdout.getvalue())
+        self.assertIn("termination=OPERATIONAL_FAILURE", diagnostic)
+        self.assertIn("warnings=DYNAMIC_OPERATIONAL_FAILURE", diagnostic)
+        self.assertIn("browser_errors=NAVIGATION_FAILED", diagnostic)
+        self.assertIn("redirect_blocks=1", diagnostic)
+        self.assertIn("--dynamic-allow-navigation", diagnostic)
+        self.assertIn("do not grant authentication, logout", diagnostic)
+        self.assertIn("Authenticated browser-session import is not supported", diagnostic)
+        self.assertNotIn("must-not-reach-cli", diagnostic)
 
     def test_analysis_publication_failure_leaves_atomic_crawl_only(self) -> None:
         analysis = _native_analysis()

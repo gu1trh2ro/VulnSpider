@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from ipaddress import ip_address
 from importlib import metadata
 import json
 from math import isfinite
@@ -14,7 +14,14 @@ import re
 from threading import Lock
 from time import monotonic
 from typing import Any, Callable, Generic, Protocol, TypeVar
-from urllib.parse import parse_qsl, urljoin, urlsplit, urlunsplit
+from urllib.parse import (
+    parse_qsl,
+    unquote_plus,
+    urlencode,
+    urljoin,
+    urlsplit,
+    urlunsplit,
+)
 
 from vulnspider.discovery.rendered_dom import (
     RENDERED_DOM_CAPTURE_SCRIPT,
@@ -24,6 +31,23 @@ from vulnspider.discovery.rendered_dom import (
     RenderedDomSnapshot,
     snapshot_from_browser_payload,
 )
+from vulnspider.discovery.post_replay_policy import (
+    PostReplayDisposition,
+    PostReplayPolicyDecision,
+    PostReplayPolicyFeatures,
+    PostReplayReasonCode,
+    classify_post_replay,
+)
+from vulnspider.domain import (
+    EphemeralRequestMaterial,
+    normalize_parameter_name,
+    stable_fingerprint,
+)
+from vulnspider.scope.loopback import (
+    LoopbackSafetyError,
+    require_loopback_http_url,
+)
+from vulnspider.sensitive import contains_credential_material, credential_field_name
 
 
 PLAYWRIGHT_REQUIREMENT = "playwright>=1.48,<2"
@@ -36,7 +60,20 @@ _RESOURCE_TYPES = frozenset({"script", "style", "fetch_xhr"})
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 _DEFAULT_NAVIGATION_TIMEOUT_SECONDS = 3.0
 _DEFAULT_REQUEST_DECISION_BUDGET = 50
+_MAX_PASSIVE_URL_CHARACTERS = 8192
+_MAX_PASSIVE_METHOD_CHARACTERS = 32
+_MAX_PASSIVE_HOST_CHARACTERS = 253
+_MAX_PASSIVE_QUERY_PARAMETER_NAMES = 64
+_MAX_PASSIVE_QUERY_NAME_CHARACTERS = 128
+_MAX_NETWORK_PATH_CHARACTERS = 2048
+_MAX_NETWORK_QUERY_CHARACTERS = 4096
+_MAX_NETWORK_QUERY_VALUE_CHARACTERS = 2048
+_MAX_NETWORK_JSON_BODY_BYTES = 16384
+_MAX_NETWORK_JSON_MEMBER_NAMES = 64
 _REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
+_GRAPHQL_IGNORED_PREFIX = re.compile(
+    r"(?:(?:[\s,\ufeff]+)|(?:#[^\r\n]*(?:\r\n?|\n|$)))*"
+)
 
 T = TypeVar("T")
 
@@ -125,6 +162,7 @@ class DynamicNetworkReason(StrEnum):
 
     AUTHORIZED_NAVIGATION = "AUTHORIZED_NAVIGATION"
     AUTHORIZED_RESOURCE = "AUTHORIZED_RESOURCE"
+    PASSIVE_SAME_ORIGIN_FETCH_XHR = "PASSIVE_SAME_ORIGIN_FETCH_XHR"
     REQUEST_DECISION_BUDGET_EXHAUSTED = "REQUEST_DECISION_BUDGET_EXHAUSTED"
     NAVIGATION_BUDGET_EXHAUSTED = "NAVIGATION_BUDGET_EXHAUSTED"
     REDIRECT_BUDGET_EXHAUSTED = "REDIRECT_BUDGET_EXHAUSTED"
@@ -138,6 +176,55 @@ class DynamicNetworkReason(StrEnum):
     RESOURCE_KIND_NOT_AUTHORIZED = "RESOURCE_KIND_NOT_AUTHORIZED"
     EVENTSOURCE_DENIED = "EVENTSOURCE_DENIED"
     WEBSOCKET_DENIED = "WEBSOCKET_DENIED"
+
+
+class PassiveNetworkScope(StrEnum):
+    """Exact-origin classification for one passive request attempt."""
+
+    SAME_SCOPE = "SAME_SCOPE"
+    OFF_SCOPE = "OFF_SCOPE"
+
+
+class NetworkDiscoveryDisposition(StrEnum):
+    """Whether an allowed GET retains an executable value-bearing context."""
+
+    SAFE = "SAFE"
+    STRUCTURAL_ELIDED = "STRUCTURAL_ELIDED"
+
+
+class NetworkDiscoveryElisionReason(StrEnum):
+    """Stable reasons for discarding all request values before retention."""
+
+    SENSITIVE_QUERY = "SENSITIVE_QUERY"
+    CREDENTIAL_HEADER = "CREDENTIAL_HEADER"
+
+
+class NetworkDiscoverySkipReason(StrEnum):
+    """Bounded internal counters for allowed GETs that fail canonicalization."""
+
+    INVALID_URL = "INVALID_URL"
+    URL_TOO_LARGE = "URL_TOO_LARGE"
+    PATH_TOO_LARGE = "PATH_TOO_LARGE"
+    QUERY_TOO_LARGE = "QUERY_TOO_LARGE"
+    QUERY_NAME_INVALID = "QUERY_NAME_INVALID"
+    QUERY_VALUE_TOO_LARGE = "QUERY_VALUE_TOO_LARGE"
+
+
+class PostJsonSkipReason(StrEnum):
+    """Secret-free reasons a blocked POST JSON attempt was not retained."""
+
+    HEADER_UNAVAILABLE = "HEADER_UNAVAILABLE"
+    CONTENT_TYPE_UNSUPPORTED = "CONTENT_TYPE_UNSUPPORTED"
+    BODY_UNAVAILABLE = "BODY_UNAVAILABLE"
+    BODY_TOO_LARGE = "BODY_TOO_LARGE"
+    BODY_ENCODING_INVALID = "BODY_ENCODING_INVALID"
+    JSON_MALFORMED = "JSON_MALFORMED"
+    JSON_TOP_LEVEL_NOT_OBJECT = "JSON_TOP_LEVEL_NOT_OBJECT"
+    JSON_DUPLICATE_KEY = "JSON_DUPLICATE_KEY"
+    JSON_MEMBER_LIMIT_EXCEEDED = "JSON_MEMBER_LIMIT_EXCEEDED"
+    JSON_MEMBER_NAME_INVALID = "JSON_MEMBER_NAME_INVALID"
+    SENSITIVE_REQUEST_ELIDED = "SENSITIVE_REQUEST_ELIDED"
+    CANDIDATE_LIMIT_EXCEEDED = "CANDIDATE_LIMIT_EXCEEDED"
 
 
 class ChildFrameDocumentKind(StrEnum):
@@ -161,6 +248,7 @@ class DynamicBrowserErrorCode(StrEnum):
     HTTP_RESPONSE_DISPOSE_FAILED = "HTTP_RESPONSE_DISPOSE_FAILED"
     WEBSOCKET_GUARD_INSTALL_FAILED = "WEBSOCKET_GUARD_INSTALL_FAILED"
     PAGE_CREATE_FAILED = "PAGE_CREATE_FAILED"
+    PASSIVE_OBSERVER_INSTALL_FAILED = "PASSIVE_OBSERVER_INSTALL_FAILED"
     PAGE_OBSERVER_INSTALL_FAILED = "PAGE_OBSERVER_INSTALL_FAILED"
     POPUP_OBSERVER_INSTALL_FAILED = "POPUP_OBSERVER_INSTALL_FAILED"
     REQUEST_DECISION_BUDGET_EXHAUSTED = "REQUEST_DECISION_BUDGET_EXHAUSTED"
@@ -221,6 +309,408 @@ class BrowserAuditEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class PassiveNetworkObservation:
+    """Bounded, deterministic, secret-free fetch/XHR request attempt."""
+
+    method: str
+    resource_type: str
+    scheme: str
+    host: str
+    effective_port: int
+    path_fingerprint: str
+    path_segment_count: int
+    query_parameter_names: tuple[str, ...]
+    scope: PassiveNetworkScope
+    occurrence_count: int = 1
+
+    def __post_init__(self) -> None:
+        if type(self.method) is not str or not self.method:
+            raise ValueError("passive network method must not be empty")
+        if type(self.resource_type) is not str:
+            raise TypeError("passive network resource type must be a string")
+        if type(self.scheme) is not str or type(self.host) is not str:
+            raise TypeError("passive network origin fields must be strings")
+        try:
+            query_parameter_names = tuple(sorted(self.query_parameter_names))
+        except TypeError as exc:
+            raise TypeError(
+                "passive network query names must be an iterable of strings"
+            ) from exc
+        method = self.method.upper()
+        resource_type = self.resource_type.lower()
+        scheme = self.scheme.lower()
+        host = self.host.lower()
+        scope = PassiveNetworkScope(self.scope)
+        if len(method) > _MAX_PASSIVE_METHOD_CHARACTERS:
+            raise ValueError("passive network method is too long")
+        if resource_type not in {"fetch", "xhr"}:
+            raise ValueError("passive network resource type must be fetch or xhr")
+        if scheme not in _HTTP_SCHEMES or not host:
+            raise ValueError("passive network origin must be absolute HTTP(S)")
+        if len(host) > _MAX_PASSIVE_HOST_CHARACTERS:
+            raise ValueError("passive network host is too long")
+        if (
+            type(self.effective_port) is not int
+            or not 1 <= self.effective_port <= 65535
+        ):
+            raise ValueError("passive network effective port is invalid")
+        if (
+            type(self.path_fingerprint) is not str
+            or not self.path_fingerprint
+            or any(character.isspace() for character in self.path_fingerprint)
+        ):
+            raise ValueError("passive network path fingerprint is invalid")
+        if type(self.path_segment_count) is not int or self.path_segment_count < 0:
+            raise ValueError("passive network path segment count is invalid")
+        if any(type(name) is not str for name in query_parameter_names):
+            raise TypeError("passive network query names must be strings")
+        if len(query_parameter_names) > _MAX_PASSIVE_QUERY_PARAMETER_NAMES or any(
+            len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
+            for name in query_parameter_names
+        ):
+            raise ValueError("passive network query names exceed safe bounds")
+        if type(self.occurrence_count) is not int or self.occurrence_count <= 0:
+            raise ValueError("passive network occurrence count must be positive")
+        object.__setattr__(self, "method", method)
+        object.__setattr__(self, "resource_type", resource_type)
+        object.__setattr__(self, "scheme", scheme)
+        object.__setattr__(self, "host", host)
+        object.__setattr__(self, "query_parameter_names", query_parameter_names)
+        object.__setattr__(self, "scope", scope)
+
+
+@dataclass(frozen=True, slots=True)
+class NetworkDiscoveryCandidate:
+    """Bounded internal projection of one already-authorized GET fetch/XHR."""
+
+    resource_type: str
+    source_url: str
+    base_url: str
+    query_parameter_names: tuple[str, ...]
+    query_pairs: tuple[tuple[str, str], ...]
+    disposition: NetworkDiscoveryDisposition
+    elision_reasons: tuple[NetworkDiscoveryElisionReason, ...] = ()
+    id: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        resource_type = self.resource_type.strip().lower()
+        disposition = NetworkDiscoveryDisposition(self.disposition)
+        query_parameter_names = tuple(self.query_parameter_names)
+        query_pairs = tuple(tuple(pair) for pair in self.query_pairs)
+        reasons = tuple(
+            sorted(
+                (NetworkDiscoveryElisionReason(reason) for reason in self.elision_reasons),
+                key=lambda item: item.value,
+            )
+        )
+        if resource_type not in {"fetch", "xhr"}:
+            raise ValueError("network discovery resource type must be fetch or xhr")
+        if len(reasons) != len(set(reasons)):
+            raise ValueError("network discovery elision reasons must be unique")
+        if any(type(name) is not str or not name for name in query_parameter_names):
+            raise ValueError("network discovery query names must not be empty")
+        if any(
+            len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
+            for name in query_parameter_names
+        ):
+            raise ValueError("network discovery query name is too long")
+        if len(query_parameter_names) > _MAX_PASSIVE_QUERY_PARAMETER_NAMES:
+            raise ValueError("network discovery has too many query names")
+        if any(
+            len(pair) != 2
+            or type(pair[0]) is not str
+            or type(pair[1]) is not str
+            for pair in query_pairs
+        ):
+            raise TypeError("network discovery query pairs must contain strings")
+        if any(
+            len(value) > _MAX_NETWORK_QUERY_VALUE_CHARACTERS
+            for _, value in query_pairs
+        ):
+            raise ValueError("network discovery query value is too long")
+        if disposition == NetworkDiscoveryDisposition.SAFE:
+            if reasons or tuple(name for name, _ in query_pairs) != query_parameter_names:
+                raise ValueError("safe network discovery query structure is invalid")
+            if contains_credential_material(query_pairs):
+                raise ValueError("safe network discovery contains credential material")
+        elif query_pairs or not reasons:
+            raise ValueError("elided network discovery must retain names only")
+        canonical_urls: dict[str, str] = {}
+        for label, url in (("source", self.source_url), ("base", self.base_url)):
+            try:
+                canonical = _canonical_request_url(url)
+            except DynamicBrowserError:
+                raise ValueError(
+                    f"network discovery {label} URL must be canonical"
+                ) from None
+            parts = urlsplit(canonical)
+            if canonical != url or parts.query or parts.fragment:
+                raise ValueError(
+                    f"network discovery {label} URL must be query-free canonical"
+                )
+            if len(parts.path or "/") > _MAX_NETWORK_PATH_CHARACTERS:
+                raise ValueError(f"network discovery {label} path is too long")
+            canonical_urls[label] = canonical
+        if _origin(canonical_urls["source"]) != _origin(canonical_urls["base"]):
+            raise ValueError("network discovery candidate escaped source origin")
+        encoded_query = urlencode(query_pairs)
+        if len(encoded_query) > _MAX_NETWORK_QUERY_CHARACTERS:
+            raise ValueError("network discovery encoded query is too long")
+        if len(self.base_url) + len(encoded_query) + 1 > _MAX_PASSIVE_URL_CHARACTERS:
+            raise ValueError("network discovery canonical URL is too long")
+        fingerprint = stable_fingerprint(
+            "network-discovery-candidate",
+            resource_type,
+            self.source_url,
+            self.base_url,
+            query_parameter_names,
+            query_pairs,
+            disposition.value,
+            tuple(reason.value for reason in reasons),
+        )
+        object.__setattr__(self, "resource_type", resource_type)
+        object.__setattr__(self, "query_parameter_names", query_parameter_names)
+        object.__setattr__(self, "query_pairs", query_pairs)
+        object.__setattr__(self, "disposition", disposition)
+        object.__setattr__(self, "elision_reasons", reasons)
+        object.__setattr__(self, "id", f"netcand_{fingerprint[:24]}")
+
+    @property
+    def canonical_url(self) -> str | None:
+        if self.disposition != NetworkDiscoveryDisposition.SAFE:
+            return None
+        parts = urlsplit(self.base_url)
+        return urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                parts.path or "/",
+                urlencode(self.query_pairs),
+                "",
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class BlockedPostJsonCandidate:
+    """Value-free structure from one eligible blocked POST JSON attempt."""
+
+    resource_type: str
+    source_url: str
+    base_url: str
+    member_names: tuple[str, ...]
+    replay_policy: PostReplayPolicyDecision
+    query_parameter_names: tuple[str, ...] = ()
+    id: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        resource_type = self.resource_type.strip().lower()
+        if type(self.replay_policy) is not PostReplayPolicyDecision:
+            raise TypeError("POST JSON candidate requires a replay policy decision")
+        if resource_type not in {"fetch", "xhr"}:
+            raise ValueError("POST JSON resource type must be fetch or xhr")
+        if contains_credential_material(
+            self.member_names
+        ) or contains_credential_material(self.query_parameter_names):
+            raise ValueError("POST JSON structure contains credential material")
+        canonical_names = tuple(
+            sorted(normalize_parameter_name(name) for name in self.member_names)
+        )
+        query_parameter_names = tuple(
+            sorted(
+                normalize_parameter_name(name)
+                for name in self.query_parameter_names
+            )
+        )
+        if contains_credential_material(
+            canonical_names
+        ) or contains_credential_material(query_parameter_names):
+            raise ValueError("POST JSON structure contains credential material")
+        if len(canonical_names) > _MAX_NETWORK_JSON_MEMBER_NAMES:
+            raise ValueError("POST JSON has too many member names")
+        if any(
+            not name or len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
+            for name in canonical_names
+        ):
+            raise ValueError("POST JSON member name is invalid")
+        if len(set(canonical_names)) != len(canonical_names):
+            raise ValueError("POST JSON member names must be unique")
+        if any(
+            not name or len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
+            for name in query_parameter_names
+        ):
+            raise ValueError("POST JSON query name is invalid")
+        if len(query_parameter_names) > _MAX_PASSIVE_QUERY_PARAMETER_NAMES:
+            raise ValueError("POST JSON has too many query names")
+        canonical_urls: dict[str, str] = {}
+        for label, url in (("source", self.source_url), ("base", self.base_url)):
+            try:
+                canonical = _canonical_request_url(url)
+            except DynamicBrowserError:
+                raise ValueError(
+                    f"POST JSON {label} URL must be canonical"
+                ) from None
+            parts = urlsplit(canonical)
+            if canonical != url or parts.query or parts.fragment:
+                raise ValueError(
+                    f"POST JSON {label} URL must be query-free canonical"
+                )
+            if len(parts.path or "/") > _MAX_NETWORK_PATH_CHARACTERS:
+                raise ValueError(f"POST JSON {label} path is too long")
+            canonical_urls[label] = canonical
+        if _origin(canonical_urls["source"]) != _origin(canonical_urls["base"]):
+            raise ValueError("POST JSON candidate escaped source origin")
+        fingerprint = stable_fingerprint(
+            "blocked-post-json-candidate",
+            "POST",
+            resource_type,
+            self.source_url,
+            self.base_url,
+            canonical_names,
+            query_parameter_names,
+        )
+        object.__setattr__(self, "resource_type", resource_type)
+        object.__setattr__(self, "member_names", canonical_names)
+        object.__setattr__(self, "query_parameter_names", query_parameter_names)
+        object.__setattr__(self, "replay_policy", self.replay_policy)
+        object.__setattr__(self, "id", f"postjson_{fingerprint[:24]}")
+
+    @property
+    def canonical_url(self) -> str:
+        parts = urlsplit(self.base_url)
+        return urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                parts.path or "/",
+                urlencode(tuple((name, "") for name in self.query_parameter_names)),
+                "",
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class NetworkDiscoveryCollection:
+    """Internal candidate set kept separate from passive browser audit evidence."""
+
+    candidates: tuple[NetworkDiscoveryCandidate, ...] = ()
+    skipped_counts: tuple[tuple[NetworkDiscoverySkipReason, int], ...] = ()
+    overflow_count: int = 0
+    post_json_candidates: tuple[BlockedPostJsonCandidate, ...] = ()
+    post_json_replay_materials: tuple[
+        tuple[str, EphemeralRequestMaterial], ...
+    ] = field(default_factory=tuple, repr=False, compare=False)
+    post_json_skipped_counts: tuple[tuple[str, PostJsonSkipReason, int], ...] = ()
+
+    def __post_init__(self) -> None:
+        raw_candidates = tuple(self.candidates)
+        if any(type(item) is not NetworkDiscoveryCandidate for item in raw_candidates):
+            raise TypeError("network discovery candidates must be canonical")
+        candidates = tuple(sorted(raw_candidates, key=lambda item: item.id))
+        if len({item.id for item in candidates}) != len(candidates):
+            raise ValueError("network discovery candidates must be unique")
+        counts = tuple(
+            sorted(
+                (
+                    (NetworkDiscoverySkipReason(reason), count)
+                    for reason, count in self.skipped_counts
+                ),
+                key=lambda item: item[0].value,
+            )
+        )
+        if any(type(count) is not int or count <= 0 for _, count in counts):
+            raise ValueError("network discovery skipped counts must be positive")
+        if len({reason for reason, _ in counts}) != len(counts):
+            raise ValueError("network discovery skipped reasons must be unique")
+        if type(self.overflow_count) is not int or self.overflow_count < 0:
+            raise ValueError("network discovery overflow count must be non-negative")
+        raw_post_candidates = tuple(self.post_json_candidates)
+        if any(
+            type(item) is not BlockedPostJsonCandidate
+            for item in raw_post_candidates
+        ):
+            raise TypeError("POST JSON candidates must be canonical")
+        post_candidates = tuple(
+            sorted(raw_post_candidates, key=lambda item: item.id)
+        )
+        if len({item.id for item in post_candidates}) != len(post_candidates):
+            raise ValueError("POST JSON candidates must be unique")
+        raw_replay_materials = tuple(self.post_json_replay_materials)
+        if any(
+            type(item) is not tuple
+            or len(item) != 2
+            or type(item[0]) is not str
+            or type(item[1]) is not EphemeralRequestMaterial
+            for item in raw_replay_materials
+        ):
+            raise TypeError("POST JSON replay material must be explicit and transient")
+        replay_materials = tuple(sorted(raw_replay_materials, key=lambda item: item[0]))
+        if len({candidate_id for candidate_id, _ in replay_materials}) != len(
+            replay_materials
+        ):
+            raise ValueError("POST JSON replay material ownership must be unique")
+        post_candidates_by_id = {item.id: item for item in post_candidates}
+        for candidate_id, material in replay_materials:
+            candidate = post_candidates_by_id.get(candidate_id)
+            if candidate is None:
+                raise ValueError("POST JSON replay material has no structural owner")
+            if (
+                candidate.replay_policy.disposition
+                != PostReplayDisposition.SAFE_FOR_PROBE
+            ):
+                raise ValueError("non-safe POST JSON candidate cannot retain replay material")
+            if tuple(
+                sorted(normalize_parameter_name(name) for name, _ in material.json_body)
+            ) != candidate.member_names:
+                raise ValueError("POST JSON replay body does not match structural names")
+            if tuple(
+                sorted(normalize_parameter_name(name) for name, _ in material.query)
+            ) != candidate.query_parameter_names:
+                raise ValueError("POST JSON replay query does not match structural names")
+        post_counts = tuple(
+            sorted(
+                (
+                    (source_url, PostJsonSkipReason(reason), count)
+                    for source_url, reason, count in self.post_json_skipped_counts
+                ),
+                key=lambda item: (item[0], item[1].value),
+            )
+        )
+        if any(
+            type(source_url) is not str
+            or not source_url
+            or type(count) is not int
+            or count <= 0
+            for source_url, _, count in post_counts
+        ):
+            raise ValueError("POST JSON skipped counts must be positive and sourced")
+        if len({(source, reason) for source, reason, _ in post_counts}) != len(
+            post_counts
+        ):
+            raise ValueError("POST JSON skipped count keys must be unique")
+        for source_url, _, _ in post_counts:
+            try:
+                canonical_source = _canonical_request_url(source_url)
+            except DynamicBrowserError:
+                raise ValueError(
+                    "POST JSON skipped source must be canonical"
+                ) from None
+            source_parts = urlsplit(canonical_source)
+            if (
+                canonical_source != source_url
+                or source_parts.query
+                or source_parts.fragment
+                or len(source_parts.path or "/") > _MAX_NETWORK_PATH_CHARACTERS
+            ):
+                raise ValueError("POST JSON skipped source must be query-free")
+        object.__setattr__(self, "candidates", candidates)
+        object.__setattr__(self, "skipped_counts", counts)
+        object.__setattr__(self, "post_json_candidates", post_candidates)
+        object.__setattr__(self, "post_json_replay_materials", replay_materials)
+        object.__setattr__(self, "post_json_skipped_counts", post_counts)
+
+
+@dataclass(frozen=True, slots=True)
 class BrowserAuditSummary:
     """Immutable minimal lifecycle and transport audit."""
 
@@ -273,6 +763,10 @@ class BrowserAuditSummary:
     cleanup_error_codes: tuple[str, ...]
     cleanup_complete: bool
     events: tuple[BrowserAuditEvent, ...]
+    network_observations: tuple[PassiveNetworkObservation, ...] = field(
+        default_factory=tuple
+    )
+    network_observation_overflow_count: int = 0
 
 
 class DynamicBrowserError(RuntimeError):
@@ -285,11 +779,43 @@ class DynamicBrowserError(RuntimeError):
         *,
         cleanup_error_codes: tuple[str, ...] = (),
         audit: BrowserAuditSummary | None = None,
+        network_discovery: NetworkDiscoveryCollection | None = None,
     ) -> None:
         super().__init__(message)
         self.code = DynamicBrowserErrorCode(code)
         self.cleanup_error_codes = tuple(cleanup_error_codes)
         self.audit = audit
+        self.network_discovery = network_discovery
+
+    def __reduce__(self) -> tuple[Any, tuple[Any, ...]]:
+        """Preserve typed browser failures across the supervised worker seam."""
+
+        return (
+            _restore_dynamic_browser_error,
+            (
+                self.code,
+                str(self),
+                self.cleanup_error_codes,
+                self.audit,
+                self.network_discovery,
+            ),
+        )
+
+
+def _restore_dynamic_browser_error(
+    code: DynamicBrowserErrorCode,
+    message: str,
+    cleanup_error_codes: tuple[str, ...],
+    audit: BrowserAuditSummary | None,
+    network_discovery: NetworkDiscoveryCollection | None,
+) -> DynamicBrowserError:
+    return DynamicBrowserError(
+        code,
+        message,
+        cleanup_error_codes=cleanup_error_codes,
+        audit=audit,
+        network_discovery=network_discovery,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,14 +881,17 @@ class DynamicRequestAuthority:
     resource_grants: tuple[DynamicResourceGrant, ...] = ()
     allow_rendered_navigation: bool = False
     allow_passive_same_origin_resources: bool = False
+    allow_passive_same_origin_fetch_xhr: bool = False
 
     def __post_init__(self) -> None:
         root_url = _canonical_authority_url(self.root_url)
-        if not _is_loopback_url(root_url):
+        try:
+            require_loopback_http_url(root_url)
+        except LoopbackSafetyError:
             raise DynamicBrowserError(
                 DynamicBrowserErrorCode.INVALID_AUTHORITY,
                 "Dynamic browser root must use an explicit loopback authority.",
-            )
+            ) from None
         try:
             navigation_inputs = tuple(self.navigation_urls)
             grant_inputs = tuple(self.resource_grants)
@@ -374,6 +903,7 @@ class DynamicRequestAuthority:
         for name in (
             "allow_rendered_navigation",
             "allow_passive_same_origin_resources",
+            "allow_passive_same_origin_fetch_xhr",
         ):
             if type(getattr(self, name)) is not bool:
                 raise DynamicBrowserError(
@@ -420,13 +950,22 @@ class DynamicRequestAuthority:
         return canonical in self.navigation_urls
 
     def allows_rendered_navigation(self, url: str) -> bool:
-        """Allow one crawler-observed anchor URL without granting page code."""
+        """Allow an explicitly enabled same-origin rendered/SPA URL.
 
-        if not self.allow_rendered_navigation:
+        URL fragments are browser-local state and are never transmitted in an
+        HTTP request. Angular/hash-router URLs such as ``/#/search`` therefore
+        authorize against the same URL with only the fragment removed.
+        """
+
+        if not self.allow_rendered_navigation or type(url) is not str:
             return False
         try:
-            canonical = _canonical_request_url(url)
-        except DynamicBrowserError:
+            parts = urlsplit(url)
+            transport_url = urlunsplit(
+                (parts.scheme, parts.netloc, parts.path, parts.query, "")
+            )
+            canonical = _canonical_request_url(transport_url)
+        except (DynamicBrowserError, ValueError):
             return False
         return _origin(self.root_url) == _origin(canonical)
 
@@ -454,7 +993,13 @@ class DynamicRequestAuthority:
                 None,
                 normalized_kind,
             )
-        if method.upper() != "GET":
+        normalized_method = method.upper()
+        is_balanced_fetch_xhr_method = (
+            self.allow_passive_same_origin_fetch_xhr
+            and normalized_method in {"GET", "HEAD"}
+            and normalized_kind in {"fetch", "xhr"}
+        )
+        if normalized_method != "GET" and not is_balanced_fetch_xhr_method:
             return DynamicNetworkDecision(
                 DynamicNetworkDecisionKind.BLOCK,
                 DynamicNetworkReason.NON_GET_METHOD,
@@ -526,6 +1071,17 @@ class DynamicRequestAuthority:
                 canonical,
                 normalized_kind,
             )
+        if (
+            is_balanced_fetch_xhr_method
+            and grant_kind == DynamicResourceKind.FETCH_XHR
+            and _origin(self.root_url) == _origin(canonical)
+        ):
+            return DynamicNetworkDecision(
+                DynamicNetworkDecisionKind.ALLOW,
+                DynamicNetworkReason.PASSIVE_SAME_ORIGIN_FETCH_XHR,
+                canonical,
+                normalized_kind,
+            )
         return DynamicNetworkDecision(
             DynamicNetworkDecisionKind.BLOCK,
             DynamicNetworkReason.REQUEST_NOT_AUTHORIZED,
@@ -563,6 +1119,14 @@ class DynamicBrowserSession(Protocol):
     ) -> RenderedDomSnapshot:
         """Capture one bounded, sensitive-form-free main-frame snapshot."""
 
+    def perform_safe_route_actions(
+        self,
+        max_actions: int,
+        *,
+        marker: str = "vulnspider-probe",
+    ) -> int:
+        """Exercise bounded search/filter UI controls without credential forms."""
+
     def close_page(self) -> None:
         """Close the owned primary page once through managed lifecycle cleanup."""
 
@@ -586,6 +1150,9 @@ class DynamicBrowserRunResult(Generic[T]):
 
     value: T
     audit: BrowserAuditSummary
+    network_discovery: NetworkDiscoveryCollection = field(
+        default_factory=NetworkDiscoveryCollection
+    )
 
 
 def _load_playwright_sync_api() -> tuple[type[Any], Callable[[], Any]]:
@@ -824,6 +1391,7 @@ def _canonical_authority_url(url: str) -> str:
     if (
         scheme not in _HTTP_SCHEMES
         or not hostname
+        or (port is not None and port <= 0)
         or parts.username is not None
         or parts.password is not None
         or parts.fragment
@@ -832,7 +1400,7 @@ def _canonical_authority_url(url: str) -> str:
             DynamicBrowserErrorCode.INVALID_AUTHORITY,
             "Dynamic request authority requires a credential-free HTTP(S) URL.",
         )
-    effective_port = port or _DEFAULT_PORTS[scheme]
+    effective_port = _DEFAULT_PORTS[scheme] if port is None else port
     host_text = f"[{hostname}]" if ":" in hostname else hostname
     netloc = (
         host_text
@@ -864,19 +1432,8 @@ def _origin(url: str) -> tuple[str, str, int]:
     parts = urlsplit(url)
     scheme = parts.scheme.lower()
     hostname = parts.hostname.lower() if parts.hostname else ""
-    return scheme, hostname, parts.port or _DEFAULT_PORTS[scheme]
-
-
-def _is_loopback_url(url: str) -> bool:
-    hostname = urlsplit(url).hostname
-    if hostname is None:
-        return False
-    if hostname.lower() == "localhost":
-        return True
-    try:
-        return ip_address(hostname).is_loopback
-    except ValueError:
-        return False
+    port = parts.port
+    return scheme, hostname, _DEFAULT_PORTS[scheme] if port is None else port
 
 
 def _safe_scheme(url: str) -> str:
@@ -911,7 +1468,8 @@ def _safe_audit_event(
         parts = urlsplit(url)
         scheme = parts.scheme.lower()
         host = parts.hostname.lower() if parts.hostname else ""
-        port = parts.port or _DEFAULT_PORTS.get(scheme)
+        parsed_port = parts.port
+        port = _DEFAULT_PORTS.get(scheme) if parsed_port is None else parsed_port
         path = parts.path or "/"
         query_name_count = len(parse_qsl(parts.query, keep_blank_values=True))
     except (TypeError, ValueError):
@@ -930,6 +1488,661 @@ def _safe_audit_event(
         path=path,
         query_name_count=query_name_count,
     )
+
+
+def _passive_network_observation_key(
+    observation: PassiveNetworkObservation,
+) -> tuple[object, ...]:
+    return (
+        observation.method,
+        observation.resource_type,
+        observation.scheme,
+        observation.host,
+        observation.effective_port,
+        observation.path_fingerprint,
+        observation.path_segment_count,
+        observation.query_parameter_names,
+        observation.scope.value,
+    )
+
+
+def _query_parameter_names(raw_query: str) -> tuple[str, ...]:
+    names: list[str] = []
+    for token in raw_query.split("&") if raw_query else ():
+        raw_name = token.partition("=")[0]
+        name = unquote_plus(raw_name)
+        if len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS:
+            raise ValueError("passive network query name is too long")
+        names.append(name)
+        if len(names) > _MAX_PASSIVE_QUERY_PARAMETER_NAMES:
+            raise ValueError("too many passive network query names")
+    return tuple(sorted(names))
+
+
+def _safe_passive_network_observation(
+    *,
+    method: str,
+    url: str,
+    resource_type: str,
+    root_origin: tuple[str, str, int],
+) -> PassiveNetworkObservation | None:
+    if (
+        type(method) is not str
+        or type(url) is not str
+        or type(resource_type) is not str
+        or not method
+        or len(method) > _MAX_PASSIVE_METHOD_CHARACTERS
+        or len(url) > _MAX_PASSIVE_URL_CHARACTERS
+    ):
+        return None
+    normalized_resource_type = resource_type.strip().lower()
+    if normalized_resource_type not in {"fetch", "xhr"}:
+        return None
+    try:
+        parts = urlsplit(url)
+        scheme = parts.scheme.lower()
+        host = parts.hostname.lower() if parts.hostname else ""
+        parsed_port = parts.port
+        effective_port = (
+            _DEFAULT_PORTS[scheme] if parsed_port is None else parsed_port
+        )
+        if effective_port <= 0:
+            return None
+        if len(host) > _MAX_PASSIVE_HOST_CHARACTERS:
+            return None
+        query_parameter_names = _query_parameter_names(parts.query)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if scheme not in _HTTP_SCHEMES or not host:
+        return None
+    path = parts.path or "/"
+    return PassiveNetworkObservation(
+        method=method.upper(),
+        resource_type=normalized_resource_type,
+        scheme=scheme,
+        host=host,
+        effective_port=effective_port,
+        path_fingerprint=stable_fingerprint("passive-network-path", path)[:24],
+        path_segment_count=sum(1 for segment in path.split("/") if segment),
+        query_parameter_names=query_parameter_names,
+        scope=(
+            PassiveNetworkScope.SAME_SCOPE
+            if (scheme, host, effective_port) == root_origin
+            else PassiveNetworkScope.OFF_SCOPE
+        ),
+    )
+
+
+def _safe_network_discovery_candidate(
+    *,
+    method: str,
+    url: str,
+    resource_type: str,
+    source_url: str,
+    root_origin: tuple[str, str, int],
+    credential_header_present: bool,
+) -> tuple[NetworkDiscoveryCandidate | None, NetworkDiscoverySkipReason | None]:
+    """Project one allowed GET without retaining an unsafe request value."""
+
+    if (
+        type(method) is not str
+        or type(url) is not str
+        or type(resource_type) is not str
+        or method.upper() != "GET"
+        or resource_type.strip().lower() not in {"fetch", "xhr"}
+    ):
+        return None, None
+    if len(url) > _MAX_PASSIVE_URL_CHARACTERS:
+        return None, NetworkDiscoverySkipReason.URL_TOO_LARGE
+    if (
+        not url
+        or url != url.strip()
+        or any(character in url for character in "\r\n\t")
+    ):
+        return None, NetworkDiscoverySkipReason.INVALID_URL
+    try:
+        canonical = _canonical_request_url(url)
+        parts = urlsplit(canonical)
+    except (DynamicBrowserError, TypeError, ValueError):
+        return None, NetworkDiscoverySkipReason.INVALID_URL
+    if _origin(canonical) != root_origin:
+        return None, None
+    path = parts.path or "/"
+    if len(path) > _MAX_NETWORK_PATH_CHARACTERS:
+        return None, NetworkDiscoverySkipReason.PATH_TOO_LARGE
+    if len(parts.query) > _MAX_NETWORK_QUERY_CHARACTERS:
+        return None, NetworkDiscoverySkipReason.QUERY_TOO_LARGE
+    if _invalid_percent_encoding(parts.query):
+        return None, NetworkDiscoverySkipReason.INVALID_URL
+    try:
+        query_pairs = tuple(parse_qsl(parts.query, keep_blank_values=True))
+    except (TypeError, ValueError):
+        return None, NetworkDiscoverySkipReason.INVALID_URL
+    if len(query_pairs) > _MAX_PASSIVE_QUERY_PARAMETER_NAMES:
+        return None, NetworkDiscoverySkipReason.QUERY_TOO_LARGE
+    if any(
+        not name.strip() or len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
+        for name, _ in query_pairs
+    ):
+        return None, NetworkDiscoverySkipReason.QUERY_NAME_INVALID
+    if any(len(value) > _MAX_NETWORK_QUERY_VALUE_CHARACTERS for _, value in query_pairs):
+        return None, NetworkDiscoverySkipReason.QUERY_VALUE_TOO_LARGE
+    try:
+        canonical_source = _query_free_network_url(source_url, root_origin=root_origin)
+    except ValueError:
+        return None, NetworkDiscoverySkipReason.INVALID_URL
+    base_url = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+    sensitive_query = contains_credential_material(query_pairs)
+    reasons: list[NetworkDiscoveryElisionReason] = []
+    if sensitive_query:
+        reasons.append(NetworkDiscoveryElisionReason.SENSITIVE_QUERY)
+    if credential_header_present:
+        reasons.append(NetworkDiscoveryElisionReason.CREDENTIAL_HEADER)
+    disposition = (
+        NetworkDiscoveryDisposition.STRUCTURAL_ELIDED
+        if reasons
+        else NetworkDiscoveryDisposition.SAFE
+    )
+    return (
+        NetworkDiscoveryCandidate(
+            resource_type=resource_type,
+            source_url=canonical_source,
+            base_url=base_url,
+            query_parameter_names=tuple(name for name, _ in query_pairs),
+            query_pairs=(
+                ()
+                if disposition == NetworkDiscoveryDisposition.STRUCTURAL_ELIDED
+                else query_pairs
+            ),
+            disposition=disposition,
+            elision_reasons=tuple(reasons),
+        ),
+        None,
+    )
+
+
+class _JsonObjectPairs(tuple[tuple[str, object], ...]):
+    """Marker that distinguishes JSON objects from arrays during parsing."""
+
+
+class _DuplicateJsonKey(ValueError):
+    pass
+
+
+def _json_object_pairs(pairs: list[tuple[str, object]]) -> _JsonObjectPairs:
+    names = tuple(name for name, _ in pairs)
+    if len(names) != len(set(names)):
+        raise _DuplicateJsonKey
+    return _JsonObjectPairs(pairs)
+
+
+def _reject_json_constant(_value: str) -> object:
+    raise ValueError
+
+
+def _application_json_content_type(value: str) -> bool:
+    parts = tuple(part.strip() for part in value.split(";"))
+    if not parts or parts[0].lower() != "application/json":
+        return False
+    parameters = parts[1:]
+    if len(parameters) > 1:
+        return False
+    if not parameters:
+        return True
+    name, separator, charset = parameters[0].partition("=")
+    normalized_charset = charset.strip().strip('"').lower()
+    return (
+        separator == "="
+        and name.strip().lower() == "charset"
+        and normalized_charset in {"utf-8", "utf8"}
+    )
+
+
+def _graphql_semantics_present(parsed: _JsonObjectPairs) -> bool:
+    """Project only whether a top-level GraphQL document was observed."""
+
+    for name, value in parsed:
+        if normalize_parameter_name(name) != "query" or type(value) is not str:
+            continue
+        ignored_prefix = _GRAPHQL_IGNORED_PREFIX.match(value)
+        document = value[ignored_prefix.end() :] if ignored_prefix else value
+        if document.startswith("{") or re.match(
+            r"(?:query|mutation|subscription|fragment)\b",
+            document,
+            flags=re.IGNORECASE,
+        ):
+            return True
+    return False
+
+
+def _safe_blocked_post_json_candidate(
+    *,
+    method: str,
+    url: str,
+    resource_type: str,
+    source_url: str,
+    root_origin: tuple[str, str, int],
+    content_type: str | None,
+    credential_header_present: bool,
+    body: bytes | None,
+) -> tuple[
+    BlockedPostJsonCandidate | None,
+    EphemeralRequestMaterial | None,
+    PostJsonSkipReason | None,
+]:
+    """Split one blocked POST into value-free structure and replay-only material."""
+
+    if (
+        type(method) is not str
+        or type(url) is not str
+        or type(resource_type) is not str
+        or method != "POST"
+        or resource_type.strip().lower() not in {"fetch", "xhr"}
+    ):
+        return None, None, None
+    if (
+        len(url) > _MAX_PASSIVE_URL_CHARACTERS
+        or not url
+        or url != url.strip()
+        or any(character in url for character in "\r\n\t")
+    ):
+        return None, None, None
+    try:
+        canonical = _canonical_request_url(url)
+        parts = urlsplit(canonical)
+    except (DynamicBrowserError, TypeError, ValueError):
+        return None, None, None
+    if _origin(canonical) != root_origin:
+        return None, None, None
+    path = parts.path or "/"
+    if (
+        len(path) > _MAX_NETWORK_PATH_CHARACTERS
+        or len(parts.query) > _MAX_NETWORK_QUERY_CHARACTERS
+        or _invalid_percent_encoding(parts.query)
+    ):
+        return None, None, None
+    try:
+        query_pairs = tuple(parse_qsl(parts.query, keep_blank_values=True))
+        canonical_source = _query_free_network_url(
+            source_url,
+            root_origin=root_origin,
+        )
+    except (TypeError, ValueError):
+        return None, None, None
+    if type(content_type) is not str or not _application_json_content_type(
+        content_type
+    ):
+        return None, None, PostJsonSkipReason.CONTENT_TYPE_UNSUPPORTED
+    if type(body) is not bytes:
+        return None, None, PostJsonSkipReason.BODY_UNAVAILABLE
+    if len(body) > _MAX_NETWORK_JSON_BODY_BYTES:
+        return None, None, PostJsonSkipReason.BODY_TOO_LARGE
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, None, PostJsonSkipReason.BODY_ENCODING_INVALID
+    try:
+        parsed = json.loads(
+            text,
+            object_pairs_hook=_json_object_pairs,
+            parse_constant=_reject_json_constant,
+        )
+    except _DuplicateJsonKey:
+        return None, None, PostJsonSkipReason.JSON_DUPLICATE_KEY
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
+        return None, None, PostJsonSkipReason.JSON_MALFORMED
+    if type(parsed) is not _JsonObjectPairs:
+        return None, None, PostJsonSkipReason.JSON_TOP_LEVEL_NOT_OBJECT
+    if len(parsed) > _MAX_NETWORK_JSON_MEMBER_NAMES:
+        return None, None, PostJsonSkipReason.JSON_MEMBER_LIMIT_EXCEEDED
+    raw_member_names = tuple(name for name, _ in parsed)
+    member_names = _redact_secret_shaped_parameter_names(
+        raw_member_names,
+        placeholder_kind="json_member",
+    )
+    if any(
+        not name or len(name) > _MAX_PASSIVE_QUERY_NAME_CHARACTERS
+        for name in member_names
+    ):
+        return None, None, PostJsonSkipReason.JSON_MEMBER_NAME_INVALID
+    if len(set(member_names)) != len(member_names):
+        return None, None, PostJsonSkipReason.JSON_DUPLICATE_KEY
+    try:
+        member_pairs = tuple(
+            sorted(
+                (
+                    normalize_parameter_name(name),
+                    json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True),
+                )
+                for name, value in parsed
+            )
+        )
+    except (TypeError, ValueError, RecursionError):
+        return None, None, PostJsonSkipReason.JSON_MALFORMED
+    base_url = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+    try:
+        replay_policy = classify_post_replay(
+            PostReplayPolicyFeatures(
+                method="POST",
+                path=path,
+                member_names=raw_member_names,
+                query_parameter_names=tuple(name for name, _ in query_pairs),
+                resource_type=resource_type,
+                exact_authorized_loopback_origin=True,
+                content_type="application/json",
+                charset="utf-8",
+                top_level_json_object=True,
+                scalar_top_level_values=all(
+                    value is None or type(value) in {str, int, float, bool}
+                    for _, value in parsed
+                ),
+                reconstruction_complete=True,
+                graphql_semantics_present=_graphql_semantics_present(parsed),
+                credential_material_present=(
+                    contains_credential_material(parsed)
+                    or contains_credential_material(raw_member_names)
+                    or contains_credential_material(query_pairs)
+                ),
+                credential_header_present=credential_header_present,
+            )
+        )
+    except Exception:  # noqa: BLE001 - fail closed with a stable policy reason.
+        replay_policy = PostReplayPolicyDecision(
+            disposition=PostReplayDisposition.STRUCTURAL_ONLY,
+            reason_code=PostReplayReasonCode.POLICY_ASSESSMENT_FAILED,
+        )
+    candidate = BlockedPostJsonCandidate(
+        resource_type=resource_type,
+        source_url=canonical_source,
+        base_url=base_url,
+        member_names=member_names,
+        query_parameter_names=_redact_secret_shaped_parameter_names(
+            tuple(name for name, _ in query_pairs),
+            placeholder_kind="query_parameter",
+        ),
+        replay_policy=replay_policy,
+    )
+    replay_url = urlunsplit(
+        (parts.scheme, parts.netloc, path, urlencode(query_pairs), "")
+    )
+    replay_material = None
+    if replay_policy.disposition == PostReplayDisposition.SAFE_FOR_PROBE:
+        replay_material = EphemeralRequestMaterial(
+            url=replay_url,
+            query=query_pairs,
+            json_body=member_pairs,
+        )
+    return candidate, replay_material, None
+
+
+def _redact_secret_shaped_parameter_names(
+    names: tuple[str, ...],
+    *,
+    placeholder_kind: str,
+) -> tuple[str, ...]:
+    """Keep bounded structure without persisting a credential used as a name."""
+
+    retained = [
+        normalize_parameter_name(name)
+        for name in names
+        if not contains_credential_material(name)
+    ]
+    used = set(retained)
+    redacted_count = sum(contains_credential_material(name) for name in names)
+    placeholder_index = 1
+    while redacted_count:
+        placeholder = (
+            f"__vulnspider_redacted_{placeholder_kind}_{placeholder_index:04d}__"
+        )
+        placeholder_index += 1
+        if placeholder in used:
+            continue
+        used.add(placeholder)
+        retained.append(placeholder)
+        redacted_count -= 1
+    return tuple(sorted(retained))
+
+
+def _invalid_percent_encoding(value: str) -> bool:
+    index = 0
+    while index < len(value):
+        if value[index] != "%":
+            index += 1
+            continue
+        if index + 2 >= len(value) or any(
+            character not in "0123456789abcdefABCDEF"
+            for character in value[index + 1 : index + 3]
+        ):
+            return True
+        index += 3
+    return False
+
+
+def _query_free_network_url(
+    url: str,
+    *,
+    root_origin: tuple[str, str, int],
+) -> str:
+    canonical = _canonical_request_url(url)
+    if _origin(canonical) != root_origin:
+        raise ValueError("network discovery source escaped root origin")
+    parts = urlsplit(canonical)
+    if len(parts.path or "/") > _MAX_NETWORK_PATH_CHARACTERS:
+        raise ValueError("network discovery source path is too large")
+    return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", "", ""))
+
+
+def _request_has_credential_headers(request: Any) -> bool:
+    """Inspect provider header names transiently and fail closed on ambiguity."""
+
+    try:
+        provider = getattr(request, "all_headers", None)
+        headers = provider() if callable(provider) else getattr(request, "headers")
+    except Exception:  # noqa: BLE001 - no header value or diagnostic may escape.
+        return True
+    if not isinstance(headers, Mapping):
+        return True
+    return any(credential_field_name(name) for name in headers)
+
+
+def _request_json_header_projection(
+    request: Any,
+) -> tuple[str | None, bool, bool]:
+    """Read only the JSON media type and credential-header presence."""
+
+    try:
+        provider = getattr(request, "all_headers", None)
+        headers = provider() if callable(provider) else getattr(request, "headers")
+    except Exception:  # noqa: BLE001 - provider data and diagnostics stay private.
+        return None, True, False
+    if not isinstance(headers, Mapping):
+        return None, True, False
+    content_types: list[str] = []
+    credential_header_present = contains_credential_material(headers)
+    for name, value in headers.items():
+        if type(name) is not str or type(value) is not str:
+            return None, True, False
+        if credential_field_name(name):
+            credential_header_present = True
+        if name.strip().lower() == "content-type":
+            content_types.append(value)
+    if len(content_types) != 1:
+        return None, credential_header_present, True
+    return content_types[0], credential_header_present, True
+
+
+def _request_post_data_buffer(request: Any) -> bytes | None:
+    """Read a provider POST body transiently without retaining diagnostics."""
+
+    try:
+        value = getattr(request, "post_data_buffer")
+        value = value() if callable(value) else value
+    except Exception:  # noqa: BLE001 - body and diagnostics must not escape.
+        return None
+    if type(value) is not bytes:
+        return None
+    return value
+
+
+def _post_policy_precedence(
+    decision: PostReplayPolicyDecision,
+) -> tuple[int, str]:
+    rank = {
+        PostReplayDisposition.SAFE_FOR_PROBE: 0,
+        PostReplayDisposition.STRUCTURAL_ONLY: 1,
+        PostReplayDisposition.BLOCKED_SENSITIVE: 2,
+    }
+    return rank[decision.disposition], decision.reason_code.value
+
+
+class _NetworkDiscoveryRecorder:
+    def __init__(self, *, candidate_limit: int) -> None:
+        self._candidate_limit = candidate_limit
+        self._lock = Lock()
+        self._candidates: dict[str, NetworkDiscoveryCandidate] = {}
+        self._post_json_candidates: dict[str, BlockedPostJsonCandidate] = {}
+        self._post_json_replay_materials: dict[
+            str, EphemeralRequestMaterial
+        ] = {}
+        self._skipped_counts: dict[NetworkDiscoverySkipReason, int] = {}
+        self._post_json_skipped_counts: dict[
+            tuple[str, PostJsonSkipReason], int
+        ] = {}
+        self._overflow_count = 0
+
+    def record_allowed_get(
+        self,
+        *,
+        method: str,
+        url: str,
+        resource_type: str,
+        source_url: str,
+        root_origin: tuple[str, str, int],
+        credential_header_present: bool,
+    ) -> None:
+        candidate, skip_reason = _safe_network_discovery_candidate(
+            method=method,
+            url=url,
+            resource_type=resource_type,
+            source_url=source_url,
+            root_origin=root_origin,
+            credential_header_present=credential_header_present,
+        )
+        with self._lock:
+            if skip_reason is not None:
+                self._skipped_counts[skip_reason] = (
+                    self._skipped_counts.get(skip_reason, 0) + 1
+                )
+                return
+            if candidate is None or candidate.id in self._candidates:
+                return
+            if len(self._candidates) >= self._candidate_limit:
+                self._overflow_count += 1
+                return
+            self._candidates[candidate.id] = candidate
+
+    def record_blocked_post_json(
+        self,
+        *,
+        method: str,
+        url: str,
+        resource_type: str,
+        source_url: str,
+        root_origin: tuple[str, str, int],
+        content_type: str | None,
+        credential_header_present: bool,
+        headers_available: bool,
+        body: bytes | None,
+    ) -> None:
+        try:
+            canonical_source = _query_free_network_url(
+                source_url,
+                root_origin=root_origin,
+            )
+        except (DynamicBrowserError, ValueError):
+            return
+        if not headers_available:
+            candidate = None
+            replay_material = None
+            skip_reason = PostJsonSkipReason.HEADER_UNAVAILABLE
+        else:
+            candidate, replay_material, skip_reason = _safe_blocked_post_json_candidate(
+                method=method,
+                url=url,
+                resource_type=resource_type,
+                source_url=canonical_source,
+                root_origin=root_origin,
+                content_type=content_type,
+                credential_header_present=credential_header_present,
+                body=body,
+            )
+        with self._lock:
+            if skip_reason is not None:
+                key = (canonical_source, skip_reason)
+                self._post_json_skipped_counts[key] = (
+                    self._post_json_skipped_counts.get(key, 0) + 1
+                )
+                return
+            if candidate is None:
+                return
+            current = self._post_json_candidates.get(candidate.id)
+            if current is not None:
+                chosen = max(
+                    (current, candidate),
+                    key=lambda item: _post_policy_precedence(item.replay_policy),
+                )
+                self._post_json_candidates[candidate.id] = chosen
+                if (
+                    chosen.replay_policy.disposition
+                    != PostReplayDisposition.SAFE_FOR_PROBE
+                ):
+                    self._post_json_replay_materials.pop(candidate.id, None)
+                elif candidate is chosen and replay_material is not None:
+                    self._post_json_replay_materials[candidate.id] = replay_material
+                return
+            if len(self._post_json_candidates) >= self._candidate_limit:
+                overflow_reason = PostJsonSkipReason.CANDIDATE_LIMIT_EXCEEDED
+                overflow_sources = {
+                    canonical_source,
+                    *(item.source_url for item in self._post_json_candidates.values()),
+                    *(
+                        source
+                        for source, reason in self._post_json_skipped_counts
+                        if reason == overflow_reason
+                    ),
+                }
+                for key in tuple(self._post_json_skipped_counts):
+                    if key[1] == overflow_reason:
+                        del self._post_json_skipped_counts[key]
+                self._post_json_skipped_counts[
+                    (min(overflow_sources), overflow_reason)
+                ] = 1
+                largest_id = max(self._post_json_candidates)
+                if candidate.id >= largest_id:
+                    return
+                del self._post_json_candidates[largest_id]
+                self._post_json_replay_materials.pop(largest_id, None)
+            self._post_json_candidates[candidate.id] = candidate
+            if replay_material is not None:
+                self._post_json_replay_materials[candidate.id] = replay_material
+
+    def snapshot(self) -> NetworkDiscoveryCollection:
+        with self._lock:
+            return NetworkDiscoveryCollection(
+                candidates=tuple(self._candidates.values()),
+                skipped_counts=tuple(self._skipped_counts.items()),
+                overflow_count=self._overflow_count,
+                post_json_candidates=tuple(self._post_json_candidates.values()),
+                post_json_replay_materials=tuple(
+                    self._post_json_replay_materials.items()
+                ),
+                post_json_skipped_counts=tuple(
+                    (source, reason, count)
+                    for (source, reason), count in (
+                        self._post_json_skipped_counts.items()
+                    )
+                ),
+            )
 
 
 class _AuditRecorder:
@@ -980,9 +2193,13 @@ class _AuditRecorder:
         self.redirect_block_count = 0
         self.redirect_followed_count = 0
         self.request_decision_overflow_count = 0
+        self.network_observation_overflow_count = 0
         self._events: list[BrowserAuditEvent] = []
         self._child_frame_commit_kinds: list[ChildFrameDocumentKind] = []
         self._child_frame_completion_kinds: list[ChildFrameDocumentKind] = []
+        self._network_observations: dict[
+            tuple[object, ...], tuple[PassiveNetworkObservation, int]
+        ] = {}
 
     def record_http(
         self,
@@ -1114,6 +2331,21 @@ class _AuditRecorder:
                 )
             )
 
+    def record_network_observation(
+        self,
+        observation: PassiveNetworkObservation,
+    ) -> None:
+        key = _passive_network_observation_key(observation)
+        with self._lock:
+            current = self._network_observations.get(key)
+            if current is not None:
+                self._network_observations[key] = (current[0], current[1] + 1)
+                return
+            if len(self._network_observations) >= self._event_limit:
+                self.network_observation_overflow_count += 1
+                return
+            self._network_observations[key] = (observation, 1)
+
     def _append_event(self, event: BrowserAuditEvent) -> None:
         if len(self._events) < self._event_limit:
             self._events.append(event)
@@ -1221,6 +2453,27 @@ class _AuditRecorder:
                 cleanup_error_codes=cleanup_error_codes,
                 cleanup_complete=cleanup_complete,
                 events=tuple(self._events),
+                network_observations=tuple(
+                    PassiveNetworkObservation(
+                        method=observation.method,
+                        resource_type=observation.resource_type,
+                        scheme=observation.scheme,
+                        host=observation.host,
+                        effective_port=observation.effective_port,
+                        path_fingerprint=observation.path_fingerprint,
+                        path_segment_count=observation.path_segment_count,
+                        query_parameter_names=observation.query_parameter_names,
+                        scope=observation.scope,
+                        occurrence_count=occurrence_count,
+                    )
+                    for observation, occurrence_count in sorted(
+                        self._network_observations.values(),
+                        key=lambda item: _passive_network_observation_key(item[0]),
+                    )
+                ),
+                network_observation_overflow_count=(
+                    self.network_observation_overflow_count
+                ),
             )
 
 
@@ -1232,12 +2485,17 @@ class _RouteGuard:
         audit: _AuditRecorder,
         stop_active_page: Callable[[], None],
         provider_timeout_error: type[Exception] = TimeoutError,
+        network_discovery: _NetworkDiscoveryRecorder | None = None,
     ) -> None:
         self.authority = authority
         self.policy = policy
         self.audit = audit
         self.stop_active_page = stop_active_page
         self.provider_timeout_error = provider_timeout_error
+        self.network_discovery = network_discovery or _NetworkDiscoveryRecorder(
+            candidate_limit=policy.request_decision_budget
+        )
+        self._root_origin = _origin(authority.root_url)
         self.primary_page: Any | None = None
         self.decision_count = 0
         self._decision_lock = Lock()
@@ -1323,6 +2581,52 @@ class _RouteGuard:
                     decision.canonical_url,
                     resource_type,
                 )
+        if (
+            decision.decision == DynamicNetworkDecisionKind.ALLOW
+            and method.upper() == "GET"
+            and resource_type.strip().lower() in {"fetch", "xhr"}
+            and is_primary_page
+        ):
+            self.network_discovery.record_allowed_get(
+                method=method,
+                url=url,
+                resource_type=resource_type,
+                source_url=self._network_source_url(),
+                root_origin=self._root_origin,
+                credential_header_present=_request_has_credential_headers(request),
+            )
+        if (
+            within_budget
+            and decision.decision == DynamicNetworkDecisionKind.BLOCK
+            and decision.reason == DynamicNetworkReason.NON_GET_METHOD
+            and decision.canonical_url is not None
+            and _origin(decision.canonical_url) == self._root_origin
+            and method == "POST"
+            and resource_type.strip().lower() in {"fetch", "xhr"}
+            and is_primary_page
+        ):
+            (
+                content_type,
+                credential_header_present,
+                headers_available,
+            ) = _request_json_header_projection(request)
+            if (
+                headers_available
+                and type(content_type) is str
+                and _application_json_content_type(content_type)
+            ):
+                body = _request_post_data_buffer(request)
+                self.network_discovery.record_blocked_post_json(
+                    method=method,
+                    url=url,
+                    resource_type=resource_type,
+                    source_url=self._network_source_url(),
+                    root_origin=self._root_origin,
+                    content_type=content_type,
+                    credential_header_present=credential_header_present,
+                    headers_available=True,
+                    body=body,
+                )
         if should_record:
             self.audit.record_http(
                 decision,
@@ -1340,6 +2644,7 @@ class _RouteGuard:
             self._fulfill_allowed_http(
                 route,
                 decision,
+                method=method,
                 resource_type=resource_type,
                 is_primary_page=is_primary_page,
                 is_main_frame=is_main_frame,
@@ -1359,11 +2664,24 @@ class _RouteGuard:
         if navigation_budget_first_exhaustion:
             self.stop_active_page()
 
+    def _network_source_url(self) -> str:
+        raw_url = _safe_provider_text(self.primary_page, "url")
+        for candidate in (raw_url, self.authority.root_url):
+            try:
+                return _query_free_network_url(
+                    candidate,
+                    root_origin=self._root_origin,
+                )
+            except (DynamicBrowserError, ValueError):
+                continue
+        return self.authority.root_url
+
     def _fulfill_allowed_http(
         self,
         route: Any,
         decision: DynamicNetworkDecision,
         *,
+        method: str,
         resource_type: str,
         is_primary_page: bool,
         is_main_frame: bool,
@@ -1415,7 +2733,7 @@ class _RouteGuard:
                 )
                 if within_budget:
                     redirect_decision = self.authority.decide_http(
-                        method="GET",
+                        method=method,
                         url=redirect_url,
                         resource_type=resource_type,
                         is_primary_page=is_primary_page,
@@ -1803,6 +3121,34 @@ class _PageLifecycleObserver:
             )
 
 
+class _PassiveNetworkObserver:
+    """Read-only BrowserContext listener for safe fetch/XHR attempt evidence."""
+
+    def __init__(
+        self,
+        authority: DynamicRequestAuthority,
+        audit: _AuditRecorder,
+    ) -> None:
+        self._root_origin = _origin(authority.root_url)
+        self._audit = audit
+
+    def install(self, context: Any) -> None:
+        context.on("request", self.handle_request)
+
+    def handle_request(self, request: Any) -> None:
+        try:
+            observation = _safe_passive_network_observation(
+                method=_safe_provider_text(request, "method"),
+                url=_safe_provider_text(request, "url"),
+                resource_type=_safe_provider_text(request, "resource_type"),
+                root_origin=self._root_origin,
+            )
+            if observation is not None:
+                self._audit.record_network_observation(observation)
+        except Exception:  # noqa: BLE001 - passive observation cannot block Guard.
+            return
+
+
 def _is_child_frame(frame: Any) -> bool:
     try:
         parent = frame.parent_frame
@@ -2088,6 +3434,110 @@ class _PlaywrightDynamicSession:
             ) from None
         return value if value is None or type(value) is str else str(value)
 
+    def perform_safe_route_actions(
+        self,
+        max_actions: int,
+        *,
+        marker: str = "vulnspider-probe",
+    ) -> int:
+        self._guard.raise_if_failed()
+        if type(max_actions) is not int or max_actions < 0:
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.OPERATION_FAILED,
+                "Route action budget must be a non-negative integer.",
+            )
+        if type(marker) is not str or not marker or len(marker) > 128:
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.OPERATION_FAILED,
+                "Route action marker must be a short non-empty string.",
+            )
+        if max_actions == 0:
+            return 0
+        script = r"""
+        async ({maxActions, marker}) => {
+          const tokens = ["search", "find", "filter", "query"];
+          const text = (el) => [
+            el.getAttribute("type"), el.getAttribute("name"),
+            el.getAttribute("id"), el.getAttribute("placeholder"),
+            el.getAttribute("aria-label"), el.getAttribute("role"),
+            el.textContent
+          ].filter(Boolean).join(" ").toLowerCase();
+          const sensitive = (el) => {
+            const form = el.closest("form");
+            return !!(form && form.querySelector('input[type="password"]'));
+          };
+          const postForm = (el) => {
+            const form = el.closest("form");
+            if (!form) return false;
+            const method = (form.getAttribute("method") || "get").trim().toLowerCase();
+            return method !== "get";
+          };
+          const relevant = (el) => {
+            const kind = (el.getAttribute("type") || "").toLowerCase();
+            return kind === "search" || tokens.some((token) => text(el).includes(token));
+          };
+          let actions = 0;
+          const inputs = Array.from(document.querySelectorAll(
+            'input:not([disabled]):not([type="password"]), textarea:not([disabled])'
+          ));
+          for (const el of inputs) {
+            if (actions >= maxActions) break;
+            if (!relevant(el) || sensitive(el) || postForm(el)) continue;
+            const rect = el.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) continue;
+            el.focus();
+            const setter = Object.getOwnPropertyDescriptor(
+              el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
+              "value"
+            )?.set;
+            if (setter) setter.call(el, marker); else el.value = marker;
+            el.dispatchEvent(new Event("input", {bubbles: true}));
+            el.dispatchEvent(new Event("change", {bubbles: true}));
+            el.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", bubbles: true}));
+            el.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", bubbles: true}));
+            actions += 1;
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          }
+          if (actions < maxActions) {
+            const buttons = Array.from(document.querySelectorAll(
+              'button:not([disabled]), [role="button"]'
+            ));
+            for (const el of buttons) {
+              if (actions >= maxActions) break;
+              if (!relevant(el) || sensitive(el) || postForm(el)) continue;
+              const rect = el.getBoundingClientRect();
+              if (rect.width <= 0 || rect.height <= 0) continue;
+              el.click();
+              actions += 1;
+              await new Promise((resolve) => setTimeout(resolve, 200));
+            }
+          }
+          return actions;
+        }
+        """
+        try:
+            value = self._page.evaluate(
+                script,
+                {"maxActions": max_actions, "marker": marker},
+            )
+            self._page.wait_for_timeout(250)
+            self._guard.raise_if_failed()
+        except self._provider_timeout_error:
+            self._guard.raise_if_failed()
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.OPERATION_TIMEOUT,
+                "Bounded SPA route action timed out.",
+            ) from None
+        except DynamicBrowserError:
+            raise
+        except Exception:
+            self._guard.raise_if_failed()
+            raise DynamicBrowserError(
+                DynamicBrowserErrorCode.OPERATION_FAILED,
+                "Bounded SPA route action failed.",
+            ) from None
+        return value if type(value) is int and value >= 0 else 0
+
     def capture_rendered_dom(
         self,
         policy: RenderedDomPolicy | None = None,
@@ -2235,6 +3685,9 @@ class PlaywrightDynamicBrowser:
         audit = _AuditRecorder(
             event_limit=active_policy.request_decision_budget,
         )
+        network_discovery = _NetworkDiscoveryRecorder(
+            candidate_limit=active_policy.request_decision_budget,
+        )
         preflight_timeout = _remaining_deadline_seconds(active_policy)
         if preflight_timeout is None:
             preflight_dynamic_browser()
@@ -2302,8 +3755,10 @@ class PlaywrightDynamicBrowser:
                 audit,
                 resources.request_page_stop,
                 provider_timeout_error,
+                network_discovery,
             )
             page_observer = _PageLifecycleObserver(authority, audit)
+            passive_observer = _PassiveNetworkObserver(authority, audit)
             if primary_error is None:
                 try:
                     resources.context.route("**/*", guard.handle_http)
@@ -2323,6 +3778,15 @@ class PlaywrightDynamicBrowser:
                     primary_error = DynamicBrowserError(
                         DynamicBrowserErrorCode.WEBSOCKET_GUARD_INSTALL_FAILED,
                         "WebSocket request guard could not be installed.",
+                    )
+            expire_if_needed()
+            if primary_error is None:
+                try:
+                    passive_observer.install(resources.context)
+                except Exception:  # noqa: BLE001
+                    primary_error = DynamicBrowserError(
+                        DynamicBrowserErrorCode.PASSIVE_OBSERVER_INSTALL_FAILED,
+                        "Passive browser request observer could not be installed.",
                     )
             expire_if_needed()
             if primary_error is None:
@@ -2395,12 +3859,14 @@ class PlaywrightDynamicBrowser:
             expire_if_needed()
 
         summary = audit.snapshot(cleanup_error_codes)
+        network_summary = network_discovery.snapshot()
         if primary_error is not None:
             raise DynamicBrowserError(
                 primary_error.code,
                 str(primary_error),
                 cleanup_error_codes=cleanup_error_codes,
                 audit=summary,
+                network_discovery=network_summary,
             ) from None
         if cleanup_error_codes:
             raise DynamicBrowserError(
@@ -2408,11 +3874,17 @@ class PlaywrightDynamicBrowser:
                 "Managed browser cleanup did not complete.",
                 cleanup_error_codes=cleanup_error_codes,
                 audit=summary,
+                network_discovery=network_summary,
             )
         if not value_set:
             raise DynamicBrowserError(
                 DynamicBrowserErrorCode.OPERATION_FAILED,
                 "Managed browser operation did not produce a result.",
                 audit=summary,
+                network_discovery=network_summary,
             )
-        return DynamicBrowserRunResult(value=value, audit=summary)
+        return DynamicBrowserRunResult(
+            value=value,
+            audit=summary,
+            network_discovery=network_summary,
+        )

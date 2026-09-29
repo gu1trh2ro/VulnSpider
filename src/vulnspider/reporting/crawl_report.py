@@ -48,8 +48,36 @@ def build_crawl_report(
         "crawl_mode": mode,
         "completion": completion,
         "degraded": degraded,
-        "crawl": validated.to_dict(),
+        "crawl": _redact_cookie_values(validated.to_dict()),
     }
+
+
+_REDACTED_COOKIE_VALUE = "<redacted>"
+
+
+def _redact_cookie_values(value: Any) -> Any:
+    """Mask session-cookie *values* in the serialized crawl report.
+
+    An authenticated Broken Access Control scan (``--cookie``) attaches the
+    operator's session cookie to every request template, and the crawl report
+    is a shareable artifact. The cookie names are kept (they are useful
+    provenance and not secret) but the values are redacted so a session token is
+    never written to disk (AGENTS.md: never commit session secrets). The
+    in-memory templates the pipeline executes are untouched.
+    """
+
+    if isinstance(value, dict):
+        return {
+            key: (
+                {name: _REDACTED_COOKIE_VALUE for name in sorted(inner)}
+                if key == "cookies" and isinstance(inner, dict)
+                else _redact_cookie_values(inner)
+            )
+            for key, inner in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_cookie_values(item) for item in value]
+    return value
 
 
 def render_crawl_report(

@@ -3,10 +3,14 @@ from __future__ import annotations
 import io
 import json
 import unittest
+from collections import Counter
 from contextlib import redirect_stderr
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
+from unittest.mock import patch
+from urllib.parse import urlsplit
 
 from vulnspider import cli
 from vulnspider.discovery import (
@@ -18,11 +22,28 @@ from vulnspider.discovery import (
 from vulnspider.domain import HttpMethod, RequestInstance
 from vulnspider.observation import TransportResponse
 from vulnspider.observation.executor import RequestExecutionError
-from vulnspider.pipeline import analyze_discovery_result
+from vulnspider.pipeline import AnalysisResult, analyze_discovery_result
 from vulnspider.reporting import build_analysis_report
 
 
 ROOT_URL = "http://127.0.0.1/"
+
+
+def _report_surfaced_candidate_ids(verification_order):
+    """Candidate ids the HTML report surfaces: the top type per input point.
+
+    Every input point is scored as several candidates (a SQLi and an XSS
+    interpretation of one value); the dashboard collapses them to the highest
+    type per input point. Group by ``input_point_ref`` the same way.
+    """
+
+    best = {}
+    for entry in verification_order:
+        ref = entry.get("input_point_ref") or entry["candidate_id"]
+        score = entry.get("final_confidence", entry["probability"])
+        if ref not in best or score > best[ref][0]:
+            best[ref] = (score, entry["candidate_id"])
+    return {candidate_id for _score, candidate_id in best.values()}
 
 
 @dataclass
@@ -110,7 +131,7 @@ class PartiallyFailingMarkerTransport(MarkerTransport):
 
 
 class NativePipelineTests(unittest.TestCase):
-    def test_canonical_analysis_executes_only_ready_get_contexts(self) -> None:
+    def test_canonical_analysis_executes_ready_get_and_post_contexts(self) -> None:
         discovery = extract_static_html(
             """
             <form method="get" action="/search">
@@ -136,26 +157,25 @@ class NativePipelineTests(unittest.TestCase):
 
         self.assertIsNone(analysis.adapter_result)
         self.assertIs(analysis.discovery_result, discovery)
-        self.assertEqual(len(transport.requests), 2)
+        self.assertEqual(len(transport.requests), 4)
         self.assertEqual(
             {request.method for request in transport.requests},
-            {HttpMethod.GET},
+            {HttpMethod.GET, HttpMethod.POST},
         )
-        self.assertTrue(
-            all("/search?" in request.url for request in transport.requests)
+        self.assertEqual(
+            sum("/search?" in request.url for request in transport.requests),
+            2,
         )
-        self.assertTrue(
-            any("executes GET request contexts only" in item for item in analysis.warnings)
+        self.assertEqual(
+            sum("/submit" in request.url for request in transport.requests),
+            2,
         )
-        self.assertTrue(
-            any(
-                "NATIVE_STATIC analysis executes GET request contexts only" in item
-                for item in analysis.warnings
-            )
+        self.assertFalse(
+            any("does not support HTTP method" in item for item in analysis.warnings)
         )
         self.assertEqual(
             analysis.selection.summary.total_scoring_results,
-            2,
+            4,
         )
 
     def test_repeated_contexts_produce_one_feature_vector_per_input_point(
@@ -282,18 +302,28 @@ class NativeCliTests(unittest.TestCase):
             str(output),
         ]
 
-    def test_url_input_writes_json_and_html_without_submitting_post(self) -> None:
+    def test_url_input_executes_bounded_get_and_ready_post_with_provenance(
+        self,
+    ) -> None:
         crawler_transport = SinglePageCrawlerTransport(
             """
             <form method="get" action="/search">
               <input name="q" value="hello">
             </form>
             <form method="post" action="/submit">
-              <input name="token" value="one">
+              <input name="post_value" value="one">
             </form>
             """
         )
         probe_transport = MarkerTransport()
+        captured: list[AnalysisResult] = []
+        real_analyze_url = cli.analyze_url
+
+        def capture_analysis(*args: Any, **kwargs: Any) -> AnalysisResult:
+            analysis = real_analyze_url(*args, **kwargs)
+            captured.append(analysis)
+            return analysis
+
         with TemporaryDirectory() as temporary_directory:
             directory = Path(temporary_directory)
             json_path = directory / "report.json"
@@ -316,31 +346,111 @@ class NativeCliTests(unittest.TestCase):
                 ]
             )
 
-            exit_code = cli.main(
-                args,
-                transport=probe_transport,
-                crawler_transport=crawler_transport,
-            )
+            with patch.object(cli, "analyze_url", new=capture_analysis):
+                exit_code = cli.main(
+                    args,
+                    transport=probe_transport,
+                    crawler_transport=crawler_transport,
+                )
 
             report = json.loads(json_path.read_text(encoding="utf-8"))
             html = html_path.read_text(encoding="utf-8")
 
         self.assertEqual(exit_code, 0)
+        self.assertEqual(len(captured), 1)
         self.assertEqual(len(crawler_transport.requests), 1)
         self.assertEqual(crawler_transport.requests[0].method, HttpMethod.GET)
-        self.assertEqual(len(probe_transport.requests), 2)
-        self.assertEqual(
-            {request.method for request in probe_transport.requests},
-            {HttpMethod.GET},
+
+        request_counts = Counter(
+            (request.method, urlsplit(request.url).path)
+            for request in probe_transport.requests
         )
-        self.assertEqual(report["selection"]["candidates_scored"], 2)
+        self.assertEqual(
+            request_counts,
+            Counter(
+                {
+                    (HttpMethod.GET, "/search"): 2,
+                    (HttpMethod.POST, "/submit"): 2,
+                }
+            ),
+        )
+        get_requests = [
+            request
+            for request in probe_transport.requests
+            if request.method == HttpMethod.GET
+        ]
+        self.assertIn((("q", "hello"),), [item.query for item in get_requests])
+        get_probe = next(
+            item for item in get_requests if item.query != (("q", "hello"),)
+        )
+        self.assertEqual([name for name, _value in get_probe.query], ["q"])
+        self.assertTrue(get_probe.query[0][1].startswith("VULNSPIDER_"))
+        post_requests = [
+            request
+            for request in probe_transport.requests
+            if request.method == HttpMethod.POST
+        ]
+        self.assertIn((("post_value", "one"),), [item.form for item in post_requests])
+        post_probe = next(
+            item for item in post_requests if item.form != (("post_value", "one"),)
+        )
+        self.assertEqual([name for name, _value in post_probe.form], ["post_value"])
+        self.assertTrue(post_probe.form[0][1].startswith("VULNSPIDER_"))
+
+        analysis = captured[0]
+        discovery = analysis.discovery_result
+        self.assertIsNotNone(discovery)
+        assert discovery is not None
+        ready_contexts = discovery.ready_contexts()
+        self.assertEqual(
+            {template.method for _point, template, _context in ready_contexts},
+            {HttpMethod.GET, HttpMethod.POST},
+        )
+        discovered_input_ids = {point.id for point in discovery.input_points}
+        discovered_template_ids = {
+            template.id for template in discovery.request_templates
+        }
+        ready_context_ids = {
+            context.id for _point, _template, context in ready_contexts
+        }
+        self.assertEqual(
+            Counter(
+                observation.probe_plan.baseline_request.method
+                for observation in analysis.probe_observations
+            ),
+            Counter({HttpMethod.GET: 1, HttpMethod.POST: 1}),
+        )
+        for observation in analysis.probe_observations:
+            plan = observation.probe_plan
+            self.assertIn(observation.input_point_id, discovered_input_ids)
+            self.assertIn(plan.request_template_id, discovered_template_ids)
+            self.assertIn(plan.request_context_id, ready_context_ids)
+            self.assertEqual(
+                plan.baseline_request.method,
+                plan.probe_request.method,
+            )
+            self.assertEqual(
+                observation.baseline_response.request_id,
+                plan.baseline_request.id,
+            )
+            self.assertEqual(
+                observation.probe_response.request_id,
+                plan.probe_request.id,
+            )
+            self.assertEqual(observation.baseline_response.probe_plan_id, plan.id)
+            self.assertEqual(observation.probe_response.probe_plan_id, plan.id)
+
+        self.assertEqual(report["selection"]["candidates_scored"], 4)
         self.assertEqual(report["selection"]["selected"], 2)
         self.assertTrue(report["verification_order"])
         self.assertIn("VulnSpider", html)
         self.assertIn("검증 순서", html)
-        for candidate in report["verification_order"]:
-            self.assertIn(candidate["candidate_id"], html)
-        self.assertTrue(
+        # The HTML surfaces one finding per input point (its top type).
+        for candidate_id in _report_surfaced_candidate_ids(
+            report["verification_order"]
+        ):
+            self.assertIn(candidate_id, html)
+        self.assertFalse(
             any("executes GET request contexts only" in item for item in report["warnings"])
         )
 
@@ -412,7 +522,7 @@ class NativeCliTests(unittest.TestCase):
                     crawler_transport=SinglePageCrawlerTransport(""),
                 )
             self.assertEqual(exit_code, 2)
-            self.assertIn("absolute HTTP", error_output.getvalue())
+            self.assertIn("loopback", error_output.getvalue())
             self.assertFalse(output.exists())
 
         for option in ("--max-pages", "--max-requests", "--timeout-seconds"):

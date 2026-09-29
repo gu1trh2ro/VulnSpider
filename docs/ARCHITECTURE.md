@@ -191,8 +191,16 @@ rules.
   inheriting `selection`'s arbitrary `candidate_id` tie-break.
 - `evaluation/baselines.py` — Baselines A/B/C/D and the proposed ranking, plus
   bug-level route aggregation. The proposed arm is scored strictly out-of-fold.
+- `evaluation/live.py` — the same metrics over **one live scan** instead of a
+  stored corpus (ADR-036): a random predictor, the pipeline with focused
+  verification removed (calibrated prior order), and the shipped product
+  (`final_confidence` order), all over the same candidates and labels. A corpus
+  holds no verification evidence, so this is the only path that can measure the
+  verification stage's contribution. Reached with `analyze --ground-truth`
+  against a labeled target — `tools/demo_shop.py` (DemoShop, 100 input points).
 
-`tools/evaluate_ranking.py` prints the comparison table.
+`tools/evaluate_ranking.py` prints the comparison table for the corpus; the live
+table is printed by the scan itself and written as `live-evaluation-v1` JSON.
 
 Baseline B scores every candidate identically, so it is one tie group; the
 metric machinery then yields the exact random expectation in closed form, and
@@ -212,9 +220,10 @@ must refer to different destinations.
 
 ### 1.4 Package shells that are not implementations
 
-`scope/` and `surface/` currently contain package shells. Their presence does
-not mean that `ScopeGuard`, a native surface collector, or a separate
-`AttackSurfaceNormalizer` has been implemented.
+`scope/` contains the internal shared loopback HTTP URL validator used at
+active execution boundaries, while `surface/` remains a package shell. This
+does not mean that a general `ScopeGuard`, native surface collector, or
+separate `AttackSurfaceNormalizer` has been implemented.
 
 #### Native discovery
 
@@ -223,9 +232,21 @@ authority, pre-canonical sensitive-form elision for combined mode, and a
 deterministic Static-first merge. The advanced `analyze --dynamic` boundary
 keeps exact caller grants. The simple adapter additionally permits only an
 exact same-origin GET URL already extracted from a rendered anchor, for that
-single crawler navigation, plus same-origin GET script/style resources.
-Fetch/XHR, WebSocket, EventSource, POST, popup, and child-frame documents stay
-blocked by default. `pipeline.analyze_url()` sends the validated combined
+single crawler navigation, same-origin GET script/style resources, and naturally
+emitted same-origin GET/HEAD fetch/XHR. An already-allowed primary-page GET
+fetch/XHR can enter the separate network canonicalization path. A blocked
+primary-page exact-origin POST fetch/XHR with `application/json` can enter only
+the value-free structural branch at the same Guard decision seam. This path never
+reconstructs from passive audit, never replays transport, and never retains raw
+credential headers/cookies or sensitive query values. Safe query occurrences
+produce normal READY contexts. Credential-bearing requests produce at most
+value-free Endpoint/InputPoint structure with NOT_READY ownership and no
+RequestTemplate/context. Eligible POST JSON produces only a POST Endpoint and
+top-level JSON_BODY InputPoints with NOT_READY ownership; the request remains
+blocked and body values are discarded before candidate retention. WebSocket,
+EventSource, all POST transport, popup, child-frame documents, cross-origin,
+and different-port traffic stay blocked.
+`pipeline.analyze_url()` sends the validated combined
 `CombinedDiscoveryResult.discovery` to the unchanged
 `analyze_discovery_result()` consumer. Advanced plain `analyze --url` and
 simple `--static-only` stay Static-only, while legacy `--input` cannot activate

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from dataclasses import dataclass, field
 from hashlib import sha256
 from time import monotonic
@@ -79,7 +81,32 @@ class UrlLibTransport:
                 f"{name}={value}" for name, value in request.cookies.items()
             )
         body = None
-        if request.form:
+        if request.form and request.json_body:
+            raise RequestExecutionError(
+                "request cannot contain both form and json_body"
+            )
+
+        if request.json_body:
+            try:
+                json_object = {
+                    name: json.loads(encoded_value)
+                    for name, encoded_value in request.json_body
+                }
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise RequestExecutionError(
+                    "invalid canonical JSON request body"
+                ) from exc
+
+            body = json.dumps(
+                json_object,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+            if not _has_header(headers, "Content-Type"):
+                headers["Content-Type"] = "application/json"
+
+        elif request.form:
             body = urlencode(request.form).encode("utf-8")
             if not _has_header(headers, "Content-Type"):
                 headers["Content-Type"] = "application/x-www-form-urlencoded"
@@ -224,14 +251,25 @@ def execute_request(
     transport: RequestTransport,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
+    probe_plan_id: str | None = None,
+    request_role: str | None = None,
 ) -> ResponseSnapshot:
+    """Send one request and capture its response.
+
+    ``probe_plan_id``/``request_role`` are optional provenance stamps for
+    callers outside the injection ``ProbePlan`` flow (for example
+    ``vulnspider.access.executor``) that still want the same tested
+    snapshot-construction and body-capture-limit behavior. Direct callers that
+    omit them get an unowned observation, exactly as before.
+    """
+
     return _execute_request(
         request,
         transport=transport,
         timeout_seconds=timeout_seconds,
         max_body_bytes=max_body_bytes,
-        probe_plan_id=None,
-        request_role=None,
+        probe_plan_id=probe_plan_id,
+        request_role=request_role,
     )
 
 

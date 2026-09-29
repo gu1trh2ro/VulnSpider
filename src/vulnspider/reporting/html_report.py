@@ -431,14 +431,42 @@ def _render_band_bar(bands: Mapping[str, int]) -> str:
     return f'<div class="bandbar">{pills}</div>'
 
 
+_WARNINGS_DISPLAY_LIMIT = 8
+
+
 def _render_warnings(warnings: Sequence[str]) -> str:
+    """Collapse identical warnings and cap the list.
+
+    Discovery emits one warning per occurrence, so a normal crawl produces the
+    same message many times over (a duplicate URL, an unbound control). Printing
+    each one buries the report under repetition, so identical messages are
+    folded into ``message (xN)`` in first-seen order and the distinct list is
+    capped, with an overflow line for the remainder.
+    """
+
     if not warnings:
         return ""
-    items = "".join(f"<li>{_esc(item)}</li>" for item in warnings)
+    counts: dict[str, int] = {}
+    for warning in warnings:
+        message = str(warning)
+        counts[message] = counts.get(message, 0) + 1
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    shown = ordered[:_WARNINGS_DISPLAY_LIMIT]
+    items = "".join(
+        f"<li>{_esc(message)}{'' if count == 1 else f' (&times;{count})'}</li>"
+        for message, count in shown
+    )
+    hidden = len(ordered) - len(shown)
+    if hidden > 0:
+        items += f'<li class="muted">… and {hidden} more distinct warning(s)</li>'
     return (
+        '<details>'
+        '<summary class="lab" style="cursor: pointer; outline: none;">Warnings (클릭해서 접기/펴기)</summary>'
         '<div class="notice">'
-        '<div class="lab">Warnings</div>'
+        f'<div class="lab">Warnings ({len(ordered)} distinct, '
+        f"{sum(counts.values())} total)</div>"
         f"<ul>{items}</ul></div>"
+        '</details>'
     )
 
 

@@ -78,6 +78,51 @@ BROWSER_LOOPBACK_CASES = (
         "Unauthorized same-authority fetch and XHR are blocked pre-transport.",
     ),
     BrowserManifestCase(
+        "balanced-fetch-xhr",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_balanced_fetch_xhr_allows_only_natural_same_origin_get_head"
+        ),
+        (
+            "Balanced natural same-origin GET/HEAD fetch and XHR execute once while "
+            "unsafe and off-origin attempts remain pre-transport blocked."
+        ),
+    ),
+    BrowserManifestCase(
+        "network-get-canonicalization",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_observed_get_api_canonicalization_is_transport_free"
+        ),
+        (
+            "Allowed natural same-origin GET fetch/XHR become canonical probe-ready "
+            "contracts without replay; HEAD, POST, and off-origin attempts do not."
+        ),
+    ),
+    BrowserManifestCase(
+        "blocked-post-json-structure",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_blocked_post_json_is_classified_without_browser_transport"
+        ),
+        (
+            "Natural primary-page exact-origin POST JSON stays blocked in-browser "
+            "while canonical discovery retains tiered replay-policy classification."
+        ),
+    ),
+    BrowserManifestCase(
+        "passive-network-observation",
+        (
+            "tests.integration.test_dynamic_browser_loopback."
+            "DynamicBrowserLoopbackTests."
+            "test_real_passive_network_observation_is_bounded_and_never_replays"
+        ),
+        "Fetch/XHR attempts are observed without replay or blocked transport.",
+    ),
+    BrowserManifestCase(
         "unsafe-same-origin-get-block",
         (
             "tests.integration.test_dynamic_browser_loopback."

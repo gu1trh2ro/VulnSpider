@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
-from ipaddress import ip_address
+from dataclasses import dataclass, field, replace
 from time import monotonic
 from typing import Any
-from urllib.parse import urlsplit
 
 from vulnspider.discovery import (
     CanonicalDiscoveryResult,
@@ -29,8 +27,19 @@ from vulnspider.discovery import (
     discover_native_combined,
     extract_static_html_with_sensitive_form_elision,
 )
+from vulnspider.access import (
+    AccessProbeExecutionResult,
+    execute_access_plan,
+    extract_access_features,
+    plan_credential_strip,
+    plan_identifier_substitution,
+    score_access_plan,
+)
 from vulnspider.domain import (
+    AccessProbePlan,
+    AccessScoringResult,
     Endpoint,
+    FeatureObservation,
     FeatureVector,
     HttpMethod,
     InputPoint,
@@ -54,10 +63,38 @@ from vulnspider.observation import (
 from vulnspider.observation.executor import RequestTransport
 from vulnspider.scoring import ScoringResult, generate_candidates
 from vulnspider.selection import SelectionOutcome, select_top_k
+from vulnspider.scope.loopback import (
+    LoopbackSafetyError,
+    require_loopback_http_url,
+)
 
 
 class PipelineError(ValueError):
     """Raised when adapter records cannot safely traverse the v0.1 pipeline."""
+
+
+# Framework-maintained state fields are useful attack-surface inventory, but
+# they are outside VulnSpider's current SQLi / Reflected-XSS probe scope.
+# Keep them in discovery and skip only the expensive probe/candidate path.
+_FRAMEWORK_STATE_PARAMETER_NAMES = frozenset(
+    {
+        "__viewstate",
+        "__viewstatefieldcount",
+        "__viewstategenerator",
+        "__viewstateencrypted",
+        "__eventvalidation",
+        "__eventtarget",
+        "__eventargument",
+        "__lastfocus",
+    }
+)
+
+
+def _is_framework_state_input(input_point: InputPoint) -> bool:
+    """Return whether an InputPoint is framework bookkeeping, not app data."""
+
+    name = (input_point.name or "").strip().casefold()
+    return name in _FRAMEWORK_STATE_PARAMETER_NAMES
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +126,22 @@ class _ProbeRun:
 
 
 @dataclass(frozen=True, slots=True)
+class AccessProbeObservation:
+    """The executed reference/comparison pair behind an ``AccessCandidate``.
+
+    Same reporting-join purpose as :class:`ProbeObservation`, but for the
+    separate BAC pipeline (ADR-012/ADR-014): credential-stripped or
+    identifier-substituted GET re-sends, never an injection probe.
+    """
+
+    candidate_id: str
+    access_probe_plan: AccessProbePlan
+    reference_response: ResponseSnapshot
+    comparison_response: ResponseSnapshot
+    features: Mapping[str, FeatureObservation] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisResult:
     adapter_result: LegacyAdapterResult | None
     scoring_results: tuple[ScoringResult, ...]
@@ -100,6 +153,8 @@ class AnalysisResult:
     crawl_result: StaticCrawlResult | None = None
     combined_result: CombinedDiscoveryResult | None = None
     feature_vectors: tuple[FeatureVector, ...] = ()
+    access_scoring_results: tuple[AccessScoringResult, ...] = ()
+    access_probe_observations: tuple[AccessProbeObservation, ...] = ()
 
     @property
     def dynamic_crawl_result(self) -> DynamicCrawlResult | None:
@@ -133,6 +188,7 @@ def analyze_legacy_records(
     transport: RequestTransport | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
+    enable_access: bool = False,
 ) -> AnalysisResult:
     """Run adapter-compatible records through the implemented v0.1 pipeline."""
 
@@ -166,6 +222,7 @@ def analyze_legacy_records(
         max_body_bytes=max_body_bytes,
         initial_warnings=adapter_result.warnings,
         adapter_result=adapter_result,
+        enable_access=enable_access,
     )
 
 
@@ -176,8 +233,9 @@ def analyze_discovery_result(
     transport: RequestTransport | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
+    enable_access: bool = False,
 ) -> AnalysisResult:
-    """Analyze READY GET contexts from a canonical native discovery result."""
+    """Analyze READY GET/POST contexts from a canonical native discovery result."""
 
     if not isinstance(discovery_result, CanonicalDiscoveryResult):
         raise PipelineError(
@@ -195,7 +253,8 @@ def analyze_discovery_result(
             for warning in discovery_result.warnings
         ),
         discovery_result=discovery_result,
-        allowed_methods=frozenset({HttpMethod.GET}),
+        allowed_methods=frozenset({HttpMethod.GET, HttpMethod.POST}),
+        enable_access=enable_access,
     )
 
 
@@ -217,6 +276,7 @@ def analyze_url(
     ]
     | None = None,
     elide_sensitive_forms: bool = False,
+    enable_access: bool = False,
 ) -> AnalysisResult:
     """Analyze Static discovery, or explicit Static-plus-Dynamic discovery."""
 
@@ -234,6 +294,7 @@ def analyze_url(
         raise PipelineError(
             "dynamic policy and crawler require explicit dynamic authority"
         )
+    _require_loopback_request(root_url)
     if dynamic_authority is not None:
         try:
             combined = discover_native_combined(
@@ -269,6 +330,7 @@ def analyze_url(
             transport=transport,
             timeout_seconds=timeout_seconds,
             max_body_bytes=max_body_bytes,
+            enable_access=enable_access,
         )
         return replace(
             analysis,
@@ -308,6 +370,7 @@ def analyze_url(
         transport=transport,
         timeout_seconds=timeout_seconds,
         max_body_bytes=max_body_bytes,
+        enable_access=enable_access,
     )
     return replace(analysis, crawl_result=crawl_result)
 
@@ -372,6 +435,7 @@ def _analyze_contexts(
     adapter_result: LegacyAdapterResult | None = None,
     discovery_result: CanonicalDiscoveryResult | None = None,
     allowed_methods: frozenset[HttpMethod] | None = None,
+    enable_access: bool = False,
 ) -> AnalysisResult:
     active_transport = transport if transport is not None else UrlLibTransport()
     executor = RequestExecutor(
@@ -383,19 +447,35 @@ def _analyze_contexts(
     collector_label = _collector_label(discovery_result)
     runs: dict[str, list[_ProbeRun]] = {}
     warnings = list(initial_warnings)
+    access_scoring_results: list[AccessScoringResult] = []
+    access_probe_observations: list[AccessProbeObservation] = []
+    credential_strip_planned_templates: set[str] = set()
     started = monotonic()
 
     for input_point, request_template, context in sorted(
         contexts,
         key=lambda item: item[2].id,
     ):
+        # ASP.NET Web Forms state-management values can be very large and are
+        # maintained by the framework rather than by application business
+        # logic. Retain them in discovery, but do not spend baseline/probe,
+        # scoring, or LLM-verification work on them for the current SQLi/XSS
+        # scope.
+        if _is_framework_state_input(input_point):
+            warnings.append(
+                f"input point {input_point.id} skipped: "
+                f"framework state parameter {input_point.name!r}"
+            )
+            continue
+
         if (
             allowed_methods is not None
             and request_template.method not in allowed_methods
         ):
             warnings.append(
                 f"input point {input_point.id} context {context.id} skipped: "
-                f"{collector_label} analysis executes GET request contexts only"
+                f"{collector_label} analysis does not support HTTP method "
+                f"{request_template.method.value}"
             )
             continue
         _require_loopback_request(request_template.url)
@@ -423,6 +503,39 @@ def _analyze_contexts(
                 probe_response=execution.probe_response,
             )
         )
+
+        # BAC (opt-in): re-send the same GET with credentials stripped (once
+        # per template) or a numeric identifier substituted. These are extra
+        # network requests beyond the injection baseline/probe, so they run
+        # only when access checking is explicitly enabled -- keeping the
+        # request budget explicit. Non-destructive, GET-only, scored in the
+        # separate access family (ADR-014/ADR-035).
+        if enable_access and request_template.method == HttpMethod.GET:
+            template_id = request_template.id or ""
+            if template_id not in credential_strip_planned_templates:
+                credential_strip_planned_templates.add(template_id)
+                credential_plan = plan_credential_strip(request_template)
+                if credential_plan is not None:
+                    _run_access_plan(
+                        credential_plan,
+                        transport=active_transport,
+                        timeout_seconds=timeout_seconds,
+                        max_body_bytes=max_body_bytes,
+                        access_scoring_results=access_scoring_results,
+                        access_probe_observations=access_probe_observations,
+                    )
+            identifier_plan = plan_identifier_substitution(
+                input_point, request_template
+            )
+            if identifier_plan is not None:
+                _run_access_plan(
+                    identifier_plan,
+                    transport=active_transport,
+                    timeout_seconds=timeout_seconds,
+                    max_body_bytes=max_body_bytes,
+                    access_scoring_results=access_scoring_results,
+                    access_probe_observations=access_probe_observations,
+                )
 
     scoring_results: list[ScoringResult] = []
     feature_vectors: list[FeatureVector] = []
@@ -455,6 +568,8 @@ def _analyze_contexts(
         elapsed_seconds=elapsed_seconds,
         discovery_result=discovery_result,
         feature_vectors=tuple(feature_vectors),
+        access_scoring_results=tuple(access_scoring_results),
+        access_probe_observations=tuple(access_probe_observations),
     )
 
 
@@ -466,19 +581,45 @@ def _collector_label(discovery_result: CanonicalDiscoveryResult | None) -> str:
     return discovery_result.discovery_metadata.collector_kind.value
 
 
+def _run_access_plan(
+    plan: AccessProbePlan,
+    *,
+    transport: RequestTransport,
+    timeout_seconds: float,
+    max_body_bytes: int,
+    access_scoring_results: list[AccessScoringResult],
+    access_probe_observations: list[AccessProbeObservation],
+) -> None:
+    _require_loopback_request(plan.reference_request.url)
+    _require_loopback_request(plan.comparison_request.url)
+    execution: AccessProbeExecutionResult = execute_access_plan(
+        plan,
+        transport=transport,
+        timeout_seconds=timeout_seconds,
+        max_body_bytes=max_body_bytes,
+    )
+    features = extract_access_features(
+        plan,
+        execution.reference_response,
+        execution.comparison_response,
+    )
+    result = score_access_plan(plan, features)
+    access_scoring_results.append(result)
+    access_probe_observations.append(
+        AccessProbeObservation(
+            candidate_id=result.candidate.id or "",
+            access_probe_plan=plan,
+            reference_response=execution.reference_response,
+            comparison_response=execution.comparison_response,
+            features=features,
+        )
+    )
+
+
 def _require_loopback_request(url: str) -> None:
-    hostname = urlsplit(url).hostname
-    if hostname is None:
-        raise PipelineError("request template URL must contain a host")
-    if hostname.lower() == "localhost":
-        return
     try:
-        address = ip_address(hostname)
-    except ValueError as exc:
+        require_loopback_http_url(url)
+    except LoopbackSafetyError as exc:
         raise PipelineError(
             "CLI analysis permits only localhost or loopback IP request templates"
         ) from exc
-    if not address.is_loopback:
-        raise PipelineError(
-            "CLI analysis permits only localhost or loopback IP request templates"
-        )

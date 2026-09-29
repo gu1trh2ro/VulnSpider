@@ -10,7 +10,7 @@ from hashlib import sha256
 from math import isfinite
 from types import MappingProxyType
 from typing import Any, TypeAlias
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 JsonScalar: TypeAlias = float | bool | str | None
 ParamPairs: TypeAlias = tuple[tuple[str, str], ...]
@@ -26,6 +26,7 @@ class InputLocation(StrEnum):
     QUERY = "QUERY"
     FORM = "FORM"
     JSON = "JSON"
+    JSON_BODY = "JSON_BODY"
     PATH = "PATH"
     HEADER = "HEADER"
     COOKIE = "COOKIE"
@@ -51,6 +52,12 @@ class RequestContextCompleteness(StrEnum):
 
 def _normalize_text(value: str | None) -> str:
     return (value or "").strip().lower()
+
+
+def normalize_parameter_name(value: str | None) -> str:
+    """Return the canonical InputPoint/request-parameter comparison name."""
+
+    return _normalize_text(value)
 
 
 def canonical_path(path: str) -> str:
@@ -223,7 +230,7 @@ class InputPoint:
 
     def __post_init__(self) -> None:
         location = InputLocation(self.location)
-        normalized_name = _normalize_text(self.name)
+        normalized_name = normalize_parameter_name(self.name)
         if not normalized_name:
             raise ValueError("InputPoint.name must not be empty")
         if not self.endpoint_id:
@@ -272,12 +279,27 @@ def input_point_fingerprint(
         "input-point",
         endpoint_fingerprint,
         InputLocation(location).value,
-        _normalize_text(name),
+        normalize_parameter_name(name),
         _normalize_text(auth_context_id),
     ]
     if occurrence_index is not None:
         parts.extend(("occurrence", int(occurrence_index)))
     return stable_fingerprint(*parts)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class EphemeralRequestMaterial:
+    """Exact replay-only values excluded from canonical identity and artifacts."""
+
+    url: str
+    query: ParamInput = field(default_factory=tuple)
+    json_body: ParamInput = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if type(self.url) is not str or not self.url:
+            raise ValueError("ephemeral request URL must not be empty")
+        object.__setattr__(self, "query", canonical_param_pairs(self.query))
+        object.__setattr__(self, "json_body", canonical_param_pairs(self.json_body))
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,12 +311,18 @@ class RequestTemplate:
     headers: Mapping[str, str] = field(default_factory=dict)
     query: ParamInput = field(default_factory=tuple)
     form: ParamInput = field(default_factory=tuple)
-    cookies: Mapping[str, str] = field(default_factory=dict)
+    cookies: Mapping[str, str] = field(default_factory=dict, repr=False)
     completeness: RequestContextCompleteness = RequestContextCompleteness.UNKNOWN
     context_key: str | None = None
     provenance: ParamInput = field(default_factory=tuple)
     metadata: Mapping[str, Any] = field(default_factory=dict)
     id: str | None = None
+    json_body: ParamInput = field(default_factory=tuple)
+    ephemeral_material: EphemeralRequestMaterial | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
     fingerprint: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -302,10 +330,70 @@ class RequestTemplate:
         headers = _freeze_string_mapping(self.headers, label="request headers")
         query = canonical_param_pairs(self.query)
         form = canonical_param_pairs(self.form)
+        json_body = canonical_param_pairs(self.json_body)
         cookies = _freeze_string_mapping(self.cookies, label="request cookies")
         completeness = RequestContextCompleteness(self.completeness)
         provenance = canonical_param_pairs(self.provenance)
         metadata = _freeze_json_mapping(self.metadata)
+        ephemeral_material = self.ephemeral_material
+        if ephemeral_material is not None and type(ephemeral_material) is not (
+            EphemeralRequestMaterial
+        ):
+            raise TypeError(
+                "RequestTemplate.ephemeral_material must be replay-only material"
+            )
+        if ephemeral_material is not None:
+            if method != HttpMethod.POST:
+                raise ValueError("ephemeral request material requires POST")
+            structural_url = urlsplit(self.url)
+            replay_url = urlsplit(ephemeral_material.url)
+            structural_owner = (
+                structural_url.scheme.lower(),
+                structural_url.netloc.lower(),
+                structural_url.path or "/",
+            )
+            replay_owner = (
+                replay_url.scheme.lower(),
+                replay_url.netloc.lower(),
+                replay_url.path or "/",
+            )
+            if replay_owner != structural_owner or replay_url.fragment:
+                raise ValueError(
+                    "ephemeral request material escaped its structural URL owner"
+                )
+            replay_url_query = canonical_param_pairs(
+                parse_qsl(replay_url.query, keep_blank_values=True)
+            )
+            if replay_url_query != ephemeral_material.query:
+                raise ValueError(
+                    "ephemeral request URL and query material do not align"
+                )
+            structural_query_names = tuple(
+                sorted(normalize_parameter_name(name) for name, _ in query)
+            )
+            replay_query_names = tuple(
+                sorted(
+                    normalize_parameter_name(name)
+                    for name, _ in ephemeral_material.query
+                )
+            )
+            if replay_query_names != structural_query_names:
+                raise ValueError(
+                    "ephemeral request query does not match structural names"
+                )
+            structural_json_names = tuple(
+                sorted(normalize_parameter_name(name) for name, _ in json_body)
+            )
+            replay_json_names = tuple(
+                sorted(
+                    normalize_parameter_name(name)
+                    for name, _ in ephemeral_material.json_body
+                )
+            )
+            if replay_json_names != structural_json_names:
+                raise ValueError(
+                    "ephemeral request JSON body does not match structural names"
+                )
         fingerprint = stable_fingerprint(
             "request-template",
             self.endpoint_id,
@@ -315,6 +403,7 @@ class RequestTemplate:
             tuple(sorted(headers.items())),
             query,
             form,
+            json_body,
             tuple(sorted(cookies.items())),
             completeness.value,
             self.context_key,
@@ -324,13 +413,30 @@ class RequestTemplate:
         object.__setattr__(self, "headers", headers)
         object.__setattr__(self, "query", query)
         object.__setattr__(self, "form", form)
+        object.__setattr__(self, "json_body", json_body)
         object.__setattr__(self, "cookies", cookies)
         object.__setattr__(self, "completeness", completeness)
         object.__setattr__(self, "provenance", provenance)
         object.__setattr__(self, "metadata", metadata)
+        object.__setattr__(self, "ephemeral_material", ephemeral_material)
         object.__setattr__(self, "fingerprint", fingerprint)
         if not self.id:
             object.__setattr__(self, "id", f"rt_{fingerprint[:16]}")
+
+    @property
+    def execution_url(self) -> str:
+        material = self.ephemeral_material
+        return self.url if material is None else material.url
+
+    @property
+    def execution_query(self) -> ParamPairs:
+        material = self.ephemeral_material
+        return self.query if material is None else material.query
+
+    @property
+    def execution_json_body(self) -> ParamPairs:
+        material = self.ephemeral_material
+        return self.json_body if material is None else material.json_body
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,12 +448,14 @@ class RequestInstance:
     form: ParamInput = field(default_factory=tuple)
     cookies: dict[str, str] = field(default_factory=dict)
     id: str | None = None
+    json_body: ParamInput = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "method", HttpMethod(self.method))
         object.__setattr__(self, "headers", dict(self.headers))
         object.__setattr__(self, "query", canonical_param_pairs(self.query))
         object.__setattr__(self, "form", canonical_param_pairs(self.form))
+        object.__setattr__(self, "json_body", canonical_param_pairs(self.json_body))
         object.__setattr__(self, "cookies", dict(self.cookies))
         if not self.id:
             fingerprint = stable_fingerprint(
@@ -357,6 +465,7 @@ class RequestInstance:
                 tuple(sorted(self.headers.items())),
                 self.query,
                 self.form,
+                self.json_body,
                 tuple(sorted(self.cookies.items())),
             )
             object.__setattr__(self, "id", f"req_{fingerprint[:16]}")
@@ -419,6 +528,8 @@ def validate_input_point_request_context(
         pairs = request_template.query
     elif input_point.location == InputLocation.FORM:
         pairs = request_template.form
+    elif input_point.location in {InputLocation.JSON, InputLocation.JSON_BODY}:
+        pairs = request_template.json_body
     else:
         raise ValueError(
             f"InputPoint location {input_point.location.value} is not request-bindable"
@@ -427,7 +538,7 @@ def validate_input_point_request_context(
     matches = [
         value
         for name, value in pairs
-        if _normalize_text(name) == input_point.name
+        if normalize_parameter_name(name) == input_point.name
     ]
     if not matches:
         raise ValueError("InputPoint target is missing from RequestTemplate")

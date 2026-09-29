@@ -47,6 +47,23 @@ _TEMP_PATTERNS = (
 )
 
 
+def _report_surfaced_candidate_ids(verification_order):
+    """Candidate ids the HTML report surfaces: the top type per input point.
+
+    Every input point is scored as several candidates (a SQLi and an XSS
+    interpretation of one value); the dashboard collapses them to the highest
+    type per input point. Group by ``input_point_ref`` the same way.
+    """
+
+    best = {}
+    for entry in verification_order:
+        ref = entry.get("input_point_ref") or entry["candidate_id"]
+        score = entry.get("final_confidence", entry["probability"])
+        if ref not in best or score > best[ref][0]:
+            best[ref] = (score, entry["candidate_id"])
+    return {candidate_id for _score, candidate_id in best.values()}
+
+
 @dataclass(frozen=True, slots=True)
 class _CliRunEvidence:
     argv: tuple[str, ...]
@@ -86,7 +103,7 @@ def _run_public_cli(
         "--dynamic-allow-navigation",
         f"{origin}/final/search?q=safe",
         "--top-k",
-        "50",
+        "20",
         "--output",
         str(json_path),
         "--html-output",
@@ -306,8 +323,23 @@ class NativeDynamicDiscoveryE2ETests(unittest.TestCase):
         discovery = analysis.discovery_result
         combined = analysis.combined_result
         self.assertEqual(evidence.exit_code, 0)
-        self.assertEqual(evidence.stdout, "")
-        self.assertEqual(evidence.stderr, "")
+        self.assertIn("vulnspider: [OK] scan complete", evidence.stdout)
+        self.assertIn("mode=dynamic", evidence.stdout)
+        self.assertIn("vulnspider: analysis output:", evidence.stdout)
+        self.assertIn("vulnspider: dashboard report ->", evidence.stdout)
+        self.assertIn("vulnspider: [*]", evidence.stderr)
+        self.assertIn("vulnspider: [OK]", evidence.stderr)
+        cli_output = evidence.stdout + evidence.stderr
+        self.assertNotIn("[ERROR]", cli_output)
+        self.assertNotIn("Traceback", cli_output)
+        for secret_marker in (
+            PASSWORD_SENTINEL,
+            "credential",
+            "cookie",
+            "authorization",
+            "session",
+        ):
+            self.assertNotIn(secret_marker.casefold(), cli_output.casefold())
         self.assertIsNotNone(discovery)
         self.assertIsNotNone(combined)
         assert discovery is not None
@@ -415,11 +447,14 @@ class NativeDynamicDiscoveryE2ETests(unittest.TestCase):
                 report["selection"]["selected"],
                 len(candidate_ids),
             )
+            # The HTML surfaces one finding per input point (its top type),
+            # while the JSON keeps every scored candidate.
+            surfaced = _report_surfaced_candidate_ids(report["verification_order"])
             self.assertEqual(
                 evidence.html_text.count('<article class="finding '),
-                len(candidate_ids),
+                len(surfaced),
             )
-            for candidate_id in candidate_ids:
+            for candidate_id in surfaced:
                 self.assertIn(candidate_id, evidence.html_text)
             for warning in report["warnings"]:
                 self.assertIn(escape(warning), evidence.html_text)

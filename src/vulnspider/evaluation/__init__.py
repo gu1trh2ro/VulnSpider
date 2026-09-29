@@ -24,6 +24,19 @@ from vulnspider.evaluation.baselines import (
     random_score,
     reflection_only_score,
 )
+from vulnspider.evaluation.live import (
+    ARM_PRIOR,
+    ARM_RANDOM,
+    ARM_VULNSPIDER,
+    DEFAULT_CUTOFFS,
+    LIVE_EVALUATION_VERSION,
+    LiveEvaluationError,
+    LiveEvaluationReport,
+    ScoredCandidate,
+    build_scored_candidates,
+    evaluate_live_run,
+    render_live_evaluation_table,
+)
 from vulnspider.evaluation.metrics import (
     METRICS_VERSION,
     MetricError,
@@ -42,13 +55,21 @@ from vulnspider.evaluation.metrics import (
 )
 
 __all__ = [
+    "ARM_PRIOR",
+    "ARM_RANDOM",
+    "ARM_VULNSPIDER",
     "BASELINE_HEURISTIC",
     "BASELINE_RANDOM",
     "BASELINE_REFLECTION",
     "METRICS_VERSION",
     "PROPOSED_CALIBRATED",
+    "DEFAULT_CUTOFFS",
+    "LIVE_EVALUATION_VERSION",
     "BaselineError",
     "FullVerificationReference",
+    "LiveEvaluationError",
+    "LiveEvaluationReport",
+    "ScoredCandidate",
     "MetricError",
     "MetricSummary",
     "RankedItem",
@@ -57,8 +78,10 @@ __all__ = [
     "average_precision_at_k",
     "bug_key_for",
     "build_calibrated_queries",
+    "build_scored_candidates",
     "build_queries",
     "dcg_at_k",
+    "evaluate_live_run",
     "evaluate_ranking",
     "expected_hits_at_k",
     "full_verification_reference",
@@ -70,4 +93,5 @@ __all__ = [
     "random_score",
     "recall_at_k",
     "reflection_only_score",
+    "render_live_evaluation_table",
 ]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+import pickle
 import unittest
 
 import vulnspider.discovery.dynamic_browser as browser_module
@@ -18,6 +19,9 @@ from vulnspider.discovery import (
     DynamicNetworkDecisionKind,
     DynamicNetworkReason,
     DynamicRequestAuthority,
+    NetworkDiscoveryCollection,
+    PassiveNetworkObservation,
+    PassiveNetworkScope,
     RenderedDomPolicy,
     RenderedDomSnapshot,
 )
@@ -136,6 +140,9 @@ class FakeDynamicBrowser:
     statuses: dict[str, int] = field(default_factory=dict)
     redirects: dict[str, str] = field(default_factory=dict)
     errors: dict[str, DynamicBrowserErrorCode] = field(default_factory=dict)
+    network_discovery: NetworkDiscoveryCollection = field(
+        default_factory=NetworkDiscoveryCollection
+    )
     session: FakeDynamicSession | None = None
 
     def run(self, authority, operation, *, policy=None):
@@ -156,11 +163,352 @@ class FakeDynamicBrowser:
             value = operation(session)
         except DynamicBrowserError as exc:
             audit = recorder.snapshot(())
-            raise DynamicBrowserError(exc.code, str(exc), audit=audit) from None
-        return DynamicBrowserRunResult(value=value, audit=recorder.snapshot(()))
+            raise DynamicBrowserError(
+                exc.code,
+                str(exc),
+                audit=audit,
+                network_discovery=self.network_discovery,
+            ) from None
+        return DynamicBrowserRunResult(
+            value=value,
+            audit=recorder.snapshot(()),
+            network_discovery=self.network_discovery,
+        )
 
 
 class DynamicCrawlerTests(unittest.TestCase):
+    def test_implicit_navigation_stays_within_directory_root_path(self) -> None:
+        root = "http://127.0.0.1:8080/vulnerabilities/sqli/"
+        child = "http://127.0.0.1:8080/vulnerabilities/sqli/help"
+        sibling = "http://127.0.0.1:8080/about.php?csrf=OFFPATH_SECRET"
+        browser = FakeDynamicBrowser(
+            {
+                root: rendered_snapshot(
+                    root,
+                    '<a href="/about.php?csrf=OFFPATH_SECRET"></a>'
+                    '<a href="/vulnerabilities/sqli/help"></a>',
+                ),
+                child: rendered_snapshot(child),
+            }
+        )
+
+        result = DynamicCrawler(browser=browser, clock=lambda: 0.0).crawl(
+            root,
+            DynamicCrawlPolicy(),
+            DynamicRequestAuthority(root, allow_rendered_navigation=True),
+        )
+
+        assert browser.session is not None
+        self.assertEqual(browser.session.navigation_calls, [root, child])
+        self.assertNotIn(sibling, result.visited_urls)
+        self.assertEqual(result.completion, DynamicCrawlCompletion.COMPLETE)
+        warnings = [
+            warning
+            for warning in result.discovery.warnings
+            if warning.code == "OFF_PATH_SCOPE_LINK"
+        ]
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(
+            warnings[0].details["reason"],
+            "ROOT_PATH_SCOPE_MISMATCH",
+        )
+        self.assertNotIn(sibling, repr(warnings[0].details))
+        serialized = repr(result.to_dict())
+        self.assertNotIn("OFFPATH_SECRET", serialized)
+        self.assertNotIn(
+            sibling,
+            {template.url for template in result.discovery.request_templates},
+        )
+        self.assertFalse(
+            any(endpoint.path == "/about.php" for endpoint in result.discovery.endpoints)
+        )
+        self.assertFalse(
+            any(
+                point.name == "csrf" for point in result.discovery.input_points
+            )
+        )
+        self.assertIn(
+            "OFF_PATH_SCOPE_LINK",
+            {warning.code for warning in result.discovery.warnings},
+        )
+
+    def test_exact_grant_can_extend_directory_root_path_scope(self) -> None:
+        root = "http://127.0.0.1:8080/vulnerabilities/sqli/"
+        granted = "http://127.0.0.1:8080/about.php?x=1"
+        browser = FakeDynamicBrowser(
+            {
+                root: rendered_snapshot(root, '<a href="/about.php?x=1"></a>'),
+                granted: rendered_snapshot(granted),
+            }
+        )
+
+        result = DynamicCrawler(browser=browser, clock=lambda: 0.0).crawl(
+            root,
+            DynamicCrawlPolicy(),
+            DynamicRequestAuthority(
+                root,
+                navigation_urls=(granted,),
+                allow_rendered_navigation=True,
+            ),
+        )
+
+        assert browser.session is not None
+        self.assertEqual(browser.session.navigation_calls, [root, granted])
+        self.assertEqual(result.completion, DynamicCrawlCompletion.COMPLETE)
+        self.assertIn(
+            granted,
+            {template.url for template in result.discovery.request_templates},
+        )
+        self.assertTrue(
+            any(
+                point.name == "x" for point in result.discovery.input_points
+            )
+        )
+        self.assertTrue(
+            any(
+                point.name == "x"
+                for point, _template, _context in result.discovery.ready_contexts()
+            )
+        )
+        self.assertNotIn(
+            "DYNAMIC_OFF_PATH_SCOPE_LINK",
+            {warning.code for warning in result.discovery.warnings},
+        )
+
+    def test_authentication_state_change_link_is_never_navigated(self) -> None:
+        root = "http://127.0.0.1:8080/start"
+        profile = "http://127.0.0.1:8080/account/profile"
+        logout = "http://127.0.0.1:8080/logout.php"
+        browser = FakeDynamicBrowser(
+            {
+                root: rendered_snapshot(
+                    root,
+                    '<a href="/logout.php"></a>'
+                    '<a href="/account/profile"></a>',
+                ),
+                profile: rendered_snapshot(profile),
+            }
+        )
+
+        result = DynamicCrawler(browser=browser, clock=lambda: 0.0).crawl(
+            root,
+            DynamicCrawlPolicy(),
+            DynamicRequestAuthority(root, allow_rendered_navigation=True),
+        )
+
+        assert browser.session is not None
+        self.assertEqual(browser.session.navigation_calls, [root, profile])
+        self.assertNotIn(logout, result.visited_urls)
+        self.assertEqual(result.completion, DynamicCrawlCompletion.COMPLETE)
+        warnings = [
+            warning
+            for warning in result.discovery.warnings
+            if warning.code == "UNSAFE_NAVIGATION_SUPPRESSED"
+        ]
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0].details["action_token"], "logout")
+        self.assertEqual(
+            warnings[0].details["reason"],
+            "AUTHENTICATION_STATE_CHANGE",
+        )
+        self.assertNotIn(logout, repr(warnings[0].details))
+
+    def test_allowed_network_candidate_enters_dynamic_canonical_discovery(self) -> None:
+        root = "http://127.0.0.1:8080/start"
+        candidate, reason = browser_module._safe_network_discovery_candidate(
+            method="GET",
+            url=(
+                "http://127.0.0.1:8080/api/search"
+                "?keyword=phone&page=1&tag=a&tag=b"
+            ),
+            resource_type="fetch",
+            source_url=root,
+            root_origin=("http", "127.0.0.1", 8080),
+            credential_header_present=False,
+        )
+        self.assertIsNone(reason)
+        assert candidate is not None
+        snapshots = {root: rendered_snapshot(root)}
+        static_dynamic = DynamicCrawler(
+            browser=FakeDynamicBrowser(snapshots),
+            clock=lambda: 0.0,
+        ).crawl(root, DynamicCrawlPolicy(), DynamicRequestAuthority(root))
+        observed = DynamicCrawler(
+            browser=FakeDynamicBrowser(
+                snapshots,
+                network_discovery=NetworkDiscoveryCollection(
+                    candidates=(candidate,)
+                ),
+            ),
+            clock=lambda: 0.0,
+        ).crawl(root, DynamicCrawlPolicy(), DynamicRequestAuthority(root))
+
+        endpoint = next(
+            item for item in observed.discovery.endpoints if item.path == "/api/search"
+        )
+        self.assertEqual(
+            {item.name for item in observed.discovery.input_points if item.endpoint_id == endpoint.id},
+            {"keyword", "page", "tag"},
+        )
+        self.assertEqual(len(observed.discovery.ready_contexts()), 4)
+        self.assertNotEqual(
+            observed.discovery.to_dict()["discovery_snapshot_id"],
+            static_dynamic.discovery.to_dict()["discovery_snapshot_id"],
+        )
+        self.assertNotIn("network_discovery", observed.to_dict()["browser_audit"])
+
+    def test_post_replay_material_survives_worker_handoff_but_not_artifact(self) -> None:
+        root = "http://127.0.0.1:8080/start"
+        sentinel = "POST_WORKER_HANDOFF_SENTINEL_1C_A"
+        candidate, replay_material, reason = (
+            browser_module._safe_blocked_post_json_candidate(
+                method="POST",
+                url="http://127.0.0.1:8080/api/search",
+                resource_type="fetch",
+                source_url=root,
+                root_origin=("http", "127.0.0.1", 8080),
+                content_type="application/json",
+                credential_header_present=False,
+                body=(f'{{"keyword":"{sentinel}","page":1}}').encode(),
+            )
+        )
+        self.assertIsNone(reason)
+        assert candidate is not None
+        assert replay_material is not None
+        result = DynamicCrawler(
+            browser=FakeDynamicBrowser(
+                {root: rendered_snapshot(root)},
+                network_discovery=NetworkDiscoveryCollection(
+                    post_json_candidates=(candidate,),
+                    post_json_replay_materials=((candidate.id, replay_material),),
+                ),
+            ),
+            clock=lambda: 0.0,
+        ).crawl(root, DynamicCrawlPolicy(), DynamicRequestAuthority(root))
+
+        self.assertNotIn(sentinel, repr(result))
+        self.assertNotIn(sentinel, repr(result.to_dict()))
+        self.assertEqual(len(result.discovery.ready_contexts()), 2)
+        restored = pickle.loads(pickle.dumps(result, protocol=5))
+        self.assertNotIn(sentinel, repr(restored.to_dict()))
+        self.assertIn(
+            sentinel,
+            repr(restored.discovery.request_templates[0].execution_json_body),
+        )
+
+    def test_transport_policy_bit_does_not_change_canonical_snapshot(self) -> None:
+        root = "http://127.0.0.1:8080/start"
+        snapshots = {root: rendered_snapshot(root)}
+
+        strict_result = DynamicCrawler(
+            browser=FakeDynamicBrowser(snapshots),
+            clock=lambda: 0.0,
+        ).crawl(root, DynamicCrawlPolicy(), DynamicRequestAuthority(root))
+        balanced_result = DynamicCrawler(
+            browser=FakeDynamicBrowser(snapshots),
+            clock=lambda: 0.0,
+        ).crawl(
+            root,
+            DynamicCrawlPolicy(),
+            DynamicRequestAuthority(
+                root,
+                allow_passive_same_origin_fetch_xhr=True,
+            ),
+        )
+
+        self.assertEqual(
+            balanced_result.discovery.to_dict(),
+            strict_result.discovery.to_dict(),
+        )
+
+    def test_passive_observation_serializes_only_under_audit_and_not_snapshot(
+        self,
+    ) -> None:
+        root = "http://127.0.0.1:8080/start"
+        browser = FakeDynamicBrowser({root: rendered_snapshot(root)})
+        result = DynamicCrawler(browser=browser, clock=lambda: 0.0).crawl(
+            root,
+            DynamicCrawlPolicy(),
+            DynamicRequestAuthority(root),
+        )
+        observation = browser_module._safe_passive_network_observation(
+            method="post",
+            url=(
+                "http://127.0.0.1:8080/private/raw-path-secret"
+                "?parameter_name=QUERY_VALUE_SECRET"
+            ),
+            resource_type="fetch",
+            root_origin=("http", "127.0.0.1", 8080),
+        )
+        assert observation is not None
+        audit = replace(
+            result.browser_audit,
+            network_observations=(observation,),
+            network_observation_overflow_count=3,
+        )
+        observed_result = replace(result, browser_audit=audit)
+
+        payload = observed_result.to_dict()
+        audit_payload = payload["browser_audit"]
+        self.assertEqual(
+            audit_payload["network_observations"],
+            [
+                {
+                    "method": "POST",
+                    "resource_type": "fetch",
+                    "scheme": "http",
+                    "host": "127.0.0.1",
+                    "effective_port": 8080,
+                    "path_fingerprint": observation.path_fingerprint,
+                    "path_segment_count": 2,
+                    "query_parameter_names": ["parameter_name"],
+                    "scope": "SAME_SCOPE",
+                    "occurrence_count": 1,
+                }
+            ],
+        )
+        self.assertEqual(audit_payload["network_observation_overflow_count"], 3)
+        self.assertNotIn("network_observations", payload["discovery"])
+        self.assertEqual(
+            payload["discovery"]["discovery_snapshot_id"],
+            result.discovery.to_dict()["discovery_snapshot_id"],
+        )
+        serialized = repr(payload)
+        self.assertNotIn("raw-path-secret", serialized)
+        self.assertNotIn("QUERY_VALUE_SECRET", serialized)
+        restored = pickle.loads(pickle.dumps(observed_result, protocol=5))
+        self.assertEqual(restored.browser_audit, audit)
+        self.assertEqual(
+            restored.discovery.to_dict()["discovery_snapshot_id"],
+            result.discovery.to_dict()["discovery_snapshot_id"],
+        )
+
+    def test_passive_observation_model_rejects_raw_resource_categories(self) -> None:
+        with self.assertRaises(ValueError):
+            PassiveNetworkObservation(
+                method="GET",
+                resource_type="script",
+                scheme="http",
+                host="127.0.0.1",
+                effective_port=80,
+                path_fingerprint="safe-fingerprint",
+                path_segment_count=1,
+                query_parameter_names=(),
+                scope=PassiveNetworkScope.SAME_SCOPE,
+            )
+        with self.assertRaises(ValueError):
+            PassiveNetworkObservation(
+                method="GET",
+                resource_type="fetch",
+                scheme="http",
+                host="127.0.0.1",
+                effective_port=80,
+                path_fingerprint="safe-fingerprint",
+                path_segment_count=1,
+                query_parameter_names=("q" * 129,),
+                scope=PassiveNetworkScope.SAME_SCOPE,
+            )
+
     def test_simple_authority_navigates_only_rendered_same_origin_anchors(
         self,
     ) -> None:
@@ -226,7 +574,7 @@ class DynamicCrawlerTests(unittest.TestCase):
         )
         self.assertNotIn(root + "#cycle", result.visited_urls)
         self.assertIn(
-            "DYNAMIC_OFF_AUTHORITY_LINK",
+            "OFF_SCOPE_LINK",
             {warning.code for warning in result.discovery.warnings},
         )
         self.assertIn(

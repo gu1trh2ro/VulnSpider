@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 from threading import Event, Lock, Thread
 from urllib.parse import urlsplit
+
+
+NETWORK_API_KEY_SENTINEL = "sk-NETWORKOBSERVATIONVALUE0123456789"
+NETWORK_JWT_SENTINEL = (
+    "eyJhbGciOiJub25lIn0.eyJzdWIiOiJuZXR3b3JrLW9ic2VydmF0aW9uIn0."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,6 +20,14 @@ class LoopbackRequest:
     method: str
     path: str
     raw_target: str
+
+
+@dataclass(frozen=True, slots=True)
+class LoopbackPostRequest:
+    path: str
+    raw_target: str
+    content_type: str
+    body: bytes
 
 
 class _QuietThreadingHttpServer(ThreadingHTTPServer):
@@ -74,6 +89,7 @@ class DynamicLoopbackSite:
         self._lock = Lock()
         self._primary_requests: list[LoopbackRequest] = []
         self._sentinel_requests: list[LoopbackRequest] = []
+        self._post_requests: list[LoopbackPostRequest] = []
         self.slow_started = Event()
         self.release_slow = Event()
         self._primary: _ServerHandle | None = None
@@ -83,6 +99,19 @@ class DynamicLoopbackSite:
         self.eventsource_url = ""
         self.websocket_url = ""
         self.fetch_xhr_url = ""
+        self.network_observation_url = ""
+        self.network_observation_script_url = ""
+        self.network_observation_style_url = ""
+        self.network_observation_fetch_url = ""
+        self.network_observation_xhr_url = ""
+        self.balanced_fetch_xhr_url = ""
+        self.balanced_fetch_xhr_script_url = ""
+        self.balanced_fetch_xhr_style_url = ""
+        self.network_canonicalization_url = ""
+        self.network_canonicalization_script_url = ""
+        self.network_canonicalization_style_url = ""
+        self.observed_post_json_url = ""
+        self.golden_post_e2e_url = ""
         self.unsafe_get_url = ""
         self.autosubmit_url = ""
         self.page_close_url = ""
@@ -145,6 +174,11 @@ class DynamicLoopbackSite:
             return tuple(self._sentinel_requests)
 
     @property
+    def post_requests(self) -> tuple[LoopbackPostRequest, ...]:
+        with self._lock:
+            return tuple(self._post_requests)
+
+    @property
     def primary_port(self) -> int:
         if self._primary is None:
             raise RuntimeError("loopback site is not started")
@@ -174,6 +208,10 @@ class DynamicLoopbackSite:
             def do_POST(self) -> None:
                 site._record(site._sentinel_requests, "POST", self.path)
                 self._send(500, b"sentinel must not be reached", "text/plain")
+
+            def do_HEAD(self) -> None:
+                site._record(site._sentinel_requests, "HEAD", self.path)
+                self._send(500, b"", "text/plain")
 
             def _send(self, status: int, body: bytes, content_type: str) -> None:
                 self.send_response(status)
@@ -325,6 +363,403 @@ class DynamicLoopbackSite:
                         html.encode("utf-8"),
                         "text/html; charset=utf-8",
                     )
+                    return
+                if route == "/network-observation":
+                    html = """<!doctype html>
+                    <html>
+                      <head>
+                        <meta charset="utf-8">
+                        <link rel="icon" href="data:,">
+                        <link rel="stylesheet" href="/network-observation.css">
+                      </head>
+                      <body>
+                        <div id="network-observation-started">started</div>
+                        <script src="/network-observation.js"></script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/balanced-fetch-xhr":
+                    html = """<!doctype html>
+                    <html>
+                      <head>
+                        <meta charset="utf-8">
+                        <link rel="icon" href="data:,">
+                        <link rel="stylesheet" href="/balanced-fetch-xhr.css">
+                      </head>
+                      <body>
+                        <div id="balanced-started">started</div>
+                        <script src="/balanced-fetch-xhr.js"></script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/balanced-fetch-xhr.css":
+                    self._send(
+                        200,
+                        b"#balanced-started { display: block; }",
+                        "text/css; charset=utf-8",
+                    )
+                    return
+                if route == "/network-canonicalization":
+                    html = """<!doctype html>
+                    <html>
+                      <head>
+                        <meta charset="utf-8">
+                        <link rel="icon" href="data:,">
+                        <link rel="stylesheet" href="/network-canonicalization.css">
+                      </head>
+                      <body>
+                        <div id="network-canonicalization-started">started</div>
+                        <script src="/network-canonicalization.js"></script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/observed-post-json":
+                    html = f"""<!doctype html>
+                    <html>
+                      <head>
+                        <meta charset="utf-8">
+                        <link rel="icon" href="data:,">
+                      </head>
+                      <body>
+                        <div id="observed-post-json-started">started</div>
+                        <script>
+                        const jsonHeaders = {{
+                          "Content-Type": "application/json; charset=utf-8"
+                        }};
+                        const attempts = [];
+                        attempts.push(fetch("/api/search", {{
+                          method: "POST",
+                          headers: jsonHeaders,
+                          body: JSON.stringify({{
+                            keyword: "phone",
+                            page: 1
+                          }})
+                        }}));
+                        attempts.push(fetch("/api/secret", {{
+                          method: "POST",
+                          headers: {{
+                            ...jsonHeaders,
+                            "Authorization":
+                              "Bearer POST_AUTHORIZATION_VALUE_SENTINEL"
+                          }},
+                          body: JSON.stringify({{
+                            password: "POST_PASSWORD_VALUE_SENTINEL",
+                            api_key: "POST_API_KEY_VALUE_SENTINEL",
+                            token: "POST_TOKEN_VALUE_SENTINEL",
+                            jwt:
+                              "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0."
+                          }})
+                        }}));
+                        attempts.push(fetch("/api/malformed", {{
+                          method: "POST",
+                          headers: jsonHeaders,
+                          body: '{{"keyword":'
+                        }}));
+                        attempts.push(fetch("/api/array", {{
+                          method: "POST",
+                          headers: jsonHeaders,
+                          body: '["keyword","page"]'
+                        }}));
+                        attempts.push(fetch("/api/duplicate", {{
+                          method: "POST",
+                          headers: jsonHeaders,
+                          body: '{{"keyword":"one","keyword":"two"}}'
+                        }}));
+                        attempts.push(fetch("/api/oversized", {{
+                          method: "POST",
+                          headers: jsonHeaders,
+                          body: JSON.stringify({{field: "x".repeat(17000)}})
+                        }}));
+                        attempts.push(fetch(
+                          "{site.sentinel_origin}/api/off-scope-post",
+                          {{
+                            method: "POST",
+                            headers: jsonHeaders,
+                            body: JSON.stringify({{keyword: "off-scope"}})
+                          }}
+                        ));
+                        Promise.allSettled(attempts).then(() => {{
+                          const marker = document.createElement("div");
+                          marker.id = "observed-post-json-complete";
+                          marker.textContent = "attempts-complete";
+                          document.body.appendChild(marker);
+                        }});
+                        </script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/golden-post-e2e":
+                    html = """<!doctype html>
+                    <html>
+                      <head>
+                        <meta charset="utf-8">
+                        <link rel="icon" href="data:,">
+                      </head>
+                      <body>
+                        <div id="golden-post-started">started</div>
+                        <script>
+                        const jsonHeaders = {
+                          "Content-Type": "application/json; charset=utf-8"
+                        };
+                        const attempts = [
+                          fetch("/api/search", {
+                            method: "POST",
+                            headers: jsonHeaders,
+                            body: JSON.stringify({
+                              keyword: "phone",
+                              page: 1
+                            })
+                          }),
+                          fetch("/cart/add", {
+                            method: "POST",
+                            headers: jsonHeaders,
+                            body: JSON.stringify({
+                              product_id: "golden-sku",
+                              quantity: 1
+                            })
+                          }),
+                          fetch("/login", {
+                            method: "POST",
+                            headers: jsonHeaders,
+                            body: JSON.stringify({
+                              username: "golden-post-user",
+                              password: "GOLDEN_POST_PASSWORD_SENTINEL"
+                            })
+                          }),
+                          fetch("/graphql", {
+                            method: "POST",
+                            headers: jsonHeaders,
+                            body: JSON.stringify({
+                              query: "mutation GoldenAddItem { addItem(id: 1) { id } }",
+                              operationName: "GoldenAddItem"
+                            })
+                          })
+                        ];
+                        Promise.allSettled(attempts).then(() => {
+                          const marker = document.createElement("div");
+                          marker.id = "golden-post-complete";
+                          marker.textContent = "attempts-complete";
+                          document.body.appendChild(marker);
+                        });
+                        </script>
+                      </body>
+                    </html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/network-canonicalization.css":
+                    self._send(
+                        200,
+                        b"#network-canonicalization-started { display: block; }",
+                        "text/css; charset=utf-8",
+                    )
+                    return
+                if route == "/network-canonicalization.js":
+                    script = f"""
+                    const attempts = [];
+                    attempts.push(fetch(
+                      "/api/search?keyword=phone&page=1"
+                    ));
+                    attempts.push(new Promise((resolve) => {{
+                      const xhr = new XMLHttpRequest();
+                      xhr.onload = resolve;
+                      xhr.onerror = resolve;
+                      xhr.open(
+                        "GET",
+                        "/api/filter?category=book&tag=a&tag=b"
+                      );
+                      xhr.send();
+                    }}));
+                    attempts.push(fetch(
+                      "/api/private?page=1",
+                      {{headers: {{
+                        "Authorization":
+                          "Bearer GET_AUTHORIZATION_CANONICALIZATION_SECRET"
+                      }}}}
+                    ));
+                    attempts.push(fetch(
+                      "/api/head?head_secret=HEAD_CANONICALIZATION_SECRET",
+                      {{method: "HEAD"}}
+                    ));
+                    attempts.push(fetch(
+                      "/api/post?post_secret=POST_CANONICALIZATION_SECRET",
+                      {{
+                        method: "POST",
+                        headers: {{
+                          "Authorization": "Bearer POST_AUTHORIZATION_SECRET"
+                        }},
+                        body: "POST_BODY_CANONICALIZATION_SECRET"
+                      }}
+                    ));
+                    attempts.push(fetch(
+                      "{site.sentinel_origin}/api/off-scope"
+                        + "?off_secret=OFF_SCOPE_CANONICALIZATION_SECRET"
+                    ));
+                    Promise.allSettled(attempts).then(() => {{
+                      const marker = document.createElement("div");
+                      marker.id = "network-canonicalization-complete";
+                      marker.textContent = "attempts-complete";
+                      document.body.appendChild(marker);
+                    }});
+                    """
+                    self._send(
+                        200,
+                        script.encode("utf-8"),
+                        "application/javascript; charset=utf-8",
+                    )
+                    return
+                if route in {"/api/search", "/api/filter", "/api/private"}:
+                    self._send(200, b"ok", "text/plain; charset=utf-8")
+                    return
+                if route == "/balanced-fetch-xhr.js":
+                    script = f"""
+                    const attempts = [];
+                    attempts.push(fetch(
+                      "/balanced/get-fetch?api_key=GET_FETCH_VALUE_SECRET"
+                    ));
+                    attempts.push(new Promise((resolve) => {{
+                      const xhr = new XMLHttpRequest();
+                      xhr.onload = resolve;
+                      xhr.onerror = resolve;
+                      xhr.open(
+                        "GET",
+                        "/balanced/get-xhr?session=GET_XHR_VALUE_SECRET"
+                      );
+                      xhr.send();
+                    }}));
+                    attempts.push(fetch(
+                      "/balanced/head-fetch?token=HEAD_VALUE_SECRET",
+                      {{method: "HEAD"}}
+                    ));
+                    attempts.push(fetch(
+                      "/balanced/post-fetch?password=POST_QUERY_VALUE_SECRET",
+                      {{
+                        method: "POST",
+                        headers: {{
+                          "Authorization": "Bearer AUTHORIZATION_VALUE_SECRET"
+                        }},
+                        body: "POST_BODY_VALUE_SECRET"
+                      }}
+                    ));
+                    attempts.push(fetch(
+                      "{site.sentinel_origin}/balanced/off-scope"
+                        + "?jwt=OFF_SCOPE_VALUE_SECRET"
+                    ));
+                    attempts.push(fetch("/balanced/redirect-same"));
+                    attempts.push(fetch("/balanced/redirect-cross"));
+                    Promise.allSettled(attempts).then(() => {{
+                      const marker = document.createElement("div");
+                      marker.id = "balanced-complete";
+                      marker.textContent = "attempts-complete";
+                      document.body.appendChild(marker);
+                    }});
+                    """
+                    self._send(
+                        200,
+                        script.encode("utf-8"),
+                        "application/javascript; charset=utf-8",
+                    )
+                    return
+                if route in {
+                    "/balanced/get-fetch",
+                    "/balanced/get-xhr",
+                    "/balanced/redirect-final",
+                }:
+                    self._send(200, b"ok", "text/plain; charset=utf-8")
+                    return
+                if route == "/balanced/redirect-same":
+                    self._send_redirect("/balanced/redirect-final")
+                    return
+                if route == "/balanced/redirect-cross":
+                    self._send_redirect(
+                        site.sentinel_origin + "/balanced/redirect-target"
+                    )
+                    return
+                if route == "/network-observation.js":
+                    script = f"""
+                    const attempts = [];
+                    attempts.push(fetch(
+                      "/network-observation/get-fetch"
+                        + "?alpha={NETWORK_API_KEY_SENTINEL}"
+                        + "&repeat=one&repeat=two"
+                    ));
+                    attempts.push(new Promise((resolve) => {{
+                      const xhr = new XMLHttpRequest();
+                      xhr.onload = resolve;
+                      xhr.onerror = resolve;
+                      xhr.open(
+                        "GET",
+                        "/network-observation/get-xhr"
+                          + "?beta={NETWORK_JWT_SENTINEL}"
+                      );
+                      xhr.send();
+                    }}));
+                    attempts.push(fetch(
+                      "/network-observation/post-fetch"
+                        + "?post_name=POST_QUERY_VALUE_SECRET",
+                      {{
+                        method: "POST",
+                        headers: {{
+                          "Content-Type": "application/json",
+                          "Authorization": "Bearer AUTHORIZATION_SECRET"
+                        }},
+                        body: JSON.stringify({{
+                          password: "POST_BODY_PASSWORD_SECRET"
+                        }})
+                      }}
+                    ));
+                    attempts.push(fetch(
+                      "{site.sentinel_origin}/network-observation/off-scope"
+                        + "?outside=OFF_SCOPE_QUERY_SECRET"
+                    ));
+                    Promise.allSettled(attempts).then(() => {{
+                      const marker = document.createElement("div");
+                      marker.id = "network-observation-complete";
+                      marker.textContent = "complete";
+                      document.body.appendChild(marker);
+                    }});
+                    """
+                    self._send(
+                        200,
+                        script.encode("utf-8"),
+                        "application/javascript; charset=utf-8",
+                    )
+                    return
+                if route == "/network-observation.css":
+                    self._send(
+                        200,
+                        b"#network-observation-started { display: block; }",
+                        "text/css; charset=utf-8",
+                    )
+                    return
+                if route in {
+                    "/network-observation/get-fetch",
+                    "/network-observation/get-xhr",
+                }:
+                    self._send(200, b"ok", "text/plain; charset=utf-8")
                     return
                 if route == "/unsafe-get":
                     self._send(
@@ -795,6 +1230,41 @@ class DynamicLoopbackSite:
                         "text/html; charset=utf-8",
                     )
                     return
+                if route == "/simple-cli-unsafe":
+                    html = """<!doctype html>
+                    <html><body>
+                      <a href="/logout.php">Logout</a>
+                      <a href="/account?action=logout&amp;csrf=LOOPBACK_CSRF_SECRET">
+                        Query Logout
+                      </a>
+                      <a href="/account/profile?profile_id=one">Profile</a>
+                      <a href="https://www.youtube.com/watch?v=test">External</a>
+                    </body></html>"""
+                    self._send(
+                        200,
+                        html.encode("utf-8"),
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/account/profile":
+                    self._send(
+                        200,
+                        b"<html><body>profile</body></html>",
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if route == "/logout.php":
+                    self.send_response(302)
+                    self.send_header("Location", "/login.php")
+                    self.end_headers()
+                    return
+                if route == "/login.php":
+                    self._send(
+                        200,
+                        b"<html><body>login</body></html>",
+                        "text/html; charset=utf-8",
+                    )
+                    return
                 if route == "/simple-cli.css":
                     self._send(
                         200,
@@ -825,10 +1295,31 @@ class DynamicLoopbackSite:
                     `;
                     root.appendChild(sensitive);
 
-                    fetch("/simple-denied-fetch").catch(() => {{}});
+                    fetch(
+                      "/simple-allowed-fetch?keyword=phone&page=1"
+                    ).catch(() => {{}});
                     const xhr = new XMLHttpRequest();
-                    xhr.open("GET", "/simple-denied-xhr");
+                    xhr.open(
+                      "GET",
+                      "/simple-allowed-xhr?category=book&tag=a&tag=b"
+                    );
                     xhr.send();
+                    fetch(
+                      "/simple-allowed-private?page=1",
+                      {{headers: {{
+                        "Authorization": "Bearer SIMPLE_GET_AUTH_SECRET"
+                      }}}}
+                    ).catch(() => {{}});
+                    fetch("/simple-allowed-head", {{method: "HEAD"}})
+                      .catch(() => {{}});
+                    fetch("/simple-denied-post-fetch", {{
+                      method: "POST",
+                      headers: {{"Authorization": "Bearer SIMPLE_AUTH_SECRET"}},
+                      body: "SIMPLE_POST_BODY_SECRET"
+                    }}).catch(() => {{}});
+                    fetch(
+                      "{site.sentinel_origin}/simple-denied-offscope-fetch"
+                    ).catch(() => {{}});
                     new EventSource("/simple-denied-events");
                     new WebSocket(
                       "ws://127.0.0.1:{site.primary_port}/simple-denied-socket"
@@ -855,6 +1346,13 @@ class DynamicLoopbackSite:
                         script.encode("utf-8"),
                         "application/javascript; charset=utf-8",
                     )
+                    return
+                if route in {
+                    "/simple-allowed-fetch",
+                    "/simple-allowed-xhr",
+                    "/simple-allowed-private",
+                }:
+                    self._send(200, b"ok", "text/plain; charset=utf-8")
                     return
                 if route == "/simple-cli/follow":
                     html = f"""<!doctype html>
@@ -1162,8 +1660,47 @@ class DynamicLoopbackSite:
                 self._send(404, b"missing", "text/plain")
 
             def do_POST(self) -> None:
+                content_length = self.headers.get("Content-Length", "0")
+                try:
+                    body_length = max(0, int(content_length))
+                except ValueError:
+                    body_length = 0
+                body = self.rfile.read(body_length)
                 site._record(site._primary_requests, "POST", self.path)
+                site._record_post(
+                    self.path,
+                    content_type=self.headers.get("Content-Type", ""),
+                    body=body,
+                )
+                if urlsplit(self.path).path == "/api/search":
+                    try:
+                        parsed = json.loads(body)
+                    except (json.JSONDecodeError, TypeError, ValueError):
+                        self._send(400, b"invalid JSON", "text/plain")
+                        return
+                    response = json.dumps(
+                        parsed,
+                        ensure_ascii=True,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ).encode("utf-8")
+                    self._send(200, response, "application/json")
+                    return
                 self._send(500, b"POST must not execute", "text/plain")
+
+            def do_HEAD(self) -> None:
+                site._record(site._primary_requests, "HEAD", self.path)
+                route = urlsplit(self.path).path
+                status = (
+                    200
+                    if route in {
+                        "/balanced/head-fetch",
+                        "/api/head",
+                        "/simple-allowed-head",
+                    }
+                    else 404
+                )
+                self._send(status, b"", "text/plain; charset=utf-8")
 
             def _send(self, status: int, body: bytes, content_type: str) -> None:
                 self.send_response(status)
@@ -1206,6 +1743,49 @@ class DynamicLoopbackSite:
         )
         self.fetch_xhr_url = (
             f"http://127.0.0.1:{self.primary_port}/fetch-xhr"
+        )
+        network_observation_origin = f"http://127.0.0.1:{self.primary_port}"
+        self.network_observation_url = (
+            network_observation_origin + "/network-observation"
+        )
+        self.network_observation_script_url = (
+            network_observation_origin + "/network-observation.js"
+        )
+        self.network_observation_style_url = (
+            network_observation_origin + "/network-observation.css"
+        )
+        self.network_observation_fetch_url = (
+            network_observation_origin
+            + "/network-observation/get-fetch"
+            + f"?alpha={NETWORK_API_KEY_SENTINEL}&repeat=one&repeat=two"
+        )
+        self.network_observation_xhr_url = (
+            network_observation_origin
+            + f"/network-observation/get-xhr?beta={NETWORK_JWT_SENTINEL}"
+        )
+        self.balanced_fetch_xhr_url = (
+            network_observation_origin + "/balanced-fetch-xhr"
+        )
+        self.balanced_fetch_xhr_script_url = (
+            network_observation_origin + "/balanced-fetch-xhr.js"
+        )
+        self.balanced_fetch_xhr_style_url = (
+            network_observation_origin + "/balanced-fetch-xhr.css"
+        )
+        self.network_canonicalization_url = (
+            network_observation_origin + "/network-canonicalization"
+        )
+        self.network_canonicalization_script_url = (
+            network_observation_origin + "/network-canonicalization.js"
+        )
+        self.network_canonicalization_style_url = (
+            network_observation_origin + "/network-canonicalization.css"
+        )
+        self.observed_post_json_url = (
+            network_observation_origin + "/observed-post-json"
+        )
+        self.golden_post_e2e_url = (
+            network_observation_origin + "/golden-post-e2e"
         )
         self.unsafe_get_url = (
             f"http://127.0.0.1:{self.primary_port}/unsafe-get"
@@ -1306,6 +1886,7 @@ class DynamicLoopbackSite:
         self.final_e2e_url = navigation_origin + "/final-e2e"
         self.final_e2e_follow_url = navigation_origin + "/final-e2e/follow"
         self.simple_cli_url = navigation_origin + "/simple-cli"
+        self.simple_cli_unsafe_url = navigation_origin + "/simple-cli-unsafe"
         self.simple_cli_follow_url = (
             navigation_origin + "/simple-cli/follow?simple_dynamic=rendered"
         )
@@ -1358,4 +1939,22 @@ class DynamicLoopbackSite:
         with self._lock:
             log.append(
                 LoopbackRequest(method=method, path=route, raw_target=path)
+            )
+
+    def _record_post(
+        self,
+        path: str,
+        *,
+        content_type: str,
+        body: bytes,
+    ) -> None:
+        route = urlsplit(path).path
+        with self._lock:
+            self._post_requests.append(
+                LoopbackPostRequest(
+                    path=route,
+                    raw_target=path,
+                    content_type=content_type,
+                    body=body,
+                )
             )

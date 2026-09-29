@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections import Counter
+import json
 import os
+import pickle
 import socket
 import tempfile
 import unittest
@@ -8,21 +11,30 @@ from http.client import HTTPConnection
 from pathlib import Path
 from urllib.request import urlopen
 
-from tests.integration.dynamic_loopback_site import DynamicLoopbackSite
+from tests.integration.dynamic_loopback_site import (
+    NETWORK_API_KEY_SENTINEL,
+    NETWORK_JWT_SENTINEL,
+    DynamicLoopbackSite,
+)
 from vulnspider.discovery import (
     ChildFrameDocumentKind,
     DynamicBrowserError,
     DynamicBrowserErrorCode,
     DynamicBrowserPolicy,
     DynamicCapabilityError,
+    DynamicCrawler,
+    DynamicCrawlPolicy,
     DynamicNetworkDecisionKind,
     DynamicNetworkReason,
     DynamicRequestAuthority,
     DynamicResourceGrant,
     DynamicResourceKind,
+    ProbeReadyStatus,
+    PassiveNetworkScope,
     PlaywrightDynamicBrowser,
     preflight_dynamic_browser,
 )
+from vulnspider.domain import HttpMethod, InputLocation
 
 
 class DynamicLoopbackHarnessTests(unittest.TestCase):
@@ -312,6 +324,564 @@ class DynamicBrowserLoopbackTests(unittest.TestCase):
             blocked[("xhr", "/xhr-target")],
             DynamicNetworkReason.REQUEST_NOT_AUTHORIZED,
         )
+
+    def test_real_balanced_fetch_xhr_allows_only_natural_same_origin_get_head(
+        self,
+    ) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(
+                root_url=site.balanced_fetch_xhr_url,
+                resource_grants=(
+                    DynamicResourceGrant(
+                        DynamicResourceKind.SCRIPT,
+                        site.balanced_fetch_xhr_script_url,
+                    ),
+                    DynamicResourceGrant(
+                        DynamicResourceKind.STYLE,
+                        site.balanced_fetch_xhr_style_url,
+                    ),
+                ),
+                allow_passive_same_origin_fetch_xhr=True,
+            )
+
+            result = DynamicCrawler().crawl(
+                site.balanced_fetch_xhr_url,
+                DynamicCrawlPolicy(
+                    max_pages=1,
+                    max_depth=0,
+                    max_navigation_attempts=1,
+                    request_decision_budget=30,
+                ),
+                authority,
+            )
+
+            request_counts = Counter(
+                (item.method, item.path) for item in site.primary_requests
+            )
+            self.assertEqual(
+                request_counts,
+                Counter(
+                    {
+                        ("GET", "/balanced-fetch-xhr"): 1,
+                        ("GET", "/balanced-fetch-xhr.js"): 1,
+                        ("GET", "/balanced-fetch-xhr.css"): 1,
+                        ("GET", "/balanced/get-fetch"): 1,
+                        ("GET", "/balanced/get-xhr"): 1,
+                        ("HEAD", "/balanced/head-fetch"): 1,
+                        ("GET", "/balanced/redirect-same"): 1,
+                        ("GET", "/balanced/redirect-final"): 1,
+                        ("GET", "/balanced/redirect-cross"): 1,
+                    }
+                ),
+            )
+            self.assertEqual(
+                request_counts[("POST", "/balanced/post-fetch")],
+                0,
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        observations = result.browser_audit.network_observations
+        self.assertEqual(len(observations), 7)
+        self.assertEqual(
+            {
+                (item.method, item.resource_type, item.scope)
+                for item in observations
+            },
+            {
+                ("GET", "fetch", PassiveNetworkScope.SAME_SCOPE),
+                ("GET", "xhr", PassiveNetworkScope.SAME_SCOPE),
+                ("HEAD", "fetch", PassiveNetworkScope.SAME_SCOPE),
+                ("POST", "fetch", PassiveNetworkScope.SAME_SCOPE),
+                ("GET", "fetch", PassiveNetworkScope.OFF_SCOPE),
+            },
+        )
+        self.assertTrue(all(item.occurrence_count == 1 for item in observations))
+        self.assertFalse(
+            {"script", "stylesheet"}
+            & {item.resource_type for item in observations}
+        )
+        self.assertIn(
+            DynamicNetworkReason.PASSIVE_SAME_ORIGIN_FETCH_XHR,
+            {
+                event.reason
+                for event in result.browser_audit.events
+                if event.decision == DynamicNetworkDecisionKind.ALLOW
+            },
+        )
+        self.assertIn(
+            DynamicNetworkReason.NON_GET_METHOD,
+            {
+                event.reason
+                for event in result.browser_audit.events
+                if event.decision == DynamicNetworkDecisionKind.BLOCK
+            },
+        )
+        serialized = json.dumps(result.to_dict(), sort_keys=True)
+        for secret in (
+            "GET_FETCH_VALUE_SECRET",
+            "GET_XHR_VALUE_SECRET",
+            "HEAD_VALUE_SECRET",
+            "POST_QUERY_VALUE_SECRET",
+            "AUTHORIZATION_VALUE_SECRET",
+            "POST_BODY_VALUE_SECRET",
+            "OFF_SCOPE_VALUE_SECRET",
+        ):
+            self.assertNotIn(secret, serialized)
+        endpoints = {item.path: item for item in result.discovery.endpoints}
+        self.assertTrue(
+            {"/balanced/get-fetch", "/balanced/get-xhr"} <= set(endpoints)
+        )
+        self.assertNotIn("/balanced/head-fetch", endpoints)
+        self.assertNotIn("/balanced/post-fetch", endpoints)
+        sensitive_ids = {
+            endpoints["/balanced/get-fetch"].id,
+            endpoints["/balanced/get-xhr"].id,
+        }
+        sensitive_points = tuple(
+            item
+            for item in result.discovery.input_points
+            if item.endpoint_id in sensitive_ids
+        )
+        self.assertEqual(
+            {item.name for item in sensitive_points},
+            {"api_key", "session"},
+        )
+        self.assertTrue(
+            all(item.baseline_value is None for item in sensitive_points)
+        )
+        readiness = {
+            item.input_point_id: item for item in result.discovery.probe_readiness
+        }
+        self.assertTrue(
+            all(
+                readiness[item.id or ""].status.value == "NOT_READY"
+                for item in sensitive_points
+            )
+        )
+        self.assertFalse(
+            {
+                item.id
+                for item in result.discovery.request_templates
+                if item.endpoint_id in sensitive_ids
+            }
+        )
+        self.assertTrue(result.browser_audit.cleanup_complete)
+
+    def test_real_observed_get_api_canonicalization_is_transport_free(self) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(
+                root_url=site.network_canonicalization_url,
+                resource_grants=(
+                    DynamicResourceGrant(
+                        DynamicResourceKind.SCRIPT,
+                        site.network_canonicalization_script_url,
+                    ),
+                    DynamicResourceGrant(
+                        DynamicResourceKind.STYLE,
+                        site.network_canonicalization_style_url,
+                    ),
+                ),
+                allow_passive_same_origin_fetch_xhr=True,
+            )
+
+            result = DynamicCrawler().crawl(
+                site.network_canonicalization_url,
+                DynamicCrawlPolicy(
+                    max_pages=1,
+                    max_depth=0,
+                    max_navigation_attempts=1,
+                    request_decision_budget=20,
+                ),
+                authority,
+            )
+
+            request_counts = Counter(
+                (item.method, item.path) for item in site.primary_requests
+            )
+            self.assertEqual(
+                request_counts,
+                Counter(
+                    {
+                        ("GET", "/network-canonicalization"): 1,
+                        ("GET", "/network-canonicalization.js"): 1,
+                        ("GET", "/network-canonicalization.css"): 1,
+                        ("GET", "/api/search"): 1,
+                        ("GET", "/api/filter"): 1,
+                        ("GET", "/api/private"): 1,
+                        ("HEAD", "/api/head"): 1,
+                    }
+                ),
+            )
+            self.assertEqual(request_counts[("POST", "/api/post")], 0)
+            self.assertEqual(site.sentinel_requests, ())
+
+        endpoints = {item.path: item for item in result.discovery.endpoints}
+        self.assertIn("/api/search", endpoints)
+        self.assertIn("/api/filter", endpoints)
+        self.assertIn("/api/private", endpoints)
+        for excluded in ("/api/head", "/api/post", "/api/off-scope"):
+            self.assertNotIn(excluded, endpoints)
+        api_endpoint_ids = {
+            endpoints["/api/search"].id,
+            endpoints["/api/filter"].id,
+        }
+        api_points = tuple(
+            item
+            for item in result.discovery.input_points
+            if item.endpoint_id in api_endpoint_ids
+        )
+        self.assertEqual(
+            sorted((item.name, item.occurrence_index) for item in api_points),
+            [
+                ("category", None),
+                ("keyword", None),
+                ("page", None),
+                ("tag", 0),
+                ("tag", 1),
+            ],
+        )
+        self.assertEqual(len(result.discovery.ready_contexts()), 5)
+        self.assertEqual(len(result.discovery.request_templates), 2)
+        self.assertEqual(len(result.discovery.input_point_request_contexts), 5)
+        private_endpoint = endpoints["/api/private"]
+        private_points = tuple(
+            item
+            for item in result.discovery.input_points
+            if item.endpoint_id == private_endpoint.id
+        )
+        self.assertEqual(
+            [(item.name, item.baseline_value) for item in private_points],
+            [("page", None)],
+        )
+        readiness = {
+            item.input_point_id: item for item in result.discovery.probe_readiness
+        }
+        self.assertEqual(readiness[private_points[0].id or ""].status.value, "NOT_READY")
+        self.assertFalse(
+            any(
+                item.endpoint_id == private_endpoint.id
+                for item in result.discovery.request_templates
+            )
+        )
+        warning = next(
+            item
+            for item in result.discovery.warnings
+            if item.code == "NETWORK_GET_VALUES_ELIDED"
+        )
+        self.assertEqual(warning.details["elided_candidate_count"], 1)
+        self.assertEqual(warning.details["structural_candidate_count"], 1)
+        self.assertEqual(
+            {
+                item.discovered_by
+                for item in endpoints.values()
+                if item.id in api_endpoint_ids
+            },
+            {"native_dynamic_network"},
+        )
+        self.assertEqual(
+            {
+                origin
+                for point in api_points
+                for origin in point.metadata["origin_kinds"]
+            },
+            {"network_fetch", "network_xhr"},
+        )
+        serialized = json.dumps(result.to_dict(), sort_keys=True)
+        for secret in (
+            "HEAD_CANONICALIZATION_SECRET",
+            "POST_CANONICALIZATION_SECRET",
+            "POST_AUTHORIZATION_SECRET",
+            "GET_AUTHORIZATION_CANONICALIZATION_SECRET",
+            "POST_BODY_CANONICALIZATION_SECRET",
+            "OFF_SCOPE_CANONICALIZATION_SECRET",
+        ):
+            self.assertNotIn(secret, serialized)
+        self.assertNotIn("network_discovery", result.to_dict()["browser_audit"])
+        self.assertTrue(result.browser_audit.cleanup_complete)
+
+    def test_real_blocked_post_json_is_classified_without_browser_transport(
+        self,
+    ) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(
+                root_url=site.observed_post_json_url,
+                allow_passive_same_origin_fetch_xhr=True,
+            )
+            result = DynamicCrawler().crawl(
+                site.observed_post_json_url,
+                DynamicCrawlPolicy(
+                    max_pages=1,
+                    max_depth=0,
+                    max_navigation_attempts=1,
+                    request_decision_budget=20,
+                ),
+                authority,
+            )
+            request_counts = Counter(
+                (item.method, item.path) for item in site.primary_requests
+            )
+            self.assertEqual(
+                request_counts,
+                Counter({("GET", "/observed-post-json"): 1}),
+            )
+            self.assertFalse(any(method == "POST" for method, _ in request_counts))
+            self.assertEqual(site.sentinel_requests, ())
+
+        endpoints = tuple(
+            item for item in result.discovery.endpoints if item.path == "/api/search"
+        )
+        self.assertEqual(len(endpoints), 1)
+        endpoint = endpoints[0]
+        self.assertEqual(endpoint.method, HttpMethod.POST)
+        points = tuple(
+            item
+            for item in result.discovery.input_points
+            if item.endpoint_id == endpoint.id
+        )
+        self.assertEqual(
+            {(item.name, item.location) for item in points},
+            {
+                ("keyword", InputLocation.JSON_BODY),
+                ("page", InputLocation.JSON_BODY),
+            },
+        )
+        readiness = {
+            item.input_point_id: item for item in result.discovery.probe_readiness
+        }
+        self.assertTrue(
+            all(
+                readiness[item.id or ""].status == ProbeReadyStatus.READY
+                and readiness[item.id or ""].request_context_id is not None
+                for item in points
+            )
+        )
+        search_templates = tuple(
+            template
+            for template in result.discovery.request_templates
+            if template.endpoint_id == endpoint.id
+        )
+        self.assertEqual(len(search_templates), 1)
+        template = search_templates[0]
+        self.assertEqual(
+            template.metadata["post_replay_disposition"],
+            "SAFE_FOR_PROBE",
+        )
+        self.assertIsNotNone(template.ephemeral_material)
+        self.assertEqual(
+            sum(
+                context.input_point_id in {point.id for point in points}
+                for context in result.discovery.input_point_request_contexts
+            ),
+            2,
+        )
+
+        serialized = json.dumps(result.to_dict(), sort_keys=True)
+        pickled = pickle.dumps(result, protocol=5)
+        for secret in (
+            "phone",
+            "POST_AUTHORIZATION_VALUE_SENTINEL",
+            "POST_PASSWORD_VALUE_SENTINEL",
+            "POST_API_KEY_VALUE_SENTINEL",
+            "POST_TOKEN_VALUE_SENTINEL",
+            "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.",
+        ):
+            self.assertNotIn(secret, serialized)
+        for secret in (
+            "POST_AUTHORIZATION_VALUE_SENTINEL",
+            "POST_PASSWORD_VALUE_SENTINEL",
+            "POST_API_KEY_VALUE_SENTINEL",
+            "POST_TOKEN_VALUE_SENTINEL",
+            "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.",
+        ):
+            self.assertNotIn(secret.encode(), pickled)
+        canonical_paths = {
+            item.path for item in result.discovery.endpoints
+        }
+        self.assertIn("/api/secret", canonical_paths)
+        secret_endpoint = next(
+            item
+            for item in result.discovery.endpoints
+            if item.path == "/api/secret"
+        )
+        secret_template = next(
+            item
+            for item in result.discovery.request_templates
+            if item.endpoint_id == secret_endpoint.id
+        )
+        self.assertEqual(
+            secret_template.metadata["post_replay_disposition"],
+            "BLOCKED_SENSITIVE",
+        )
+        self.assertIsNone(secret_template.ephemeral_material)
+        for rejected in (
+            "/api/malformed",
+            "/api/array",
+            "/api/duplicate",
+            "/api/oversized",
+            "/api/off-scope-post",
+        ):
+            self.assertNotIn(rejected, canonical_paths)
+        warning = next(
+            item
+            for item in result.discovery.warnings
+            if item.code == "NETWORK_POST_JSON_SKIPPED"
+        )
+        self.assertEqual(warning.details["skipped_attempt_count"], 4)
+        self.assertTrue(result.browser_audit.cleanup_complete)
+
+    def test_real_passive_network_observation_is_bounded_and_never_replays(
+        self,
+    ) -> None:
+        with DynamicLoopbackSite() as site:
+            authority = DynamicRequestAuthority(
+                root_url=site.network_observation_url,
+                resource_grants=(
+                    DynamicResourceGrant(
+                        DynamicResourceKind.SCRIPT,
+                        site.network_observation_script_url,
+                    ),
+                    DynamicResourceGrant(
+                        DynamicResourceKind.STYLE,
+                        site.network_observation_style_url,
+                    ),
+                    DynamicResourceGrant(
+                        DynamicResourceKind.FETCH_XHR,
+                        site.network_observation_fetch_url,
+                    ),
+                    DynamicResourceGrant(
+                        DynamicResourceKind.FETCH_XHR,
+                        site.network_observation_xhr_url,
+                    ),
+                ),
+            )
+
+            result = DynamicCrawler().crawl(
+                site.network_observation_url,
+                DynamicCrawlPolicy(
+                    max_pages=1,
+                    max_depth=0,
+                    max_navigation_attempts=1,
+                    request_decision_budget=20,
+                ),
+                authority,
+            )
+
+            request_counts = Counter(
+                (item.method, item.path) for item in site.primary_requests
+            )
+            self.assertEqual(
+                request_counts,
+                Counter(
+                    {
+                        ("GET", "/network-observation"): 1,
+                        ("GET", "/network-observation.js"): 1,
+                        ("GET", "/network-observation.css"): 1,
+                        ("GET", "/network-observation/get-fetch"): 1,
+                        ("GET", "/network-observation/get-xhr"): 1,
+                    }
+                ),
+            )
+            self.assertEqual(
+                request_counts[("POST", "/network-observation/post-fetch")],
+                0,
+            )
+            self.assertEqual(site.sentinel_requests, ())
+
+        observations = result.browser_audit.network_observations
+        self.assertEqual(len(observations), 4)
+        self.assertEqual(
+            {
+                (item.method, item.resource_type, item.scope)
+                for item in observations
+            },
+            {
+                ("GET", "fetch", PassiveNetworkScope.SAME_SCOPE),
+                ("GET", "xhr", PassiveNetworkScope.SAME_SCOPE),
+                ("POST", "fetch", PassiveNetworkScope.SAME_SCOPE),
+                ("GET", "fetch", PassiveNetworkScope.OFF_SCOPE),
+            },
+        )
+        self.assertEqual(
+            {
+                item.query_parameter_names for item in observations
+            },
+            {
+                ("alpha", "repeat", "repeat"),
+                ("beta",),
+                ("post_name",),
+                ("outside",),
+            },
+        )
+        self.assertTrue(all(item.path_segment_count >= 2 for item in observations))
+        self.assertTrue(all(item.occurrence_count == 1 for item in observations))
+        self.assertEqual(
+            result.browser_audit.network_observation_overflow_count,
+            0,
+        )
+        self.assertTrue(
+            any(
+                event.resource_kind == "script"
+                and event.decision == DynamicNetworkDecisionKind.ALLOW
+                for event in result.browser_audit.events
+            )
+        )
+        self.assertTrue(
+            any(
+                event.resource_kind == "stylesheet"
+                and event.decision == DynamicNetworkDecisionKind.ALLOW
+                for event in result.browser_audit.events
+            )
+        )
+        self.assertNotIn(
+            "script",
+            {item.resource_type for item in observations},
+        )
+        self.assertNotIn(
+            "stylesheet",
+            {item.resource_type for item in observations},
+        )
+        serialized = json.dumps(result.to_dict(), sort_keys=True)
+        for secret in (
+            NETWORK_API_KEY_SENTINEL,
+            NETWORK_JWT_SENTINEL,
+            "POST_QUERY_VALUE_SECRET",
+            "OFF_SCOPE_QUERY_SECRET",
+            "AUTHORIZATION_SECRET",
+            "POST_BODY_PASSWORD_SECRET",
+        ):
+            self.assertNotIn(secret, serialized)
+        endpoints = {item.path: item for item in result.discovery.endpoints}
+        network_paths = {
+            "/network-observation/get-fetch",
+            "/network-observation/get-xhr",
+        }
+        self.assertTrue(network_paths <= set(endpoints))
+        network_endpoint_ids = {endpoints[path].id for path in network_paths}
+        network_points = tuple(
+            item
+            for item in result.discovery.input_points
+            if item.endpoint_id in network_endpoint_ids
+        )
+        self.assertEqual(
+            sorted((item.name, item.occurrence_index) for item in network_points),
+            [("alpha", None), ("beta", None), ("repeat", 0), ("repeat", 1)],
+        )
+        self.assertTrue(all(item.baseline_value is None for item in network_points))
+        self.assertFalse(
+            any(
+                item.endpoint_id in network_endpoint_ids
+                for item in result.discovery.request_templates
+            )
+        )
+        warning = next(
+            item
+            for item in result.discovery.warnings
+            if item.code == "NETWORK_GET_VALUES_ELIDED"
+        )
+        self.assertEqual(warning.details["elided_candidate_count"], 2)
+        self.assertEqual(warning.details["structural_candidate_count"], 2)
+        self.assertEqual(warning.details["audit_only_candidate_count"], 0)
+        self.assertTrue(result.browser_audit.cleanup_complete)
 
     def test_real_unauthorized_same_origin_get_is_blocked(self) -> None:
         with DynamicLoopbackSite() as site:

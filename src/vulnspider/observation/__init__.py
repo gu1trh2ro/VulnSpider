@@ -13,7 +13,12 @@ from vulnspider.observation.executor import (
 )
 from vulnspider.observation.planner import (
     DEFAULT_MARKER_STRATEGY,
+    DEFAULT_POST_PROBE_PLAN_BUDGET,
     MARKER_PREFIX,
+    NUMERIC_ADJACENT_MARKER_STRATEGY,
+    POST_PROBE_PLAN_BUDGET_EXHAUSTED,
+    POST_PROBE_PLAN_BUDGET_REQUIRED,
+    PostProbePlanningBudget,
     ProbePlanner,
     ProbePlanningError,
     deterministic_probe_marker,
@@ -23,8 +28,13 @@ from vulnspider.observation.planner import (
 __all__ = [
     "DEFAULT_MAX_BODY_BYTES",
     "DEFAULT_MARKER_STRATEGY",
+    "DEFAULT_POST_PROBE_PLAN_BUDGET",
     "DEFAULT_TIMEOUT_SECONDS",
     "MARKER_PREFIX",
+    "NUMERIC_ADJACENT_MARKER_STRATEGY",
+    "POST_PROBE_PLAN_BUDGET_EXHAUSTED",
+    "POST_PROBE_PLAN_BUDGET_REQUIRED",
+    "PostProbePlanningBudget",
     "RequestExecutionError",
     "RequestExecutor",
     "ProbePlanner",

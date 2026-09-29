@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from vulnspider.discovery import discovery_snapshot_id_for
 from vulnspider.domain import FeatureVector, ResponseSnapshot
 from vulnspider.observation import RequestExecutionError, pair_probe_responses
 from vulnspider.pipeline import AnalysisResult, ProbeObservation
@@ -56,6 +57,7 @@ def build_analysis_report(analysis: AnalysisResult) -> dict[str, Any]:
             "FeatureVectors and scoring results must have exact ownership"
         )
     _validate_selection(analysis, scoring_results)
+    discovery_snapshot_id = discovery_snapshot_id_for(discovery.to_dict())
 
     report = build_json_report(analysis.selection, warnings=analysis.warnings)
     report.update(
@@ -63,6 +65,7 @@ def build_analysis_report(analysis: AnalysisResult) -> dict[str, Any]:
             "report_kind": "analysis",
             "crawl_reference": {
                 "discovery_run_id": discovery.discovery_run_id,
+                "discovery_snapshot_id": discovery_snapshot_id,
                 "collector_kind": discovery.discovery_metadata.collector_kind.value,
                 "input_point_ids": sorted(input_point_ids),
             },
@@ -281,6 +284,11 @@ def _feature_vector_record(vector: FeatureVector) -> dict[str, Any]:
                 "observed": observation.observed,
                 "source": observation.source,
                 "extractor_version": observation.extractor_version,
+                "missing_reason": (
+                    observation.details.get("reason")
+                    if isinstance(observation.details.get("reason"), str)
+                    else None
+                ),
             }
             for _name, observation in sorted(vector.features.items())
         ],

@@ -312,11 +312,108 @@ needed to render those anchors. The advanced
 surfaces without requiring users to predict those URLs, while page code must
 not gain general navigation or active-transport authority.
 
-**Consequences:** Fetch/XHR, WebSocket, EventSource, POST, form submission,
-popup, child-frame documents, cross-origin, and different-port traffic remain
-blocked unless an existing explicit advanced grant category permits it. JSON
-publication uses same-directory temporary output plus atomic replacement, and
-failed or degraded simple scans do not publish a new result.
+**Consequences:** Naturally emitted same-origin GET/HEAD fetch/XHR use the existing
+bounded simple-mode authority; WebSocket, EventSource, POST, form
+submission, popup, child-frame documents, cross-origin, and different-port
+traffic remain blocked unless an existing explicit advanced grant category
+permits it. JSON publication uses same-directory temporary output plus atomic
+replacement, and failed or degraded simple scans do not publish a new result.
+
+---
+
+## ADR-020 - Interface Contract v1 joins two canonical artifacts
+
+**Status:** Accepted
+
+**Date:** 2026-08-09
+
+**Decision:** The current Probe-to-Feature boundary keeps the existing
+`InputPoint`, `ProbePlan`, `ResponsePair`, and role-owned `ResponseSnapshot`
+objects without a wrapper. Downstream Mutation integration consumes only
+`vulnspider-crawl.json` and `vulnspider-analysis.json` through a validating,
+in-memory `NormalizedCandidate` adapter. The adapter output is derived handoff
+data, not a third canonical artifact.
+
+**Reason:** Existing producers already own stable identity, provenance,
+feature, scoring, and selection validation. A small join boundary makes those
+guarantees consumable without duplicating the domain graph or introducing a
+`context_registry.json` that could drift from its sources.
+
+**Consequences:** Unresolved or contradictory IDs fail explicitly. Raw
+credentials and unavailable evidence cannot be fabricated into mutation
+context. BAC category/type values are reserved for a later reviewed producer;
+this decision does not implement BAC behavior. Canonical discovery emits a
+deterministic content-bound `discovery_snapshot_id`, and analysis records the
+same snapshot reference. Non-decision elapsed-time telemetry is normalized out
+of that binding. The handoff recalculates the binding and validates
+serialized FeatureVectors, scoring evidence, and selection through the existing
+scorers and Top-K implementation rather than trusting duplicated report values.
+
+---
+
+## ADR-021 - Canonicalize only already-allowed observed GET APIs
+
+**Status:** Accepted
+
+**Date:** 2026-08-14
+
+**Decision:** Keep `PassiveNetworkObservation` as bounded audit-only evidence.
+At the Guard decision seam, separately project only naturally emitted,
+primary-page, exact-origin GET fetch/XHR requests that the existing Authority has
+already allowed. Canonicalization consumes that internal candidate without
+issuing, replaying, retrying, or reconstructing a request. Credential-free query
+pairs produce ordinary Endpoint, QUERY InputPoint, RequestTemplate, and READY
+request-context records through the existing canonical builder. A sensitive
+query name/value or credential-bearing request header discards all values before
+candidate retention and produces at most Endpoint plus ordered query-name
+InputPoints with NOT_READY status and no template/context.
+
+**Reason:** The Guard owns the original request and authoritative allow/scope
+decision. Audit projections intentionally omit raw URLs and values, so rebuilding
+from them would create false precision. Reusing existing canonical identities and
+merge paths preserves deterministic DOM/network deduplication and lets the
+unchanged ProbePlanner consume only validated READY contexts.
+
+**Consequences:** HEAD, non-GET, blocked, off-scope, malformed, userinfo-bearing,
+and oversized requests never become canonical. Raw authorization/cookie values,
+JWTs, and sensitive query values are never retained by the candidate, audit, or
+canonical artifacts. Canonical network objects participate in the existing
+`discovery_snapshot_id`; audit-only occurrence changes do not. Safe READY
+contexts may cause the existing analysis phase to send its normal attributed
+baseline/probe pair, but canonicalization itself causes no transport.
+
+---
+
+## ADR-022 - Retain blocked POST JSON as structural-only discovery
+
+**Status:** Accepted
+
+**Date:** 2026-08-15
+
+**Decision:** At the existing Guard scope/resource/method decision seam, inspect
+only naturally attempted primary-page, exact-origin POST fetch/XHR requests with
+`application/json` and an optional UTF-8 charset. The Guard still blocks the
+request before transport. A bounded transient parser accepts only a top-level
+object, rejects malformed/array/duplicate/oversized input, applies the shared
+credential-material policy to the complete parsed tree, then discards every
+value. A safe attempt retains only canonical source/endpoint URLs, resource
+kind, and sorted top-level names. The existing builder emits a POST Endpoint and
+JSON_BODY InputPoints with network provenance, no RequestTemplate/context, and
+NOT_READY ownership.
+
+**Reason:** A page's natural POST attempt reveals attack-surface structure even
+when state-changing transport is prohibited. Capturing at the Guard preserves
+authoritative primary-page and exact-origin evidence; reading passive audit
+would require unsafe reconstruction. A value-free candidate supports canonical
+identity and deterministic merge without creating replay authority or retaining
+body/header secrets.
+
+**Consequences:** POST remains non-executable in both browser transport and the
+READY-GET-only analysis pipeline. Candidate/field/body bounds and sanitized
+reason counts are deterministic. Sensitive material elides the whole candidate.
+Malformed, non-object, duplicate-key, non-JSON, off-origin, non-primary, and
+other-method attempts create no canonical surface. Safe structural objects
+participate in the existing discovery snapshot and crawl/analysis binding.
 
 ---
 
@@ -934,6 +1031,678 @@ ADR-004(one-at-a-time)는 유지된다. 2인 리뷰 대상.
   재검토 대상이다.
 
 ---
+
+## ADR-032 — Focused verification과 rule-based confidence update
+
+**Status:** Accepted
+
+**Date:** 2026-08-18
+
+**Decision:** 랭킹된 Top-K 위에 마지막 파이프라인 단계인 focused verification을
+추가한다. 각 상위 후보에 대해 같은 계열의 *변형* 페이로드를 제안하고
+(`verification/proposal.py`), 결정적 validator로 반드시 게이트한 뒤
+(`verification/validator.py`), 승인된 것만 loopback 대상에 재전송해 feature
+vector를 다시 수집하고(`planner.py` + 기존 executor/extractor), baseline vector와
+차분해(`delta.py`), 검토된 규칙으로 confidence를 갱신한다(`confidence.py`). 결과는
+`VerificationResult` 레코드(`docs/TEAM_INTERFACES_V0_2.md` §3)로 직렬화한다. CLI는
+opt-in `--verify`/`--verify-output`로 별도 `vulnspider-verification.json`만 쓰며,
+frozen v0.1 출력·분석 리포트·decision 리포트는 바뀌지 않는다.
+
+**Context:** `docs/PROTOTYPE_V0_2.md` §4.3–4.4가 남긴 마지막 milestone(석현
+소유). `AnalysisResult`는 이미 InputPoint별 baseline `FeatureVector`와 실행된
+`ProbePlan`(baseline `RequestInstance` 포함)을 보존하므로, discovery를 건드리지
+않고 재탐색을 계획할 수 있다.
+
+**규칙(요지):**
+
+- 차이가 작으면(discriminating feature 이동 없음, 관측 플립은 0값 아티팩트 제외)
+  → **UNCHANGED**, prior 유지.
+- 유형별 신호가 재현되면(baseline도 이미 의심) → **SUPPORTED(keep)**, prior 유지
+  ("차이가 크지 않으면 confidence 유지").
+- baseline이 놓친 신호가 새로 드러나면(예: sentinel `'`로는 안 났는데 out-of-range
+  `-1`에서 SQL 에러) → **SUPPORTED(raise)** ("baseline으로는 의심이 크지 않았지만
+  실제 취약 지점").
+- 반사되지만 안전하게 entity-encoding됨 → **WEAKENED(lower)**.
+- 응답은 크게 바뀌었지만 유형별 신호가 없음 → **INCONCLUSIVE_ERROR**, prior 유지
+  ("단순 에러"). BOUNDARY 페이로드에서 흔하다.
+
+**Safety:** 네트워크·페이로드 실행 변경이라 2인 리뷰 대상. 모델 출력은 신뢰하지
+않으며 validator 승인 전에는 전송되지 않고(거부된 제안은 실행 provenance가 존재할
+수 없게 `from_objects`에서 강제), 페이로드는 read-only(스택 쿼리·파괴적 키워드
+금지, 상태 변경 없음)이고 loopback 한정이며 ADR-004(one-at-a-time)를 유지한다.
+prior는 `RankScore`가 아니라 calibrated probability(ADR-022의 pre-verification
+prior)에서 시작하므로 도메인 규칙 6·7을 지킨다.
+
+**Alternatives:**
+
+- 변화 크기만으로 취약/에러 판정 → 기각. 길이·상태는 어떤 페이로드에서도 흔들려
+  구분자가 못 된다. `sql_error_pattern`(SQLi)과 raw 반사(XSS)만이 구분자다.
+- RankScore를 confidence로 합산/대체 → 기각(규칙 6·7, contract forbidden
+  reconstruction).
+- 실제 LLM 클라이언트 즉시 구현 → 보류. provider-neutral 경계 + 결정적 기본
+  proposer만 구현하고, GPT/Gemini는 같은 validator 게이트 뒤에 끼우는 후속
+  milestone(API 비교 하니스·키 취급 필요)으로 둔다.
+
+**Consequences:**
+
+- 새 패키지 `src/vulnspider/verification/`(proposal/validator/planner/delta/
+  confidence/result/focused)와 opt-in CLI 플래그, `test_verification.py`·
+  `test_verification_cli.py` 추가. 전체 unit 682개 + format/lint/type green.
+- `VerificationResult`는 이제 구현된 producer 레코드다. `VerificationEvidence`
+  세부 스키마·confidence 임계값은 규칙 v1로 고정했고 팀 리뷰 대상이다.
+- **미완/후속:** 실제 GPT/Gemini proposer, HTML verification 리포트, decision
+  리포트와의 결합, per-payload 재현 시 소폭 가점 여부(현재 strict keep), FORM/POST
+  대상 확대 검증.
+
+---
+
+## ADR-033 — Confidence 상수의 코퍼스 보정, 평가 arm, 최종 리포트 결합
+
+**Status:** Accepted
+
+**Date:** 2026-08-18
+
+**Decision:** ADR-032의 confidence 갱신에서 손으로 고른 상수(`SUPPORT_GAIN=0.6`,
+`WEAKEN_FACTOR=0.5`)를 제거하고, 검증 결과를 **범주형 신호**(SUPPORT_NEW,
+SUPPORT_REPRODUCED, WEAKEN, INCONCLUSIVE, UNCHANGED, NOT_EXECUTED)로 보고, 그
+신호의 **로그우도비(LLR)를 prior의 로그오즈에 더하는** 방식으로 바꾼다.
+
+`logit(posterior) = logit(prior) + LLR(family, signal)`
+
+LLR은 라벨된 검증 코퍼스에서 `P(signal|취약)/P(signal|안전)`로 추정하며(Dirichlet
+평활), `|LLR|`을 `max_abs_llr`(기본 1.0 logit)로 클램프한다. 이는
+`scoring/calibration.py`의 `NaiveBayesRates.log_likelihood_ratio`가 feature에
+쓰는 것과 같은 weight-of-evidence 합성을 검증 신호에 적용한 것이다.
+
+**"점수가 크게 변하지 않게":** 로그오즈 가법 갱신은 단조·유계이고, 캡이 한 번의
+검증이 점수를 세게 흔들지 못하게 보장한다(기본 캡에서 prior 0.5는 최대 ±0.23
+이동). 무학습 기본 모델(`VerificationConfidenceModel.default`)은 작은 고정 LLR을
+쓰며 SUPPORT_REPRODUCED는 기본 0(재현은 기본적으로 유지) — 재현에 가점할지는
+코퍼스가 결정한다(ADR-032가 남긴 open question을 데이터로 닫음).
+
+**평가 arm:** `corpus/verification_fitting.py`가 leave-one-application-out로
+prior의 Brier와 posterior의 Brier를 비교한다(`evaluate_verification_arm`). 개선이
+양수면 학습된 LLR을 배포할 근거이고, 음수면 검증이 이 코퍼스에서 보정 정보를 더하지
+못한다는 정직한 결과다(캡이 이미 보수성을 보장). 라벨/프로토콜은
+`corpus/verification_collection.py`(`verification-corpus-v1` JSONL)가 소유하며,
+`docs/EVALUATION_PROTOCOL.md` §3 키로 ground truth와 조인한다.
+
+**최종 리포트 결합:** `--verify`를 켜면 검증을 리포트 생성 **이전**에 실행하고, 그
+결과를 `reporting/decision_html_report.py`에 넘긴다. 리포트의 헤드라인 점수는 이제
+검증 이전 확률이 아니라 **검증 이후 최종 신뢰도**(`CandidateVerification
+.final_confidence`)이며, 후보 카드에 검증 판정(뒷받침/약화/보류)과 검증 전후 점수
+변화를 함께 표시한다. 리포트는 아무것도 재계산하지 않고 권위 있는 값을 표시만 한다
+(ARCHITECTURE.md).
+
+**CLI:** `corpus verify-collect`(라벨 앱에서 검증 신호 수집), `corpus verify-fit`(
+모델 적합 + `--report`로 arm 평가), analyze/`-u`의 `--verification-model`(적합 모델
+로드; 기본은 보수적 내장 모델).
+
+**Safety/규칙:** prior는 여전히 calibrated probability(ADR-022의 pre-verification
+prior)이지 RankScore가 아니다(규칙 6·7). 신호 추출은 결정적이고 모델과 무관하므로
+수집은 모델 독립이다. 네트워크/페이로드 실행 정책은 ADR-032와 동일(2인 리뷰).
+
+**Alternatives:**
+
+- 상수를 유지하고 손튜닝 → 기각. 근거 없는 값이라 확률 스케일을 오염시키고 방어 불가.
+- outcome(SUPPORTED/WEAKENED) 단위로만 LLR 학습 → 기각. 재현/신규 구분이 사라져
+  ADR-032의 "재현 유지" 의도를 잃는다. 그래서 더 세분화된 signal로 학습한다.
+- 캡 없이 학습 LLR 사용 → 기각. 소규모 코퍼스에서 분리 가능한 신호가 과신을
+  유발한다. 캡이 "크게 변하지 않게"를 보장한다.
+
+**Consequences:**
+
+- `confidence-rule-v1`→`v2`. `VerificationConfidence`에 `signal`·`model_version`
+  추가, `VerificationResult` JSON에 반영. 기존 34개 검증 테스트는 기본 모델로 유지
+  (수치는 더 완만). 신규 15개 테스트(calibration/arm/collection/CLI/report).
+- **코퍼스 수집 완료:** `tools/build_verification_corpus.py`가
+  `tools/corpus_target_site.py`의 라벨 loopback 앱(DVWA와 동일한 신호 계열: 에러
+  기반/블라인드 SQLi, raw/이스케이프 XSS, 안전)을 띄워 실제 검증을 돌려 코퍼스를
+  수집한다. 산출물: `data/corpus/verification-corpus.jsonl`(146 샘플, 14 앱),
+  `verification-model.json`(적합 모델), `verification-arm.json`. **out-of-fold
+  Brier 0.136→0.102(+0.034 개선).** 학습 결과 SUPPORT_REPRODUCED=+1.0(취약 20/안전
+  0), WEAKEN=−1.0(안전 20/0), UNCHANGED은 SQLI에서 −0.407(블라인드 SQLi가 UNCHANGED로
+  떨어져 약하게만 안전). NOT_EXECUTED·INCONCLUSIVE는 증거 없음이라 항상 0으로 고정,
+  미관측 신호는 기본 LLR로 폴백(스무딩 아티팩트 방지). 적합 모델은
+  `--verification-model`로 사용하며 내장 기본은 여전히 보수적 무학습 모델.
+- **미완/후속:** 실제 DVWA 대상(로그인·세션·보안 쿠키 인증 크롤 필요, 현 크롤러
+  미지원), 캡·평활 하이퍼파라미터의 코퍼스 기반 선택, 적합 모델을 기본값으로 승격할지
+  여부.
+
+---
+
+## ADR-034 — 단일 대시보드 리포트와 INCONCLUSIVE 게이트 정밀화
+
+**Status:** Accepted
+
+**Date:** 2026-08-18
+
+**Decision (리포트 통합):** 최종 산출물을 **하나의 end-to-end HTML 대시보드**로
+모은다. 단순 `-u` 모드는 이제 `vulnspider-report.html`을 **기본 생성**하며
+(`--no-html`로 끔, `--html-output`로 경로 지정), 이 대시보드가 URL→탐색→랭킹→검증
+결과를 한 파일에 담는 "그 리포트"다(자체 완결형, 오프라인). decision **JSON**
+리포트에도 검증 후 최종 신뢰도를 반영해(`decision_report`에 `verification` 요약과
+후보별 `final_confidence`/`verification_outcome`/`prior_probability` 추가) JSON과
+HTML이 같은 최종 점수를 제시한다. crawl/analysis/verification JSON은 유지하되,
+읽는 리포트가 아니라 기계 판독용 export로 위치한다. `analyze` 서브커맨드는
+`--html-output`가 기존처럼 옵트인(하위호환).
+
+**Decision (검증 후 재정렬):** 리포트의 **표시 순서와 헤드라인 점수는 검증 후 최종
+신뢰도** 기준으로 다시 정렬한다(HTML 카드·상단 후보 차트·decision JSON의
+`verification_order` 모두). 단 **Top-K 선택(어떤 K개를 검증할지)은 여전히 검증 이전
+확률**로 정한다 — 선택 멤버십은 바뀌지 않고 같은 집합을 최종 신뢰도로 재정렬만 한다.
+정렬은 안정(stable)이라 미검증 시 기존 확률 순서가 유지되고, 원래 우선순위는 각
+항목의 `selection_rank`로 보존한다. conformal recall 보장은 선택 로직의 일부라 검증
+이전 확률 기준을 유지한다. 근거: "무엇을 먼저 검증할지"는 prior가 답하지만, 리포트가
+제시하는 "최종 점수"라면 카드 배치도 그 점수와 일치해야 사용자 혼란이 없다.
+
+**Decision (INCONCLUSIVE 정밀화):** `INCONCLUSIVE_ERROR`를 **실제 에러**에만
+한정한다 — transport 실패, 또는 **payload가 유발한 5xx**(baseline이 5xx가 아니었던
+경우). 길이만 바뀌거나 non-5xx(예: 400/404 입력 거부)로 바뀐 경우는 취약 신호가
+없으면 benign difference로 보고 `UNCHANGED`로 유지한다. probe/baseline status code를
+`update_confidence`에 전달해 판정한다(feature 스키마·scoring·corpus 불변).
+
+**Context:** 사용자 요구 — end-to-end 웹 대시보드 하나만 원함, 그리고 boundary/길이
+노이즈로 INCONCLUSIVE가 과다 생성되는 문제. INCONCLUSIVE와 UNCHANGED 모두 prior를
+유지하므로 과다 생성은 점수가 아니라 리포트 라벨 노이즈 문제였고, 5xx 게이트가 그
+라벨을 실제 서버 에러로만 한정한다.
+
+**Alternatives:**
+
+- 리포트를 계속 파일 여러 개로 → 기각(사용자 요구: 하나의 대시보드).
+- INCONCLUSIVE를 length ratio로도 판정(기존) → 기각. marker와 mutation의 길이 차만
+  으로도 트리거되어 오탐. status 기반이 정확.
+- 새 feature(`server_error_5xx`) 추가 → 보류. status code를 confidence 규칙에 직접
+  전달하는 편이 스키마/코퍼스를 건드리지 않아 더 작다.
+
+**Consequences:**
+
+- `-u`가 HTML 리포트를 기본 생성(파일 하나 추가). decision JSON 스키마에 검증 필드
+  추가(하위호환: `probability`는 그대로 prior). `_material_context_change` 제거,
+  `_payload_induced_server_error` 도입. 신규/수정 테스트로 5xx→INCONCLUSIVE,
+  length-only→UNCHANGED, non-5xx→UNCHANGED 확인. 전체 unit 699 green.
+- **미완/후속:** 요청 예산 상한·요청 간 딜레이·candidate별 baseline 재사용(요청 수
+  2N→N+1, 추출기 provenance 완화 필요)은 이번에 범위 제외(요청에 따라 선택 안 됨).
+  `analyze`도 HTML 기본화할지, JSON export를 옵션화할지는 후속 논의.
+
+---
+
+## ADR-035 — BAC 관측·랭킹·검증을 native 파이프라인에 통합
+
+**Status:** Accepted
+
+**Date:** 2026-08-19
+
+**Decision:** 66e5321에서 개발한 BAC 관측 계층(`access/planner.py`·`executor.py`)을
+현재 브랜치의 native 분석 경로에 통합한다. `_analyze_contexts`가 각 GET 컨텍스트에
+대해 **CREDENTIAL_STRIP**(쿠키/Authorization 제거 재요청)·**IDENTIFIER_SUBSTITUTION**
+(숫자 id +1 재요청)을 실행해 `AnalysisResult`에 `access_scoring_results`·
+`access_probe_observations`를 담는다. `build_decision_candidates`는 BAC 후보를
+calibrated probability로 SQLi/XSS와 함께 랭킹하고(BAC 모델은 optional — 없으면 조용히
+제외), 대시보드는 BAC 후보를 endpoint·check_kind·reference/comparison 재전송으로
+렌더한다. **BAC 전용 검증**(`verification/access_verify.py`)은 IDENTIFIER_SUBSTITUTION
+후보를 다른 id(+2/+5/−1)로 재확인해, 여러 id에서 재현되면 confidence 유지(SUPPORT_
+REPRODUCED), 하나도 재현 안 되면 약화(WEAKEN)한다 — injection과 같은 신호/LLR 모델
+재사용. 이로써 ADR-014의 "BAC deferred(scorer만 있고 관측 없음)"를 관측·랭킹·검증까지
+확장한다.
+
+**Context:** 데모 앱의 IDOR를 스캔이 실제로 후보로 잡게 하려는 사용자 요청. GET 한정·
+비파괴(ADR-012 non-goals 준수: 로그인/세션/역할 매트릭스 없음).
+
+**Alternatives:**
+
+- BAC를 selection_priority로만 표시(66e5321의 combined_report 방식) → 기각. 현재
+  대시보드는 calibrated probability 기반이라 스케일 통일이 필요.
+- BAC 검증을 injection verification 프레임(페이로드 mutation)에 억지로 넣기 → 기각.
+  BAC는 페이로드가 아니라 식별자/자격증명 재확인이라 별도 경량 경로가 맞다.
+
+**Consequences:**
+
+- pipeline/cli_decision/decision_html_report 통합, `access/{planner,executor}.py`
+  복원, `verification/access_verify.py` 신규. 전체 unit 710 green. 데모 스캔에서
+  BAC 후보가 랭킹·대시보드·검증에 나타남.
+- **한계/후속:** IDENTIFIER_SUBSTITUTION은 순차 id 앱에서 과탐 경향(데모에서 BAC 다수).
+  CREDENTIAL_STRIP 전용 검증은 미구현(관측만). 부수로 e5ceb2d의 --top-k 상한 회귀
+  (test_decision_cli top-k 50) 동반 수정.
+
+---
+
+## ADR-036 — 라벨 붙은 DemoShop 타깃과 live ranking evaluation
+
+**Status:** Accepted
+
+**Date:** 2026-08-24
+
+**Decision:** 세 가지를 함께 정한다.
+
+1. **평가용 타깃.** `demo_target_server.py`의 37개 입력점을 `tools/demo_shop.py`의
+   **DemoShop**(라우트 32개, GET form 기반 입력점 100개, 취약 40 / 안전 60)으로
+   교체한다. 정답은 사이트 자신이 소유하고 `data/demo/demoshop-ground-truth.json`에
+   커밋한다. 안전 입력점은 일부러 어렵게 만든다(`safe_validated` 400,
+   `safe_dynamic` 길이 변화, `safe_stripped` 위험문자 치환, `safe_type_error`
+   파라미터 바인딩인데 캐스팅 오류로 진짜 DB 오류를 노출). 취약 입력점 중
+   `sqli_blind`·`xss_conditional`은 현재 feature로는 놓치도록 둔다. 어떤 랭킹이든
+   1.000이 나오는 타깃은 아무것도 측정하지 못하기 때문이다.
+2. **live evaluation 단계.** `evaluation/live.py`가 한 번의 실제 스캔이 만든 후보
+   pool을 ground truth와 조인해 세 arm을 **같은 후보·같은 라벨**로 채점한다:
+   random predictor(전체가 한 동점 그룹 = §6-A rule 4의 정확한 기대값),
+   focused verification을 뺀 파이프라인(보정 확률 순), 최종 VulnSpider
+   (`final_confidence` 순). `--ground-truth`로 켜고 `live-evaluation-v1` JSON과
+   콘솔 표로 남긴다. 한 스캔 = 애플리케이션 1개 = query 1개(§6-A rule 3)이므로
+   `MAP@K`는 그 query의 average precision이다.
+3. **검증 대상 정정.** `--verify`는 지금까지 `analysis.selection`(v0.1 휴리스틱
+   Top-K)을 검증했지만 리포트는 보정 확률 Top-K를 싣는다. XSS encoding 감점
+   (ADR-031)처럼 보정 전용 항이 순서를 바꾸면 두 집합이 완전히 어긋나, 리포트의
+   어떤 후보에도 `final_confidence`가 붙지 않는다. `cli_decision.rank_analysis`로
+   랭킹을 먼저 계산하고 `VerificationSelection`으로 그 집합·그 prior를 검증에
+   넘긴다. `verify_analysis(selection=...)`를 생략하면 종전 동작이라
+   `tools/build_verification_corpus.py`는 그대로다.
+
+**Context:** "Random Predictor / focused verification 없는 파이프라인 / 최종
+소프트웨어를 Precision·Recall·MAP으로 비교하고 싶다"는 요구. ADR-033이 verification
+arm을 코퍼스 위에서 정의했지만, 제품이 실제로 출력하는 confidence로 측정하는 경로는
+없었다. 그 경로를 만들자마자 3번 문제가 드러났다: 100개 입력점 타깃에서 두 Top-K의
+교집합이 0이었다.
+
+**Alternatives:**
+
+- *리포트에서 오프라인으로 채점.* `decision-report-v1`에 후보 identity(path·
+  parameter)가 없어 ground truth와 조인할 수 없다. 리포트 스키마를 넓히는 대신
+  실행 중 권위 있는 `Endpoint`/`InputPoint`에서 키를 만든다(`corpus/collection`과
+  동일 규칙).
+- *검증이 계속 휴리스틱 Top-K를 보게 두기.* 검증 코퍼스 수집에는 맞지만 스캔
+  리포트에는 틀리다. 그래서 기본값은 유지하고 호출자가 집합을 지정하게 했다.
+- *arm을 코퍼스처럼 out-of-fold로.* live 스캔은 학습이 아니라 측정이므로 해당
+  없음. 대신 미라벨 후보 수를 항상 함께 보고한다.
+
+**Consequences:**
+
+- 검증된 후보가 리포트 Top-K와 항상 일치한다. DemoShop 실측(top-k 20, 적합
+  verification 모델): Precision@20 random 0.160 / no-verify 0.800 / full 0.850,
+  MAP@20 0.049 / 0.714 / 0.763.
+- 내장 기본 verification 모델은 `SUPPORT_REPRODUCED`의 LLR이 0이라(ADR-033)
+  arm 간 차이가 0이 된다. 평가 실행은 `corpus verify-fit`으로 적합한 모델을
+  `--verification-model`로 넘겨야 한다.
+- verification은 Top-K만 방문하므로 `K == top_k`에서 두 arm은 **같은 집합**이고
+  `Recall@K`/`Precision@K`가 대체로 같다. 차이는 순서에 민감한 `MAP@K`와
+  `K < top_k`에서 드러난다. 단, 강등된 후보가 컷 밖으로 밀리면 미검증 후보가
+  올라와 집합 자체가 바뀔 수 있다.
+- DemoShop은 라우트가 32개라 기본 크롤 예산(10 페이지)으로는 부족하다. 평가는
+  `analyze --url ... --max-pages 60 --max-requests 250`로 실행한다.
+
+---
+
+## ADR-037 — DemoShop 인증 영역과 네이티브 세션 쿠키 (BAC 실증)
+
+**Status:** Accepted
+
+**Date:** 2026-08-27
+
+**Decision:** BAC를 데모에서 **진짜 취약점(true positive)과 정상 접근제어(true
+negative)**로 실증하기 위해 세 가지를 함께 도입한다.
+
+1. **네이티브 세션 쿠키 (정적 경로).** `CrawlPolicy.session_cookies`와 CLI
+   `--cookie NAME=VALUE`(반복)로 운영자가 로그인 세션을 제공하면, 정적 크롤러가
+   그 쿠키를 모든 요청에 실어 보내고(`Cookie` 헤더) 생성하는 모든
+   `RequestTemplate`에 쿠키를 담는다(`extract_static_html(session_cookies=...)`).
+   `RequestTemplate.id`가 쿠키를 포함(models.py)하므로 사후 부착은 불가능해,
+   쿠키는 **템플릿 생성 시점**에 주입한다. 이로써 (a) 보호 자원이 200으로
+   발견되고(크롤러는 4xx를 스킵한다), (b) `plan_credential_strip`이 계획될 전제
+   (템플릿에 자격증명 존재)가 성립한다. 계정 생성/로그인 자동화/상태 변경은
+   없다(AGENTS.md 준수) — 읽기 전용 GET, 세션은 운영자 제공.
+2. **DemoShop 인증 영역(`/portal/`).** `/login?as=admin|user`가 서명된
+   `demoshop_session` 쿠키를 발급. `/portal/order?ref`·`/portal/message?thread`는
+   소유권 확인이 없는 **IDOR(취약)**, `/portal/card?card_id`는 소유권을 확인해
+   치환 시 403인 **정상 접근제어(안전)**. 공개 상점과 분리되어(공개 index에서
+   링크 안 함) 세션 쿠키로 별도 스캔한다. 공개 100 입력점/기존 정답은 불변.
+3. **평가 보강.** endpoint-level인 CREDENTIAL_STRIP 후보(입력점 없음)는
+   파라미터 단위 정답에 조인할 수 없어 live 평가에서 **에러 대신 건너뛴다**
+   (`evaluation/live.py`). 크롤 리포트는 세션 토큰 값을 **마스킹**해 출력한다
+   (이름 유지, 값 `<redacted>`; AGENTS.md 세션 시크릿 금지).
+
+**Context:** DVWA BAC가 로그인 없이는 발현되지 않고(모든 user_id에 200
+"Access denied") 우리 휴리스틱이 그 200을 IDOR 성공으로 오독한 것이 드러났다.
+DemoShop에서도 지금까지 BAC 후보는 "인증이 아예 없어 아무나 200"이라 오탐과
+성질이 같았다. 진짜 접근제어가 있는 자원에서만 true positive/negative가 구분되고,
+그러려면 인증된 참조 요청이 필요하다.
+
+**Alternatives:**
+
+- *사후 템플릿에 쿠키 부착.* `RequestTemplate.id`가 쿠키 포함 → 참조 무결성
+  파괴. 기각.
+- *legacy `--input` 인증 크롤 픽스처.* 크롤러 변경은 없지만 discovery가 라이브가
+  아니고 v0.2 주경로가 아님(AGENTS.md). 팀 결정으로 네이티브 방식 채택.
+- *CREDENTIAL_STRIP에 endpoint-level 정답 부여.* GroundTruthKey가 비어있지 않은
+  parameter_name을 요구 → 모델 확장 필요. 데모는 IDOR(입력점 있음) 중심으로
+  두고 credential-strip 후보는 평가에서 스킵.
+
+**Consequences:**
+
+- `analyze --url .../portal/ --access-control --cookie ... --ground-truth ...`
+  실측(top-10): IDOR 2개가 최종 confidence 0.953으로 1~2위, 정상 접근제어는
+  0.524로 그 아래. Recall@2=1.000, MAP@K=1.000 (random 0.22~0.29).
+- `--cookie`는 정적 경로 전용. `--dynamic`과 함께 쓰면 에러(브라우저 세션 임포트
+  미지원). 공개 상점 스캔은 `--cookie` 없이 종전과 동일.
+- 크롤러가 4xx를 스킵하므로 보호 자원은 유효한 세션으로만 발견된다. 잘못된
+  토큰/쿠키 없음 → 403 → 미발견.
+
+---
+
+## ADR-038 — 두 실제-앱 탐지 갭 수정: submit 게이트 포함, BAC denial 게이트
+
+**Status:** Accepted
+
+**Date:** 2026-08-28
+
+**Decision:** DVWA 케이스 스터디 준비 중 드러난 두 가지 갭(둘 다 실제 앱 부류의
+문제)을 근본 수정한다.
+
+1. **이름 있는 submit 컨트롤을 고정 요청 파라미터로 포함(SQLi 미탐 수정).**
+   `html_extractor`는 submit/버튼을 비데이터 컨트롤로 완전히 스킵했다. 그러나
+   브라우저는 폼 제출 시 활성화된 submit 버튼의 `name=value`를 함께 보내고, 많은
+   핸들러가 그것으로 게이팅한다(`if (isset($_GET['Submit']))` — DVWA SQLi). 이제
+   폼의 **첫 번째 이름 있는 submit/`<button type=submit>`** 을 요청 템플릿의
+   query(GET)/form(POST)에 **고정값**으로 싣되, 주입 가능한 InputPoint로는 만들지
+   않는다. 이름 없는 submit은 브라우저와 동일하게 미포함. `RequestTemplate.id`가
+   쿼리/폼을 포함하므로 생성 시점에 넣는다.
+2. **BAC denial 본문 게이트(오탐 수정).** `access_unauthorized_success`는 비교
+   요청이 HTTP 2xx이면 무조건 1.0이었다. 앱 레벨 "Access denied / 로그인 필요"
+   페이지를 **200**으로 주는 앱(DVWA BAC 익명)에서 이는 200 거부를 IDOR 성공으로
+   오독한다. 이제 응답 본문에서 denial 문구(access denied/unauthorized/forbidden/
+   로그인 필요/접근 거부 등, 대소문자·한영)를 탐지해: **비교 응답이 denial이면
+   success=0.0**, **참조 응답 자체가 denial이면 관측 무효**(미인증이라 샐 게 없음)로
+   처리한다. 접근제어 feature 스키마 `access-feature-v0.2`.
+
+**Context:** 팀 계획의 외부 타깃(DVWA) 준비 중, SQLi는 submit 누락으로 미탐, BAC는
+익명 200 거부를 0.95 오탐으로 잡는 것이 세션 내 실측으로 확인됐다. 둘 다 DVWA 전용
+문제가 아니라 "submit 이름으로 게이팅하는 앱", "인가 거부를 200으로 주는 앱" 부류의
+일반 문제다.
+
+**Alternatives:**
+
+- SQLi: URL 시딩(`?id=1&Submit=Submit`) 우회 — 케이스별 수동이라 일반 수정으로 대체.
+  모든 submit을 다 포함? 브라우저는 하나만 보내므로 첫 번째만.
+- BAC: 상태코드만 유지 + 인증 강제 — 익명 오탐은 남는다. denial 본문 탐지가 근본적.
+  IDOR/자격증명제거의 유사도 의미 분리(ADR-037 C안)는 범위가 커서 후속 과제로 남김.
+
+**Consequences:**
+
+- DVWA SQLi가 URL 시딩 없이 탐지된다(`Submit=Submit` 자동 포함). DemoShop은 폼이
+  이름 없는 `<button type=submit>`이라 영향 없음(공개 100 입력점·정답 불변).
+- DVWA 익명 BAC 0.95 오탐이 사라진다(관측 무효). 실제 IDOR는 로그인 세션(`--cookie`,
+  ADR-037)으로 확인해야 한다. DemoShop `/portal` IDOR(0.953)·정상(0.524) 판정 불변.
+- 한계: denial 문구 사전에 없는 표현은 놓칠 수 있다(패턴 확장 가능). 전체 867 테스트
+  통과.
+
+---
+
+## ADR-039 — Per-input-point 랜덤 예측기 비교군
+
+**Status:** Accepted
+
+**Date:** 2026-08-30
+
+**Decision:** 라이브 랭킹 평가의 랜덤 비교군을 두 가지로 둔다.
+`ARM_RANDOM`(균등 무작위 순위, 닫힌 형식 기댓값)은 그대로 두고, 더 직관적인
+**per-input-point 랜덤 유형 추측기**를 `evaluation/random_predictor.py`로 추가한다.
+각 입력점마다 `{SQLI, REFLECTED_XSS, BROKEN_ACCESS_CONTROL, SAFE}` 중 하나를
+가중치(`--random-safe-weight W`)로 추첨해 그 family 후보만 양성(1.0)으로, 나머지는
+음성(0.0)으로 둔 뒤, **동일한 `evaluate_ranking`** 으로 채점해 VulnSpider와 같은
+지표(Recall/Precision/MAP/NDCG@K)로 비교한다. `--random-predictor`(analyze·simple
+공통, `--ground-truth` 필요)로 켜면 평가 표/JSON에 네 번째 arm으로 붙는다.
+
+**Context:** 팀이 비교군으로 "Random Predictor"를 쓰기로 했는데, 보고서 독자에게는
+"입력점마다 취약 유형을 무작위로 찍는" 분류기가 균등-순위 baseline보다 이해하기 쉽다.
+대부분의 입력점이 안전하므로 SAFE 가중을 줄 수 있어야 한다.
+
+**Alternatives:**
+
+- 균등-순위 baseline만 유지 — 엄밀하지만 "유형을 찍는다"는 직관을 못 준다. 두 개를
+  함께 두어 독자가 고르게 한다.
+- 단일 draw로 채점 — 잡음이 크다. `trials`회(기본 1000) 시드 고정 몬테카를로 평균을
+  쓰되, 각 draw의 지표는 §6-A 규칙 4의 정확한 동점 기댓값이라 유형 추측만
+  시뮬레이션된다(시드에 대해 결정적).
+- `evaluate_live_run`에 arm을 넣기 — `live`가 `random_predictor`를 참조하면 순환
+  import이 되고 런타임 힌트 해석(check_types)이 깨진다. arm 합류는 소비자
+  (`cli_decision.run_live_evaluation`)에서 `dataclasses.replace`로 처리해 `live`는
+  `ScoredCandidate`의 단방향 제공자로 남긴다.
+
+**Consequences:**
+
+- DemoShop 100 입력점(200 후보, 취약 32)에서 두 랜덤 arm은 거의 동일(P@K≈유병률 0.16)
+  하며 VulnSpider(저-K에서 1.000)와 크게 대비된다 — 클래스 기반 랜덤도 균등 랜덤과
+  같은 수준임을 보여 baseline의 타당성을 재확인한다.
+- 기본 3-arm 표는 불변(옵션 플래그로만 추가). `live-evaluation-v1` 스키마는 arm 리스트에
+  항목이 하나 느는 것뿐이라 버전 불변.
+- 전체 테스트 통과(신규 `test_random_predictor.py` 포함); 모듈은 독립 브루트포스
+  시뮬레이션과 오차 ~0.001로 일치.
+
+---
+
+## ADR-040 — 보고서용 표 산출물 + 넓은 데스크톱 대시보드
+
+**Status:** Accepted
+
+**Date:** 2026-08-30
+
+**Decision:** 최종 보고서 탑재를 위해 두 가지를 개선한다.
+
+1. **실행마다 보고서용 표 파일 생성.** 평가 단계(`--ground-truth`)가 켜지면 평가
+   JSON 옆에 `reporting/report_tables.py`가 렌더한 표를 **Markdown + HTML** 두 형식으로
+   함께 저장한다. `<eval>-table.{md,html}`은 arm(Random / 검증 없음 / Full / 선택적
+   per-input-point 랜덤)별 Recall/Precision/MAP/NDCG@K 비교, `<eval>-inputs.{md,html}`은
+   ground truth에서 뽑은 **입력점별 취약 유형** 표다. Markdown은 Notion/문서에 바로
+   붙여넣고, HTML은 대시보드 팔레트로 스타일링돼 열람·스크린샷용. 지표·라벨은
+   재계산하지 않고 포맷만 한다.
+2. **대시보드를 넓은 데스크톱 레이아웃으로.** 결정 대시보드(`decision_html_report.py`)의
+   findings를 `repeat(auto-fit,minmax(540px,1fr))` 그리드로 흘려 세로 스크롤 대신 가로로
+   넓게 배치하고(후보 1개면 전체폭, 여럿이면 2열), 컨테이너 폭을 1240px로 넓히며 카드
+   그림자·헤더를 다듬었다. 변경은 decision 전용 `_EXTRA_STYLE` override에만 넣어 공유
+   `_DOCUMENT_STYLE`과 v0.1 리포트에는 영향이 없다.
+
+**Context:** 팀이 최종 보고서에 지표 표와 데모 입력점 취약 유형을 바로 실을 형태를 원했고,
+대시보드는 데스크톱 화면에서 세로로 길기보다 가로로 넓게 보이길 원했다.
+
+**Consequences:**
+
+- 평가가 있는 실행은 표 4개(md/html ×2)를 추가로 저장하고 CLI가 HTML 링크를 출력한다.
+  기존 평가 JSON/텍스트 표는 그대로.
+- 대시보드 findings 카드 구조·클래스(`article.finding`)는 불변이라 접힘/카운트 테스트에
+  영향 없음. `finding`을 `section.findings` 그리드로 감쌌을 뿐.
+- 표 렌더러는 순수 함수(입력: `LiveEvaluationReport`, `GroundTruthStore`)라 스캔 없이도
+  테스트된다. 전체 898 테스트 통과.
+
+---
+
+## ADR-041 — Portable multi-screen result dashboard
+
+Status: Accepted
+Date: 2026-09-13
+
+Decision:
+
+- Replace the v0.2 decision report's long card wall with Korean overview,
+  candidate-list, candidate-detail and reading-guide screens. Keep the existing
+  HTML destination and one-file offline delivery using fragment navigation.
+- Render endpoint/input-point ownership as an explicitly labeled map; no crawl
+  edges or attack paths are inferred. Show selected candidate count separately
+  from the existing highest-type-per-subject representative view.
+- Present supplied calibration evidence, initial request pairs, individual
+  VerificationResult payloads/validator decisions/execution references and
+  final confidence. No score, verdict, request or payload is reconstructed.
+  Missing provenance remains missing; BAC aggregates do not invent individual
+  identifier payloads. Per-payload confidences are not presented as cumulative.
+- Use plain explanations before expandable technical records. Defense guidance
+  is conditional and never reports a successful exploit or a completed fix.
+- Inline a fixed, data-independent script for navigation/focus, local search,
+  filters, history and printing. Escape all dynamic text/attributes and restrict
+  scripts to its SHA-256 CSP hash; default network/resource access is denied.
+  CSS fragment navigation provides a modern-browser no-JavaScript fallback.
+
+Context:
+
+The user requested a service-like final graduation-project report that students
+and professors outside web security can follow, with visual summaries and
+separate detail pages showing why candidates deserve review.
+
+Alternatives:
+
+Separate HTML files would complicate artifact distribution/publication. An
+external frontend framework/CDN would add offline and dependency requirements.
+One long page would preserve the information overload the user asked to fix.
+
+Consequences:
+
+- `decision-html-v4` changes presentation only. CLI, JSON, scoring, selection,
+  payload execution and frozen v0.1 report semantics remain compatible.
+- Fragment addresses are scoped to one generated report. A new scan may reorder
+  candidates. Older stored reports retain their original UI until regenerated.
+- New presentation helpers live in `reporting/dashboard_assets.py`,
+  `dashboard_layout.py`, and `dashboard_evidence.py`.
+- Browser QA and independent Gate Review are recorded in the execution plan.
+
+---
+
+## ADR-042 — DemoShop storefront presentation and unified confidence labels
+
+Status: Accepted
+Date: 2026-09-13
+
+Decision:
+
+Honor the requested dashboard terminology: **상위 취약점 후보**, and **최종
+신뢰도** as the display label for the currently available probability, including
+unverified candidates. Retain source explanations and before/after evidence.
+No `VerificationConfidence` is fabricated, no `RankScore` is relabeled as a
+probability, and no JSON, scoring or verification contract changes.
+
+Present DemoShop through a responsive storefront shell and four locally bundled
+AI-generated product photos. Fixed asset routes map to explicitly allowlisted
+files. Product, quantity and category UI selections use bounded fragments and
+DOM updates; cart/checkout completion is a visual simulation with no persistence
+or actual order/payment operation. Ordinary links retain bare canonical paths.
+
+Context:
+
+Graduation evaluators need recognizable shopping screens and understandable
+report labels. The previous placeholder storefront was unsuitable for demos.
+
+Consequences:
+
+- `PAGES`, 100 query input points, default seeds, ground truth, `_fragment`
+  response semantics, loopback scope and authentication rules remain unchanged.
+- New styles/scripts load from local assets; intentional target vulnerabilities
+  remain in the existing response fragments. Detailed raw responses sit behind
+  a disclosure so ordinary shopping screens stay readable.
+- The HTML presentation changes response-size denominators. Historical ranking
+  measurements require a target revision and a fresh evaluation for comparison.
+- No dependency was added. Static asset routing, canonical forms and navigation
+  are covered by regression tests; browser QA checks the simulated purchase flow.
+
+---
+
+### Dashboard demonstration follow-up (2026-09-14)
+
+The overview now connects discovery/observation/selection counts and compares
+the first three representatives' supplied prior and final confidence on a fixed
+0–100% scale. Selected candidate count remains distinct from collapsed display
+count; missing verification never implies a gain or an executed payload.
+
+DemoShop names and marker numbers are optional descriptive annotations read
+from an existing, attributable baseline response and matching GET form. They
+are escaped and never feed identities, scoring or selection. Missing, duplicate,
+malformed or mismatched annotations retain canonical technical names. No target
+module imports, ground-truth access, new requests or discovery contracts were
+introduced. The implementation remains covered by ADR-041/042.
+
+### Projector and recorded-evidence follow-up (2026-09-21)
+
+`decision-html-v5` extends ADR-041/042 with a presentation story, larger
+high-contrast typography, an opt-in projector view with persistent navigation,
+representative verification-state counts and final-confidence bars. The top
+two displayed representatives link to their recorded evidence, with no manual
+proof or target-execution link. The user explicitly excluded the unfinished
+DemoShop proof feature; its code/assets and fixture changes were removed.
+
+Candidate detail displays bounded, escaped retained Baseline/Probe excerpts,
+actual request values, status/size and provenance. Excerpt matching is only a
+reading aid. Interpretations use supplied calibration evidence, distinguish
+aggregate input-point signals from the displayed pair, and explain false
+positives and missing/error records. A SQL error is not proof of SQL execution;
+reflection alone is not proof of script execution. Status cards count displayed
+representatives, not confirmed vulnerabilities. No score/confidence, JSON,
+selection, feature extraction or network behavior changes.
+
+## ADR-043 — Simple DemoShop member login and order ownership demonstration
+
+**Status:** Accepted
+**Date:** 2026-09-21
+
+**Decision:** The storefront My Page link opens a parameter-free GET `/login`
+screen. A single explicit POST button issues the existing `user` demo session
+(uid 1042, display name `soohoon`) and redirects to fixed `/portal/`. POST
+`/logout` clears that browser cookie and redirects to fixed `/login`. Named
+credentials, role selectors, return URLs and scanner tokens are absent from the
+shopper screen. Cookies use HttpOnly and SameSite=Lax; responses are no-store.
+
+**Context:** `/account/login` is a public injection-evaluation fixture, previously
+linked as My Page. Its destination inputs and email-link wording made the manual
+login/BAC demonstration confusing. The real authenticated portal already exists
+under ADR-037 and can be reused without changing scanner authentication.
+
+**Consequences:**
+- Preserve the 100 public canonical input points, seeds, ground truth, and
+  `/account/login` response semantics. The new anonymous login page has no named
+  input controls, no portal links and does not issue cookies on GET. Explicit
+  legacy `/login?as=admin|user` lab helpers remain compatible.
+- The protected order form still uses `ref` with seed `4100`. The new display
+  identifies its owner as `soohoon` (1042); `4101` displays `sanghyun` (1043).
+  Changing only the order number in the same session demonstrates the deliberate
+  missing ownership check. Non-seed identifiers still produce synthetic records
+  to preserve the existing IDOR fixture. Anonymous/forged sessions still get 403,
+  and the ownership-checked payment-card negative control is unchanged.
+- Login/logout only change a demo browser cookie. Empty POST bodies are required;
+  query values never control the issued role or redirect. No account creation,
+  order mutation, scanner execution, transport authority, dependency, domain
+  contract or frozen v0.1 behavior changes. Deterministic tokens remain lab-only;
+  browser logout is not server-side token revocation.
+- Public navigation now includes a parameter-free login page and its empty POST
+  form endpoint. No named input point is added. Page sizes change, so evaluations
+  and response-size-derived rankings require fresh measurements.
+
+### Order lookup navigation follow-up (2026-09-21)
+
+Header/footer order links now use parameter-free `/login/orders`, which renders
+the same one-button login for anonymous visitors and redirects existing sessions
+to `/portal/order`. Explicit POST login has the same fixed destination; arbitrary
+query values cannot select roles or destinations. Neither anonymous login entry
+authenticates on GET or links protected resources into the public crawl.
+
+Authenticated legacy `/orders?order_id=...` requests are redirect aliases to
+`/portal/order?ref=...`; values are URL encoded, and old fixture examples
+20240517/20240518 map to 4100/4101. The protected endpoint remains responsible for
+displaying records. Anonymous `/orders` retains its four canonical inputs and
+SQLi fixture behavior, with a member-login call to action. Public labels remain
+unchanged: actual cross-member order records are served by the existing BAC
+endpoint, not duplicated under the public SQLi endpoint. Evaluation runbooks use
+anonymous public scans and separately authenticated portal scans as before.
+
+### Member evidence demo follow-up (2026-09-23)
+
+The three shared demo members are 한수훈 (1042), 전상현 (1043), and 이석현
+(1044). Protected order/message pages compare the actual fixture owner UID to
+the session UID and highlight a mismatch without requiring a confirmation marker.
+
+The `/admin/users` fixture now uses disposable in-memory SQLite for member
+lookup. Empty/default search selects a bound ID; other terms intentionally enter
+a read-only SELECT unsafely, so the manual tautology returns actual member rows.
+This replaces the constant member fragment and confirmation-only illustrated
+SQL disclosure for this route. SQL errors/missing rows do not fabricate a leak.
+The standard-library database is recreated per lookup, has query-only mode,
+statement/string size limits and an instruction budget, and rejects stacked
+statements. No persistent database, new dependency, transport permission,
+canonical input, scanner verdict rule or frozen v0.1 behavior is introduced.
+Preserve labels and seeds; regenerate response-derived evaluation measurements.
 
 ## New Decision Template
 

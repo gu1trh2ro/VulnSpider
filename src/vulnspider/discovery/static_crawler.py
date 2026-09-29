@@ -31,6 +31,9 @@ from vulnspider.discovery.html_extractor import (
     extract_static_html,
     extract_static_html_with_sensitive_form_elision,
 )
+from vulnspider.discovery.navigation_safety import (
+    authentication_state_change_token,
+)
 from vulnspider.domain import (
     Endpoint,
     HttpMethod,
@@ -40,7 +43,7 @@ from vulnspider.domain import (
     stable_fingerprint,
 )
 
-CRAWLER_VERSION = "native-static-crawler/1.0"
+CRAWLER_VERSION = "native-static-crawler/1.1"
 SCOPE_POLICY_VERSION = "same-origin-v1"
 
 DEFAULT_MAX_PAGES = 10
@@ -80,6 +83,17 @@ class CrawlPolicy:
     delay_seconds: float = DEFAULT_DELAY_SECONDS
     max_elapsed_seconds: float = DEFAULT_MAX_ELAPSED_SECONDS
     max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES
+    session_cookies: tuple[tuple[str, str], ...] = ()
+    """Operator-supplied session cookies sent on every crawl request.
+
+    This is how a Broken Access Control scan is given an authenticated
+    session: the operator logs in out-of-band and provides the resulting
+    cookie(s), so the crawler reaches protected resources (they answer 200
+    instead of 401/403 and are therefore discovered) and every produced
+    ``RequestTemplate`` carries the credential -- the precondition for the
+    access layer to plan a ``CREDENTIAL_STRIP`` comparison. Read-only GET only;
+    VulnSpider never logs in or changes authentication state itself.
+    """
 
     def __post_init__(self) -> None:
         positive_integers = {
@@ -114,8 +128,19 @@ class CrawlPolicy:
             raise StaticCrawlerError(
                 "delay_seconds must be finite and non-negative"
             )
+        cookies = tuple(self.session_cookies)
+        for pair in cookies:
+            if (
+                not isinstance(pair, tuple)
+                or len(pair) != 2
+                or not all(isinstance(part, str) and part for part in pair)
+            ):
+                raise StaticCrawlerError(
+                    "session_cookies must be (name, value) string pairs"
+                )
+        object.__setattr__(self, "session_cookies", cookies)
 
-    def to_dict(self) -> dict[str, int | float]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "max_pages": self.max_pages,
             "max_depth": self.max_depth,
@@ -125,6 +150,9 @@ class CrawlPolicy:
             "delay_seconds": self.delay_seconds,
             "max_elapsed_seconds": self.max_elapsed_seconds,
             "max_response_bytes": self.max_response_bytes,
+            # Only the cookie NAMES enter the configuration fingerprint; the
+            # values are secrets and must never be serialized.
+            "session_cookie_names": [name for name, _value in self.session_cookies],
         }
 
 
@@ -132,6 +160,7 @@ class CrawlPolicy:
 class StaticCrawlerRequest:
     url: str
     method: HttpMethod = HttpMethod.GET
+    cookies: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         method = HttpMethod(self.method)
@@ -139,6 +168,7 @@ class StaticCrawlerRequest:
             raise StaticCrawlerError("static crawler requests must use GET")
         object.__setattr__(self, "url", canonicalize_crawl_url(self.url))
         object.__setattr__(self, "method", method)
+        object.__setattr__(self, "cookies", tuple(self.cookies))
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +235,7 @@ class StaticHtmlExtractor(Protocol):
         scope_metadata: ScopeMetadata,
         parent_url: str | None,
         depth: int,
+        session_cookies: tuple[tuple[str, str], ...] = (),
     ) -> StaticExtractionResult:
         """Extract one already-fetched HTML document."""
 
@@ -259,9 +290,14 @@ class UrlLibStaticCrawlerTransport:
             raise StaticCrawlerError(
                 "max_response_bytes must be a positive integer"
             )
+        headers = {"User-Agent": "VulnSpider/0.2 static discovery"}
+        if request.cookies:
+            headers["Cookie"] = "; ".join(
+                f"{name}={value}" for name, value in request.cookies
+            )
         url_request = Request(
             request.url,
-            headers={"User-Agent": "VulnSpider/0.2 static discovery"},
+            headers=headers,
             method=HttpMethod.GET.value,
         )
         started = monotonic()
@@ -536,6 +572,7 @@ class StaticCrawler:
                     scope_metadata=scope,
                     parent_url=parent_url or None,
                     depth=depth,
+                    session_cookies=active_policy.session_cookies,
                 )
             except (TypeError, ValueError, UnicodeError) as exc:
                 state.warn(
@@ -687,7 +724,7 @@ class StaticCrawler:
             if self._elapsed_exhausted(state):
                 return None
 
-        request = StaticCrawlerRequest(url)
+        request = StaticCrawlerRequest(url, cookies=state.policy.session_cookies)
         state.requested.add(request.url)
         state.visited_urls.append(request.url)
         state.requests_attempted += 1
@@ -765,6 +802,19 @@ class StaticCrawler:
                     {
                         "destination_fingerprint": _url_fingerprint(candidate),
                         "link_id": link.id,
+                    },
+                )
+                continue
+            unsafe_token = authentication_state_change_token(candidate)
+            if unsafe_token is not None:
+                state.warn(
+                    "UNSAFE_NAVIGATION_SUPPRESSED",
+                    "Authentication state-changing navigation was suppressed.",
+                    {
+                        "action_token": unsafe_token,
+                        "destination_fingerprint": _url_fingerprint(candidate),
+                        "link_id": link.id,
+                        "reason": "AUTHENTICATION_STATE_CHANGE",
                     },
                 )
                 continue

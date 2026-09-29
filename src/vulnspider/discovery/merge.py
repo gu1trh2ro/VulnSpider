@@ -378,7 +378,15 @@ def _merge_request_templates(
             current.metadata,
             item.metadata,
         )
-        if metadata != current.metadata:
+        ephemeral_material = (
+            current.ephemeral_material
+            if current.ephemeral_material is not None
+            else item.ephemeral_material
+        )
+        if (
+            metadata != current.metadata
+            or ephemeral_material is not current.ephemeral_material
+        ):
             current = RequestTemplate(
                 endpoint_id=current.endpoint_id,
                 endpoint_fingerprint=current.endpoint_fingerprint,
@@ -387,12 +395,14 @@ def _merge_request_templates(
                 headers=current.headers,
                 query=current.query,
                 form=current.form,
+                json_body=current.json_body,
                 cookies=current.cookies,
                 completeness=current.completeness,
                 context_key=current.context_key,
                 provenance=current.provenance,
                 metadata=metadata,
                 id=current.id,
+                ephemeral_material=ephemeral_material,
             )
             by_fingerprint[item.fingerprint] = current
         if conflict_fields:

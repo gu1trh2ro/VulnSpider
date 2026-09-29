@@ -24,6 +24,7 @@ from vulnspider.domain import (
 )
 
 CONTRACT_VERSION = "canonical-discovery/1.0"
+DISCOVERY_SNAPSHOT_VERSION = "canonical-discovery-snapshot/1.0"
 
 
 class DiscoveryContractError(ValueError):
@@ -60,6 +61,9 @@ class NonProbeReadyReason(StrEnum):
     RAW_QUERY_ALIGNMENT_FAILED = "RAW_QUERY_ALIGNMENT_FAILED"
     UNSUPPORTED_INPUT_LOCATION = "UNSUPPORTED_INPUT_LOCATION"
     REQUEST_NOT_AUTHORIZED = "REQUEST_NOT_AUTHORIZED"
+    POST_POLICY_STRUCTURAL_ONLY = "POST_POLICY_STRUCTURAL_ONLY"
+    POST_POLICY_BLOCKED_SENSITIVE = "POST_POLICY_BLOCKED_SENSITIVE"
+    POST_POLICY_ASSESSMENT_FAILED = "POST_POLICY_ASSESSMENT_FAILED"
 
 
 class DiscoverySubjectKind(StrEnum):
@@ -693,6 +697,33 @@ def discovery_run_id_for(
     return f"discovery_{fingerprint[:16]}"
 
 
+def discovery_snapshot_id_for(
+    discovery_record: Mapping[str, Any],
+) -> str:
+    """Bind one deterministic canonical discovery serialization by content."""
+
+    if not isinstance(discovery_record, Mapping):
+        raise DiscoveryContractError("discovery snapshot input must be a mapping")
+    content = {
+        str(key): value
+        for key, value in discovery_record.items()
+        if key != "discovery_snapshot_id"
+    }
+    crawl_statistics = content.get("crawl_statistics")
+    if isinstance(crawl_statistics, Mapping):
+        content["crawl_statistics"] = {
+            str(key): 0.0 if key == "elapsed_ms" else value
+            for key, value in crawl_statistics.items()
+        }
+    try:
+        fingerprint = stable_fingerprint(DISCOVERY_SNAPSHOT_VERSION, content)
+    except TypeError as exc:
+        raise DiscoveryContractError(
+            "discovery snapshot contains unsupported content"
+        ) from exc
+    return f"dsnap_{fingerprint[:32]}"
+
+
 @dataclass(frozen=True, slots=True)
 class CanonicalDiscoveryResult:
     contract_version: str
@@ -1158,6 +1189,7 @@ class CanonicalDiscoveryResult:
                 tuple(sorted(template.headers.items())),
                 template.query,
                 template.form,
+                template.json_body,
                 tuple(sorted(template.cookies.items())),
                 template.completeness.value,
                 template.context_key,
@@ -1242,7 +1274,12 @@ class CanonicalDiscoveryResult:
                         "probe-ready result requires a complete request context"
                     )
                 point = input_points[readiness.input_point_id]
-                if point.location not in {InputLocation.QUERY, InputLocation.FORM}:
+                if point.location not in {
+                    InputLocation.QUERY,
+                    InputLocation.FORM,
+                    InputLocation.JSON,
+                    InputLocation.JSON_BODY,
+                }:
                     raise DiscoveryContractError(
                         "unsupported InputPoint cannot be probe-ready"
                     )
@@ -1306,6 +1343,35 @@ class CanonicalDiscoveryResult:
             if decoded != template.query:
                 raise DiscoveryContractError(
                     "probe-ready raw query does not align with request template"
+                )
+            return
+        if point.location in {InputLocation.JSON, InputLocation.JSON_BODY}:
+            if template.method.value != "POST":
+                raise DiscoveryContractError(
+                    "probe-ready JSON body requires POST request template"
+                )
+            if provenance.get("json_body") != "browser-request-body":
+                raise DiscoveryContractError(
+                    "probe-ready JSON body requires trusted browser body provenance"
+                )
+            if template.metadata.get("content_type") != "application/json":
+                raise DiscoveryContractError(
+                    "probe-ready JSON body requires application/json content type"
+                )
+            if not template.json_body:
+                raise DiscoveryContractError(
+                    "probe-ready JSON body requires structural member bindings"
+                )
+            if (
+                template.metadata.get("post_replay_disposition")
+                != "SAFE_FOR_PROBE"
+            ):
+                raise DiscoveryContractError(
+                    "probe-ready JSON body requires safe POST replay policy"
+                )
+            if template.ephemeral_material is None:
+                raise DiscoveryContractError(
+                    "probe-ready JSON body requires ephemeral replay material"
                 )
             return
         if provenance.get("form_method") not in {"explicit", "html_default_get"}:
@@ -1576,7 +1642,10 @@ class CanonicalDiscoveryResult:
                     "headers": dict(sorted(item.headers.items())),
                     "query": [list(pair) for pair in item.query],
                     "form": [list(pair) for pair in item.form],
-                    "cookies": dict(sorted(item.cookies.items())),
+                    "json_body": [list(pair) for pair in item.json_body],
+                    "cookies": {
+                        name: "<redacted>" for name in sorted(item.cookies)
+                    },
                     "completeness": item.completeness.value,
                     "context_key": item.context_key,
                     "provenance": [list(pair) for pair in item.provenance],
@@ -1644,6 +1713,7 @@ class CanonicalDiscoveryResult:
             result["safety_invariants"] = [
                 item.value for item in self.safety_invariants
             ]
+        result["discovery_snapshot_id"] = discovery_snapshot_id_for(result)
         return result
 
 

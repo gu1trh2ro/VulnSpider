@@ -206,7 +206,7 @@ class AnalyzeAlgorithmTests(unittest.TestCase):
                         "--url",
                         ROOT_URL,
                         "--top-k",
-                        "50",
+                        "20",
                         "--output",
                         str(output),
                     ]
@@ -217,7 +217,7 @@ class AnalyzeAlgorithmTests(unittest.TestCase):
         self.assertEqual(report["report_version"], "decision-report-v1")
         self.assertEqual(report["policy_version"], "top-k-argmax-v1")
         self.assertIsNone(report["guarantee"])
-        self.assertEqual(report["selection"]["top_k"], 50)
+        self.assertEqual(report["selection"]["top_k"], 20)
         self.assertGreater(report["selection"]["candidates_scored"], 0)
         orders = [entry["order"] for entry in report["verification_order"]]
         self.assertEqual(orders, sorted(orders))
@@ -278,7 +278,8 @@ class AnalyzeAlgorithmTests(unittest.TestCase):
         self.assertIn("검증 순서", rendered)
         self.assertIn("순위 근거", rendered)
         self.assertIn("실행된 요청", rendered)
-        self.assertIn("일반 지침", rendered)
+        self.assertIn("방어 지침", rendered)
+        self.assertIn("핵심 대응", rendered)
         self.assertIn("query.id", rendered)
         self.assertIn("/product", rendered)
         self.assertIn("VULNSPIDER_", rendered)  # the probe marker actually sent
@@ -306,10 +307,14 @@ class AnalyzeAlgorithmTests(unittest.TestCase):
             )
             rendered = html.read_text(encoding="utf-8")
         self.assertIn("<svg", rendered)
-        self.assertIn("확률 구간 분포", rendered)
+        self.assertIn("최종 신뢰도 구간 분포", rendered)
         self.assertIn("파이프라인 축소", rendered)
-        self.assertIn("선택된 후보 확률 비교", rendered)
-        for outbound in ("<script", "http://cdn", "https://", "<link", "@import"):
+        self.assertIn("상위 취약점 후보 최종 신뢰도 비교", rendered)
+        # Navigation/filtering uses one fixed inline script, authorized by CSP.
+        self.assertEqual(rendered.count("<script>"), 1)
+        self.assertIn("Content-Security-Policy", rendered)
+        self.assertIn("script-src &#x27;sha256-", rendered)
+        for outbound in ("<script src", "http://cdn", "https://", "<link", "@import"):
             self.assertNotIn(outbound, rendered)
 
     def test_html_report_accounts_for_every_scored_candidate(self) -> None:
@@ -395,7 +400,7 @@ class AnalyzeAlgorithmTests(unittest.TestCase):
                         "--url",
                         ROOT_URL,
                         "--top-k",
-                        "50",
+                        "20",
                         "--model",
                         str(Path(directory) / "absent.json"),
                         "--output",
@@ -456,7 +461,7 @@ class CorpusCommandTests(unittest.TestCase):
                         "--url",
                         ROOT_URL,
                         "--top-k",
-                        "50",
+                        "20",
                         "--model",
                         str(model),
                         "--output",

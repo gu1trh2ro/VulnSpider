@@ -23,6 +23,7 @@ from vulnspider.discovery import (
     DynamicRequestAuthority,
     DynamicResourceGrant,
     DynamicResourceKind,
+    PassiveNetworkScope,
     PlaywrightDynamicBrowser,
     preflight_dynamic_browser,
 )
@@ -411,6 +412,10 @@ class ManagedFakeContext:
         self.handlers: dict[str, object] = {}
 
     def on(self, event: str, handler: object) -> None:
+        if event == "request":
+            self.events.append("passive_observer")
+            if self.fail_at == "passive_observer":
+                raise RuntimeError("provider passive observer detail")
         self.handlers[event] = handler
 
     def route(self, pattern: str, handler: object) -> None:
@@ -641,12 +646,15 @@ class DynamicRequestAuthorityTests(unittest.TestCase):
             is_primary_page=True,
             is_main_frame=True,
         )
-        fetch = authority.decide_http(
-            method="GET",
-            url="http://127.0.0.1/data",
-            resource_type="xhr",
-            is_primary_page=True,
-            is_main_frame=True,
+        fetch_xhr_decisions = tuple(
+            authority.decide_http(
+                method="GET",
+                url="http://127.0.0.1/data",
+                resource_type=resource_type,
+                is_primary_page=True,
+                is_main_frame=True,
+            )
+            for resource_type in ("fetch", "xhr")
         )
 
         self.assertEqual(root.decision, DynamicNetworkDecisionKind.ALLOW)
@@ -655,7 +663,28 @@ class DynamicRequestAuthorityTests(unittest.TestCase):
             DynamicNetworkReason.AUTHORIZED_NAVIGATION,
         )
         self.assertEqual(script.decision, DynamicNetworkDecisionKind.ALLOW)
-        self.assertEqual(fetch.decision, DynamicNetworkDecisionKind.ALLOW)
+        self.assertTrue(
+            all(
+                decision.decision == DynamicNetworkDecisionKind.ALLOW
+                and decision.reason == DynamicNetworkReason.AUTHORIZED_RESOURCE
+                for decision in fetch_xhr_decisions
+            )
+        )
+        whitespace_method = authority.decide_http(
+            method=" GET ",
+            url="http://127.0.0.1/data",
+            resource_type="fetch",
+            is_primary_page=True,
+            is_main_frame=True,
+        )
+        self.assertEqual(
+            whitespace_method.decision,
+            DynamicNetworkDecisionKind.BLOCK,
+        )
+        self.assertEqual(
+            whitespace_method.reason,
+            DynamicNetworkReason.NON_GET_METHOD,
+        )
 
     def test_simple_mode_allows_only_observed_navigation_and_passive_resources(
         self,
@@ -714,6 +743,83 @@ class DynamicRequestAuthorityTests(unittest.TestCase):
         self.assertEqual(decisions["fetch"].decision, DynamicNetworkDecisionKind.BLOCK)
         self.assertEqual(decisions["xhr"].decision, DynamicNetworkDecisionKind.BLOCK)
         self.assertEqual(cross_script.decision, DynamicNetworkDecisionKind.BLOCK)
+
+    def test_balanced_fetch_xhr_allows_only_same_origin_get_and_head(self) -> None:
+        root = "http://127.0.0.1:8080/"
+        strict = DynamicRequestAuthority(root)
+        balanced = DynamicRequestAuthority(
+            root,
+            allow_passive_same_origin_fetch_xhr=True,
+        )
+
+        strict_fetch = strict.decide_http(
+            method="GET",
+            url=root + "api",
+            resource_type="fetch",
+            is_primary_page=True,
+            is_main_frame=True,
+        )
+        self.assertFalse(strict.allow_passive_same_origin_fetch_xhr)
+        self.assertEqual(strict_fetch.decision, DynamicNetworkDecisionKind.BLOCK)
+
+        for method in ("GET", "HEAD"):
+            for resource_type in ("fetch", "xhr"):
+                with self.subTest(method=method, resource_type=resource_type):
+                    decision = balanced.decide_http(
+                        method=method,
+                        url=root + "api",
+                        resource_type=resource_type,
+                        is_primary_page=True,
+                        is_main_frame=True,
+                    )
+                    self.assertEqual(
+                        decision.decision,
+                        DynamicNetworkDecisionKind.ALLOW,
+                    )
+                    self.assertEqual(
+                        decision.reason,
+                        DynamicNetworkReason.PASSIVE_SAME_ORIGIN_FETCH_XHR,
+                    )
+
+        blocked_cases = (
+            ("POST", root + "api", "fetch", True),
+            ("PUT", root + "api", "xhr", True),
+            ("PATCH", root + "api", "fetch", True),
+            ("DELETE", root + "api", "xhr", True),
+            ("GET", "http://127.0.0.1:8081/api", "fetch", True),
+            ("GET", "http://localhost:8080/api", "xhr", True),
+            ("GET", "https://127.0.0.1:8080/api", "fetch", True),
+            ("GET", "http://127.0.0.1.evil.test:8080/api", "xhr", True),
+            ("GET", root + "api", "fetch", False),
+            ("HEAD", root + "script.js", "script", True),
+            (" HEAD ", root + "api", "fetch", True),
+            ("GET", "http://127.0.0.1:0/api", "fetch", True),
+        )
+        for method, url, resource_type, is_primary_page in blocked_cases:
+            with self.subTest(
+                method=method,
+                url=url,
+                resource_type=resource_type,
+                is_primary_page=is_primary_page,
+            ):
+                decision = balanced.decide_http(
+                    method=method,
+                    url=url,
+                    resource_type=resource_type,
+                    is_primary_page=is_primary_page,
+                    is_main_frame=True,
+                )
+                self.assertEqual(
+                    decision.decision,
+                    DynamicNetworkDecisionKind.BLOCK,
+                )
+
+    def test_balanced_fetch_xhr_flag_requires_boolean(self) -> None:
+        with self.assertRaises(DynamicBrowserError):
+            DynamicRequestAuthority(
+                "http://127.0.0.1/",
+                allow_passive_same_origin_fetch_xhr=1,  # type: ignore[arg-type]
+            )
 
     def test_blocks_cross_origin_redirect_methods_frames_and_internal_urls(
         self,
@@ -777,6 +883,7 @@ class DynamicRequestAuthorityTests(unittest.TestCase):
             lambda: DynamicRequestAuthority("https://example.com/"),
             lambda: DynamicRequestAuthority("http://user@127.0.0.1/"),
             lambda: DynamicRequestAuthority("http://127.0.0.1/#fragment"),
+            lambda: DynamicRequestAuthority("http://127.0.0.1:0/"),
             lambda: DynamicRequestAuthority(
                 "http://127.0.0.1:8080/",
                 resource_grants=(
@@ -795,6 +902,197 @@ class DynamicRequestAuthorityTests(unittest.TestCase):
                     raised.exception.code,
                     DynamicBrowserErrorCode.INVALID_AUTHORITY,
                 )
+
+
+class PassiveNetworkObservationTests(unittest.TestCase):
+    class TrapRequest:
+        def __init__(self, method: str, url: str, resource_type: str) -> None:
+            self._values = {
+                "method": method,
+                "url": url,
+                "resource_type": resource_type,
+            }
+            self.accesses: list[str] = []
+
+        def __getattr__(self, name: str) -> object:
+            if name in self._values:
+                self.accesses.append(name)
+                return self._values[name]
+            if name in {
+                "headers",
+                "all_headers",
+                "cookies",
+                "post_data",
+                "response",
+                "fetch",
+                "continue_",
+                "fulfill",
+                "abort",
+            }:
+                raise AssertionError(f"passive observer accessed forbidden API: {name}")
+            raise AttributeError(name)
+
+    def test_observer_is_read_only_filters_resources_and_projects_secrets(self) -> None:
+        authority = DynamicRequestAuthority("http://127.0.0.1/root")
+        audit = dynamic_browser_module._AuditRecorder(event_limit=20)
+        observer = dynamic_browser_module._PassiveNetworkObserver(authority, audit)
+        requests = [
+            self.TrapRequest(
+                "get",
+                (
+                    "http://127.0.0.1:80/raw-path-secret/nested"
+                    "?alpha=QUERY_VALUE_SECRET&repeat=one&repeat=two"
+                ),
+                "fetch",
+            ),
+            self.TrapRequest(
+                "post",
+                "http://127.0.0.1:8081/post-target?form_name=BODY_SECRET",
+                "xhr",
+            ),
+            self.TrapRequest(
+                "GET",
+                "http://127.0.0.1.example/suffix-target?token=JWT_SECRET",
+                "fetch",
+            ),
+        ]
+        excluded = [
+            self.TrapRequest(
+                "GET",
+                f"http://127.0.0.1/{resource_type}",
+                resource_type,
+            )
+            for resource_type in (
+                "document",
+                "script",
+                "stylesheet",
+                "image",
+                "font",
+                "media",
+                "eventsource",
+                "websocket",
+            )
+        ]
+
+        for request in (*requests, *excluded):
+            observer.handle_request(request)
+
+        observations = audit.snapshot(()).network_observations
+        self.assertEqual(len(observations), 3)
+        same_scope = next(
+            item for item in observations if item.scope == PassiveNetworkScope.SAME_SCOPE
+        )
+        self.assertEqual(same_scope.method, "GET")
+        self.assertEqual(same_scope.resource_type, "fetch")
+        self.assertEqual(same_scope.effective_port, 80)
+        self.assertEqual(same_scope.path_segment_count, 2)
+        self.assertEqual(
+            same_scope.query_parameter_names,
+            ("alpha", "repeat", "repeat"),
+        )
+        self.assertEqual(
+            same_scope.path_fingerprint,
+            dynamic_browser_module.stable_fingerprint(
+                "passive-network-path",
+                "/raw-path-secret/nested",
+            )[:24],
+        )
+        self.assertEqual(
+            sum(item.scope == PassiveNetworkScope.OFF_SCOPE for item in observations),
+            2,
+        )
+        serialized = repr(observations)
+        for secret in (
+            "raw-path-secret",
+            "QUERY_VALUE_SECRET",
+            "BODY_SECRET",
+            "JWT_SECRET",
+            "Bearer",
+            "password",
+        ):
+            self.assertNotIn(secret, serialized)
+        for request in (*requests, *excluded):
+            self.assertEqual(request.accesses, ["method", "url", "resource_type"])
+
+    def test_observation_deduplicates_sorts_bounds_and_does_not_consume_guard(self) -> None:
+        authority = DynamicRequestAuthority("http://127.0.0.1:8080/")
+        policy = DynamicBrowserPolicy(request_decision_budget=2)
+        audit = dynamic_browser_module._AuditRecorder(
+            event_limit=policy.request_decision_budget
+        )
+        guard = dynamic_browser_module._RouteGuard(
+            authority,
+            policy,
+            audit,
+            lambda: None,
+        )
+        observer = dynamic_browser_module._PassiveNetworkObserver(authority, audit)
+        first = self.TrapRequest(
+            "GET",
+            "http://127.0.0.1:8080/z?b=2&a=1",
+            "fetch",
+        )
+        second = self.TrapRequest(
+            "GET",
+            "http://127.0.0.1:8080/a?x=1",
+            "xhr",
+        )
+        overflow = self.TrapRequest(
+            "POST",
+            "http://127.0.0.1:8080/overflow?y=1",
+            "fetch",
+        )
+
+        for request in (first, first, second, overflow, overflow):
+            observer.handle_request(request)
+
+        summary = audit.snapshot(())
+        self.assertEqual(guard.decision_count, 0)
+        self.assertEqual(summary.http_allowed_count, 0)
+        self.assertEqual(summary.http_blocked_count, 0)
+        self.assertEqual(summary.websocket_attempt_count, 0)
+        self.assertEqual(summary.redirect_attempt_count, 0)
+        self.assertEqual(len(summary.network_observations), 2)
+        self.assertEqual(
+            sorted(item.occurrence_count for item in summary.network_observations),
+            [1, 2],
+        )
+        self.assertEqual(summary.network_observation_overflow_count, 2)
+        self.assertEqual(
+            summary.network_observations,
+            tuple(
+                sorted(
+                    summary.network_observations,
+                    key=dynamic_browser_module._passive_network_observation_key,
+                )
+            ),
+        )
+
+    def test_malformed_or_oversized_observation_is_safely_discarded(self) -> None:
+        authority = DynamicRequestAuthority("http://127.0.0.1/")
+        audit = dynamic_browser_module._AuditRecorder(event_limit=5)
+        observer = dynamic_browser_module._PassiveNetworkObserver(authority, audit)
+        requests = (
+            self.TrapRequest("GET", "http://127.0.0.1:invalid/path", "fetch"),
+            self.TrapRequest("G" * 33, "http://127.0.0.1/path", "xhr"),
+            self.TrapRequest(
+                "GET",
+                "http://127.0.0.1/path?" + "&".join(f"q{i}=x" for i in range(65)),
+                "fetch",
+            ),
+            self.TrapRequest(
+                "GET",
+                "http://127.0.0.1/" + "x" * 8192,
+                "fetch",
+            ),
+        )
+
+        for request in requests:
+            observer.handle_request(request)
+
+        summary = audit.snapshot(())
+        self.assertEqual(summary.network_observations, ())
+        self.assertEqual(summary.network_observation_overflow_count, 0)
 
 
 class ManagedDynamicBrowserTests(unittest.TestCase):
@@ -844,6 +1142,7 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
                 "context_create",
                 "http_guard",
                 "websocket_guard",
+                "passive_observer",
                 "page_create",
                 "operation",
                 "page_close",
@@ -1173,6 +1472,71 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
         self.assertEqual(script_summary.redirect_followed_count, 0)
         self.assertEqual(script_summary.main_frame_navigation_allowed_count, 0)
 
+        balanced_audit = dynamic_browser_module._AuditRecorder(event_limit=10)
+        balanced_guard = dynamic_browser_module._RouteGuard(
+            DynamicRequestAuthority(
+                root_url,
+                allow_passive_same_origin_fetch_xhr=True,
+            ),
+            DynamicBrowserPolicy(request_decision_budget=10),
+            balanced_audit,
+            lambda: None,
+        )
+        balanced_guard.set_primary_page(page)
+        balanced_route = Route([Response(302, "/api-v2"), Response(200)])
+        balanced_guard.handle_http(
+            balanced_route,
+            SimpleNamespace(
+                url="http://127.0.0.1/api",
+                resource_type="fetch",
+                method="HEAD",
+                frame=SimpleNamespace(page=page, parent_frame=None),
+            ),
+        )
+        balanced_summary = balanced_audit.snapshot(())
+        self.assertEqual(
+            balanced_route.fetch_urls,
+            ["http://127.0.0.1/api", "http://127.0.0.1/api-v2"],
+        )
+        self.assertEqual(balanced_route.fulfilled, 1)
+        self.assertEqual(balanced_route.aborted, 0)
+        self.assertEqual(balanced_summary.redirect_allowed_count, 1)
+        self.assertEqual(balanced_summary.http_allowed_count, 2)
+        self.assertEqual(balanced_summary.http_blocked_count, 0)
+        self.assertEqual(balanced_summary.request_decision_overflow_count, 0)
+
+        off_scope_audit = dynamic_browser_module._AuditRecorder(event_limit=10)
+        off_scope_guard = dynamic_browser_module._RouteGuard(
+            DynamicRequestAuthority(
+                root_url,
+                allow_passive_same_origin_fetch_xhr=True,
+            ),
+            DynamicBrowserPolicy(request_decision_budget=10),
+            off_scope_audit,
+            lambda: None,
+        )
+        off_scope_guard.set_primary_page(page)
+        off_scope_route = Route(
+            [Response(302, "http://127.0.0.1:8080/api-v2")]
+        )
+        off_scope_guard.handle_http(
+            off_scope_route,
+            SimpleNamespace(
+                url="http://127.0.0.1/api",
+                resource_type="xhr",
+                method="GET",
+                frame=SimpleNamespace(page=page, parent_frame=None),
+            ),
+        )
+        off_scope_summary = off_scope_audit.snapshot(())
+        self.assertEqual(off_scope_route.fetch_urls, ["http://127.0.0.1/api"])
+        self.assertEqual(off_scope_route.fulfilled, 0)
+        self.assertEqual(off_scope_route.aborted, 1)
+        self.assertEqual(off_scope_summary.redirect_block_count, 1)
+        self.assertEqual(off_scope_summary.http_allowed_count, 1)
+        self.assertEqual(off_scope_summary.http_blocked_count, 1)
+        self.assertEqual(off_scope_summary.request_decision_overflow_count, 0)
+
     def test_preflight_failure_starts_no_provider_resource(self) -> None:
         provider = managed_provider()
         failure = DynamicCapabilityError(
@@ -1224,6 +1588,11 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
                 ["context_close", "browser_close", "playwright_stop"],
             ),
             (
+                "passive_observer",
+                DynamicBrowserErrorCode.PASSIVE_OBSERVER_INSTALL_FAILED,
+                ["context_close", "browser_close", "playwright_stop"],
+            ),
+            (
                 "page",
                 DynamicBrowserErrorCode.PAGE_CREATE_FAILED,
                 ["context_close", "browser_close", "playwright_stop"],
@@ -1239,7 +1608,11 @@ class ManagedDynamicBrowserTests(unittest.TestCase):
                     provider.events[-len(cleanup_tail) :] if cleanup_tail else [],
                     cleanup_tail,
                 )
-                if fail_at in {"http_guard", "websocket_guard"}:
+                if fail_at in {
+                    "http_guard",
+                    "websocket_guard",
+                    "passive_observer",
+                }:
                     self.assertNotIn("page_create", provider.events)
 
     def test_operation_exception_and_timeout_preserve_typed_primary_error(

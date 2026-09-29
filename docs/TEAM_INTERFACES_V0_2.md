@@ -6,6 +6,12 @@
 > versions may change through the interface review process before production
 > code is added.
 
+The implemented Probe/Feature, selected-candidate, and two-artifact handoff
+boundary is frozen separately in
+[`INTERFACE_CONTRACT_V1.md`](INTERFACE_CONTRACT_V1.md). Where this proposal is
+broader or idealized, the implemented Contract v1 is authoritative for current
+code.
+
 ## Contract principles
 
 - The producer owns construction and validation.
@@ -225,7 +231,14 @@ The calibrated probability it computes is a **pre-verification prior**, not a
 
 ## 3. VerificationResult
 
-**Status:** Proposed Contract
+**Status:** Proposed Contract — first producer implemented in
+`vulnspider.verification` (ADR-032). The implemented record realizes this
+contract's required fields (`verification_result_id`, `candidate_id`,
+`provider`, `proposal_id`, `validator_policy_version`, `validator_decision`,
+`validated_payload_ref` as `validated_payload_id`, `execution_refs`,
+`verification_evidence` inside the confidence block, `confidence_rule_version`,
+`verification_confidence`, `outcome_status`, `warnings`); a real GPT/Gemini
+`provider` is still pending.
 
 ### Purpose
 

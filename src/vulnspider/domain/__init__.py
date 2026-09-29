@@ -13,6 +13,7 @@ from vulnspider.domain.access import (
 )
 from vulnspider.domain.models import (
     Endpoint,
+    EphemeralRequestMaterial,
     FeatureObservation,
     FeatureVector,
     HttpMethod,
@@ -32,6 +33,7 @@ from vulnspider.domain.models import (
     VulnerabilityType,
     endpoint_fingerprint,
     input_point_fingerprint,
+    normalize_parameter_name,
     stable_fingerprint,
     validate_input_point_request_context,
 )
@@ -47,6 +49,7 @@ __all__ = [
     "AccessScoringResult",
     "AccessSubjectContext",
     "Endpoint",
+    "EphemeralRequestMaterial",
     "FeatureObservation",
     "FeatureVector",
     "HttpMethod",
@@ -66,6 +69,7 @@ __all__ = [
     "VulnerabilityType",
     "endpoint_fingerprint",
     "input_point_fingerprint",
+    "normalize_parameter_name",
     "stable_fingerprint",
     "validate_input_point_request_context",
 ]

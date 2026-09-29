@@ -25,8 +25,18 @@ from vulnspider.discovery.contracts import (
     discovery_run_id_for,
     scope_id_for_root,
 )
+from vulnspider.discovery.navigation_safety import (
+    authentication_state_change_token,
+    automatic_navigation_within_root_path,
+)
+from vulnspider.discovery.post_replay_policy import (
+    PostReplayDisposition,
+    PostReplayPolicyDecision,
+    PostReplayReasonCode,
+)
 from vulnspider.domain import (
     Endpoint,
+    EphemeralRequestMaterial,
     HttpMethod,
     InputLocation,
     InputPoint,
@@ -36,10 +46,13 @@ from vulnspider.domain import (
     stable_fingerprint,
 )
 
-EXTRACTOR_VERSION = "native-static-html/1.0"
+EXTRACTOR_VERSION = "native-static-html/1.1"
 SCOPE_POLICY_VERSION = "same-origin-v1"
 
 _NON_DATA_INPUT_TYPES = frozenset({"button", "image", "reset", "submit"})
+# control_types marker for the fixed submit-gate parameter: it rides on the
+# request but is never turned into an injectable InputPoint.
+_SUBMIT_GATE_TYPE = "submit-gate"
 _CHECKABLE_INPUT_TYPES = frozenset({"checkbox", "radio"})
 
 
@@ -181,6 +194,16 @@ class _RawForm:
     controls: list[_RawControl] = field(default_factory=list)
     malformed_reasons: set[str] = field(default_factory=set)
     closed: bool = False
+    submit_gate: tuple[str, str] | None = None
+    """First named submit control ``(name, value)`` a browser would activate.
+
+    A browser submitting a form sends the activated submit control's
+    ``name=value`` alongside the data fields, and many handlers gate on it
+    (``if (isset($_GET['Submit']))`` -- DVWA's SQLi page is exactly this). It is
+    carried as a fixed request parameter but never becomes an injectable
+    InputPoint. Only the first named submit is kept, because a browser sends
+    exactly one. Unnamed submits send nothing and are ignored.
+    """
 
 
 @dataclass(slots=True)
@@ -284,6 +307,15 @@ class _StaticHtmlParser(HTMLParser):
             self._start_option(attributes)
             return
         if tag == "button" and self.form is not None:
+            # A <button> defaults to type=submit; one with type=button/reset
+            # does not submit. A named submitting button gates the handler just
+            # like <input type=submit>, so carry it as a fixed parameter.
+            button_type = (attributes.get("type") or "submit").strip().lower()
+            button_name = _non_empty_attribute(attributes, "name")
+            if button_type == "submit" and button_name is not None:
+                self._record_submit_gate(
+                    button_name, attributes.get("value") or ""
+                )
             self._warn_control(
                 "FORM_CONTROL_NON_DATA",
                 "button control is not an injectable successful control",
@@ -401,6 +433,10 @@ class _StaticHtmlParser(HTMLParser):
             )
             return
         if type_hint in _NON_DATA_INPUT_TYPES:
+            if type_hint == "submit":
+                # A named submit button gates the handler; carry it as a fixed
+                # request parameter (never an injectable input point).
+                self._record_submit_gate(name, attributes.get("value") or "")
             self._warn_control(
                 "FORM_CONTROL_NON_DATA",
                 "non-data form control was skipped",
@@ -584,6 +620,13 @@ class _StaticHtmlParser(HTMLParser):
         self._control_index += 1
         return current
 
+    def _record_submit_gate(self, name: str, value: str) -> None:
+        """Remember the first named submit control of the current form."""
+
+        if self.form is None or self.form.submit_gate is not None:
+            return
+        self.form.submit_gate = (name, value)
+
     def _warn_control(
         self,
         code: str,
@@ -600,7 +643,7 @@ class _StaticHtmlParser(HTMLParser):
         self.warnings.append((code, message, details))
 
 
-class _CanonicalBuilder:
+class CanonicalDiscoveryBuilder:
     def __init__(
         self,
         *,
@@ -610,6 +653,8 @@ class _CanonicalBuilder:
         parent_url: str | None,
         depth: int,
         request_authorizer: Callable[[str], bool] | None,
+        discovered_by: str | None = None,
+        session_cookies: Mapping[str, str] | None = None,
     ) -> None:
         self.source_url = source_url
         self.metadata = metadata
@@ -617,12 +662,13 @@ class _CanonicalBuilder:
         self.parent_url = parent_url
         self.depth = depth
         self.request_authorizer = request_authorizer
+        self.session_cookies = dict(session_cookies or {})
         self.native_metadata_key = (
             "native_dynamic"
             if metadata.collector_kind == CollectorKind.NATIVE_DYNAMIC
             else "native_static"
         )
-        self.discovered_by = (
+        self.discovered_by = discovered_by or (
             "native_dynamic_rendered_dom"
             if metadata.collector_kind == CollectorKind.NATIVE_DYNAMIC
             else "native_static_html"
@@ -662,6 +708,7 @@ class _CanonicalBuilder:
         url: str,
         *,
         observation_key: str,
+        query_origin_kind: str = "query",
     ) -> None:
         endpoint = self._add_endpoint(
             url,
@@ -690,7 +737,221 @@ class _CanonicalBuilder:
             observation_key=f"query:{observation_key}",
             ready=True,
             not_ready_reasons=(),
+            query_origin_kind=query_origin_kind,
         )
+
+    def add_structural_query_surface(
+        self,
+        url: str,
+        *,
+        query_parameter_names: Sequence[str],
+        observation_key: str,
+        not_ready_reasons: Sequence[NonProbeReadyReason],
+        query_origin_kind: str,
+    ) -> None:
+        """Add value-free query structure with no executable request context."""
+
+        endpoint = self._add_endpoint(
+            url,
+            method=HttpMethod.GET,
+            observation_key=observation_key,
+        )
+        canonical_names = tuple(
+            _canonical_input_name(name) for name in query_parameter_names
+        )
+        counts = Counter(name for name in canonical_names if name)
+        seen: dict[str, int] = {}
+        for pair_index, canonical_name in enumerate(canonical_names):
+            if not canonical_name:
+                self.add_warning(
+                    "QUERY_PARAMETER_NAME_MISSING",
+                    "query occurrence without a name was not made injectable",
+                    {"pair_index": pair_index},
+                )
+                continue
+            occurrence_index = (
+                seen.get(canonical_name, 0) if counts[canonical_name] > 1 else None
+            )
+            seen[canonical_name] = seen.get(canonical_name, 0) + 1
+            point = InputPoint(
+                endpoint_id=endpoint.id or "",
+                endpoint_fingerprint=endpoint.fingerprint,
+                location=InputLocation.QUERY,
+                name=canonical_name,
+                occurrence_index=occurrence_index,
+                baseline_value=None,
+                type_hint="query",
+                source_page=self.source_url,
+                metadata={
+                    self.native_metadata_key: True,
+                    "hidden": False,
+                    "visibility": "visible",
+                    "value_state": "elided",
+                },
+            )
+            self._remember_point(
+                point,
+                raw_query_token=None,
+                origin_kind=query_origin_kind,
+                pair_index=pair_index,
+                control_index=-1,
+                hidden=False,
+            )
+            status = ProbeReadiness(
+                input_point_id=point.id or "",
+                request_context_id=None,
+                status=ProbeReadyStatus.NOT_READY,
+                reasons=tuple(not_ready_reasons),
+            )
+            self.readiness.setdefault(status.id or "", status)
+            self._observe(
+                DiscoverySubjectKind.INPUT_POINT,
+                point.id or "",
+                f"input:{observation_key}:query:{pair_index}",
+            )
+
+    def add_structural_json_body_surface(
+        self,
+        url: str,
+        *,
+        member_names: Sequence[str],
+        observation_key: str,
+        not_ready_reasons: Sequence[NonProbeReadyReason],
+        origin_kind: str,
+        ephemeral_material: EphemeralRequestMaterial | None = None,
+        replay_policy: PostReplayPolicyDecision,
+    ) -> None:
+        """Add persistent JSON structure and an optional replay-only sidecar."""
+
+        endpoint = self._add_endpoint(
+            url,
+            method=HttpMethod.POST,
+            observation_key=observation_key,
+        )
+        canonical_names = tuple(
+            canonical_name
+            for name in member_names
+            if (canonical_name := _canonical_input_name(name))
+        )
+        if type(replay_policy) is not PostReplayPolicyDecision:
+            raise TypeError("POST JSON surface requires a replay policy decision")
+        if (
+            replay_policy.disposition == PostReplayDisposition.SAFE_FOR_PROBE
+            and ephemeral_material is None
+        ):
+            replay_policy = PostReplayPolicyDecision(
+                disposition=PostReplayDisposition.STRUCTURAL_ONLY,
+                reason_code=PostReplayReasonCode.RECONSTRUCTION_INCOMPLETE,
+            )
+        ready = replay_policy.disposition == PostReplayDisposition.SAFE_FOR_PROBE
+        if not ready:
+            ephemeral_material = None
+        policy_not_ready_reasons: tuple[NonProbeReadyReason, ...] = ()
+        if not ready:
+            if (
+                replay_policy.reason_code
+                == PostReplayReasonCode.POLICY_ASSESSMENT_FAILED
+            ):
+                policy_not_ready_reasons = (
+                    NonProbeReadyReason.POST_POLICY_ASSESSMENT_FAILED,
+                )
+            elif (
+                replay_policy.disposition
+                == PostReplayDisposition.BLOCKED_SENSITIVE
+            ):
+                policy_not_ready_reasons = (
+                    NonProbeReadyReason.POST_POLICY_BLOCKED_SENSITIVE,
+                )
+            else:
+                policy_not_ready_reasons = (
+                    NonProbeReadyReason.POST_POLICY_STRUCTURAL_ONLY,
+                )
+        effective_not_ready_reasons = tuple(
+            sorted(
+                set(not_ready_reasons).union(policy_not_ready_reasons),
+                key=lambda item: item.value,
+            )
+        )
+        if ephemeral_material is not None:
+            if tuple(
+                sorted(
+                    _canonical_input_name(name)
+                    for name, _ in ephemeral_material.json_body
+                )
+            ) != tuple(sorted(canonical_names)):
+                raise DiscoveryContractError(
+                    "JSON replay material does not align with structural names"
+                )
+        structural_pairs = tuple((name, "null") for name in canonical_names)
+        template = RequestTemplate(
+            endpoint_id=endpoint.id or "",
+            endpoint_fingerprint=endpoint.fingerprint,
+            method=HttpMethod.POST,
+            url=url,
+            query=tuple(parse_qsl(urlsplit(url).query, keep_blank_values=True)),
+            json_body=structural_pairs,
+            completeness=(
+                RequestContextCompleteness.COMPLETE
+                if ready
+                else RequestContextCompleteness.UNKNOWN
+            ),
+            context_key=f"json:{observation_key}",
+            provenance=(("json_body", "browser-request-body"),),
+            metadata={
+                "context_kind": "json_body",
+                "content_type": "application/json",
+                "source_page": self.source_url,
+                "reconstruction_status": "complete" if ready else "policy_withheld",
+                "json_value_encoding": "canonical-json-text",
+                "replay_material_state": "ephemeral" if ready else "withheld_by_policy",
+                "post_replay_disposition": replay_policy.disposition.value,
+                "post_replay_reason": replay_policy.reason_code.value,
+                "non_probe_ready_reasons": tuple(
+                    item.value for item in effective_not_ready_reasons
+                ),
+            },
+            ephemeral_material=ephemeral_material,
+        )
+        stored_template = self.templates.setdefault(template.id or "", template)
+        self._observe(
+            DiscoverySubjectKind.REQUEST_TEMPLATE,
+            stored_template.id or "",
+            f"template:{observation_key}",
+        )
+        for member_index, canonical_name in enumerate(canonical_names):
+            point = InputPoint(
+                endpoint_id=endpoint.id or "",
+                endpoint_fingerprint=endpoint.fingerprint,
+                location=InputLocation.JSON_BODY,
+                name=canonical_name,
+                occurrence_index=None,
+                baseline_value=None,
+                type_hint="json",
+                source_page=self.source_url,
+                metadata={
+                    self.native_metadata_key: True,
+                    "hidden": False,
+                    "visibility": "network_observed" if ready else "structural_only",
+                    "value_state": "ephemeral" if ready else "elided",
+                    "post_replay_disposition": replay_policy.disposition.value,
+                    "post_replay_reason": replay_policy.reason_code.value,
+                },
+            )
+            self._remember_point(
+                point,
+                raw_query_token=None,
+                origin_kind=origin_kind,
+                pair_index=member_index,
+                control_index=-1,
+                hidden=False,
+            )
+            self._bind(
+                point,
+                stored_template,
+                observation_key=f"{observation_key}:json:{member_index}",
+                ready=ready,
+                not_ready_reasons=effective_not_ready_reasons,
+            )
 
     def add_form(
         self,
@@ -720,6 +981,16 @@ class _CanonicalBuilder:
                     "action_fingerprint": _redacted_url_fingerprint(
                         form.raw_action or ""
                     )
+                },
+            )
+            return
+        if not _same_http_origin(self.scope.root_url, action_url):
+            self.add_warning(
+                "OFF_SCOPE_FORM_ACTION",
+                "Cross-origin form action was excluded from request construction.",
+                {
+                    "action_fingerprint": _redacted_url_fingerprint(action_url),
+                    "reason": "EXACT_ORIGIN_MISMATCH",
                 },
             )
             return
@@ -785,9 +1056,19 @@ class _CanonicalBuilder:
                 skipped=False,
             )
 
+        # The activated submit button's name=value rides on the request as a
+        # fixed parameter (a browser sends it), gating handlers like DVWA's, but
+        # is never made an injectable input point.
+        gate_pairs = (form.submit_gate,) if form.submit_gate is not None else ()
+        gate_control_types = (
+            ((_SUBMIT_GATE_TYPE, False, -1),)
+            if form.submit_gate is not None
+            else ()
+        )
+
         observation_key = f"form:{boundary_key}"
         if method == HttpMethod.GET:
-            encoded_query = urlencode(pairs)
+            encoded_query = urlencode(pairs + gate_pairs)
             parts = urlsplit(action_url)
             request_url = urlunsplit(
                 (parts.scheme, parts.netloc, parts.path, encoded_query, "")
@@ -812,7 +1093,8 @@ class _CanonicalBuilder:
                         control.control_index,
                     )
                     for control, _ in expanded_controls
-                ),
+                )
+                + gate_control_types,
                 context_key=boundary_key,
                 provenance=tuple(provenance),
                 metadata=metadata,
@@ -830,12 +1112,28 @@ class _CanonicalBuilder:
         action_query = _query_occurrences(urlsplit(action_url).query)
         if action_query:
             provenance.append(("query", "raw-url"))
+        gate_controls = (
+            (
+                (
+                    _RawControl(
+                        name=form.submit_gate[0],
+                        type_hint=_SUBMIT_GATE_TYPE,
+                        values=(form.submit_gate[1],),
+                        hidden=False,
+                        control_index=-1,
+                    ),
+                    form.submit_gate[1],
+                ),
+            )
+            if form.submit_gate is not None
+            else ()
+        )
         self._add_template_with_points(
             endpoint=endpoint,
             url=action_url,
             method=method,
             query_occurrences=action_query,
-            form_controls=expanded_controls,
+            form_controls=expanded_controls + gate_controls,
             context_key=boundary_key,
             provenance=tuple(provenance),
             metadata=metadata,
@@ -850,6 +1148,8 @@ class _CanonicalBuilder:
         link_count: int,
         form_count: int,
         safety_invariants: Sequence[DiscoverySafetyInvariant] = (),
+        pages_processed: int = 1,
+        html_pages: int = 1,
     ) -> CanonicalDiscoveryResult:
         points = self._finalize_points()
         provenance: list[DiscoveryProvenance] = []
@@ -871,8 +1171,8 @@ class _CanonicalBuilder:
                     )
                 )
         statistics = CrawlStatistics(
-            pages_processed=1,
-            html_pages=1,
+            pages_processed=pages_processed,
+            html_pages=html_pages,
             links_discovered=link_count,
             forms_discovered=form_count,
             skipped=self.skipped_observations,
@@ -936,6 +1236,7 @@ class _CanonicalBuilder:
         ready: bool,
         not_ready_reasons: Sequence[NonProbeReadyReason],
         control_types: tuple[tuple[str, bool, int], ...] = (),
+        query_origin_kind: str | None = None,
     ) -> None:
         context_complete = ready
         effective_reasons = tuple(not_ready_reasons)
@@ -972,6 +1273,7 @@ class _CanonicalBuilder:
             url=url,
             query=query_pairs,
             form=form_pairs,
+            cookies=self.session_cookies,
             completeness=(
                 RequestContextCompleteness.COMPLETE
                 if context_complete
@@ -1006,16 +1308,20 @@ class _CanonicalBuilder:
                     {"pair_index": pair_index},
                 )
                 continue
+            if pair_index < len(control_types):
+                type_hint, hidden, control_index = control_types[pair_index]
+            else:
+                type_hint, hidden, control_index = ("query", False, -1)
+            if type_hint == _SUBMIT_GATE_TYPE:
+                # Fixed submit parameter: carried on the request template's
+                # query above, but not an injectable input point.
+                continue
             occurrence_index = (
                 query_seen.get(canonical_name, 0)
                 if query_counts[canonical_name] > 1
                 else None
             )
             query_seen[canonical_name] = query_seen.get(canonical_name, 0) + 1
-            if pair_index < len(control_types):
-                type_hint, hidden, control_index = control_types[pair_index]
-            else:
-                type_hint, hidden, control_index = ("query", False, -1)
             point = InputPoint(
                 endpoint_id=endpoint.id or "",
                 endpoint_fingerprint=endpoint.fingerprint,
@@ -1035,9 +1341,12 @@ class _CanonicalBuilder:
                 point,
                 raw_query_token=raw_token,
                 origin_kind=(
-                    "form"
-                    if metadata.get("context_kind") == "form"
-                    else "query"
+                    query_origin_kind
+                    or (
+                        "form"
+                        if metadata.get("context_kind") == "form"
+                        else "query"
+                    )
                 ),
                 pair_index=pair_index,
                 control_index=control_index,
@@ -1057,6 +1366,10 @@ class _CanonicalBuilder:
         )
         form_seen: dict[str, int] = {}
         for pair_index, (control, value) in enumerate(form_controls):
+            if control.type_hint == _SUBMIT_GATE_TYPE:
+                # Fixed submit parameter: carried on the request template's form
+                # body above, but not an injectable input point.
+                continue
             canonical_name = _canonical_input_name(control.name)
             occurrence_index = (
                 form_seen.get(canonical_name, 0)
@@ -1208,8 +1521,14 @@ def extract_static_html(
     sensitive_form_policy: SensitiveFormElisionPolicy | None = None,
     request_authorizer: Callable[[str], bool] | None = None,
     safety_invariants: Sequence[DiscoverySafetyInvariant] = (),
+    session_cookies: Mapping[str, str] | tuple[tuple[str, str], ...] = (),
 ) -> StaticExtractionResult:
-    """Extract one HTML string without fetching, submitting, or executing it."""
+    """Extract one HTML string without fetching, submitting, or executing it.
+
+    ``session_cookies`` are attached to every produced ``RequestTemplate`` so a
+    downstream access-control check can strip them. They are the operator's
+    authenticated session; extraction still never fetches or submits anything.
+    """
 
     if type(html) is not str:
         raise TypeError("html must be a string")
@@ -1289,13 +1608,14 @@ def extract_static_html(
             "sensitive form classification did not align with canonical parsing"
         )
 
-    builder = _CanonicalBuilder(
+    builder = CanonicalDiscoveryBuilder(
         source_url=canonical_source,
         metadata=metadata,
         scope=scope,
         parent_url=canonical_parent,
         depth=depth,
         request_authorizer=request_authorizer,
+        session_cookies=dict(session_cookies),
     )
     builder.add_url_surface(
         canonical_source,
@@ -1368,6 +1688,58 @@ def extract_static_html(
             raw_query=urlsplit(crawl_url).query,
             occurrence_index=occurrence_index,
         )
+        if not _same_http_origin(scope.root_url, crawl_url):
+            builder.add_warning(
+                "OFF_SCOPE_LINK",
+                "Cross-origin link was excluded from request construction.",
+                {
+                    "destination_fingerprint": stable_fingerprint(
+                        "crawler-url", crawl_url
+                    )[:16],
+                    "link_id": link.id,
+                    "reason": "EXACT_ORIGIN_MISMATCH",
+                },
+            )
+            continue
+        unsafe_token = authentication_state_change_token(crawl_url)
+        if unsafe_token is not None:
+            builder.add_warning(
+                "UNSAFE_NAVIGATION_SUPPRESSED",
+                "Authentication state-changing navigation was suppressed.",
+                {
+                    "action_token": unsafe_token,
+                    "destination_fingerprint": stable_fingerprint(
+                        "crawler-url", crawl_url
+                    )[:16],
+                    "link_id": link.id,
+                    "reason": "AUTHENTICATION_STATE_CHANGE",
+                },
+            )
+            continue
+        if not automatic_navigation_within_root_path(
+            scope.root_url,
+            crawl_url,
+        ):
+            try:
+                path_scope_granted = (
+                    request_authorizer is not None
+                    and request_authorizer(crawl_url) is True
+                )
+            except Exception:  # noqa: BLE001 - scope ambiguity fails closed.
+                path_scope_granted = False
+            if not path_scope_granted:
+                builder.add_warning(
+                    "OFF_PATH_SCOPE_LINK",
+                    "Link was outside the implicit root path scope.",
+                    {
+                        "destination_fingerprint": stable_fingerprint(
+                            "crawler-url", crawl_url
+                        )[:16],
+                        "link_id": link.id,
+                        "reason": "ROOT_PATH_SCOPE_MISMATCH",
+                    },
+                )
+                continue
         links.append(link)
         builder.add_url_surface(
             crawl_url,
@@ -1408,7 +1780,7 @@ def extract_static_html(
             DiscoverySafetyInvariant.SENSITIVE_FORM_PRE_CANONICAL_ELISION
         )
     discovery = builder.build(
-        link_count=len(links),
+        link_count=len(valid_links),
         form_count=len(parser.forms),
         safety_invariants=tuple(
             sorted(active_invariants, key=lambda item: item.value)
@@ -1441,6 +1813,7 @@ def extract_static_html_with_sensitive_form_elision(
     scope_metadata: ScopeMetadata,
     parent_url: str | None,
     depth: int,
+    session_cookies: tuple[tuple[str, str], ...] = (),
 ) -> StaticExtractionResult:
     """Extract Static HTML with the merge-required elision policy bound."""
 
@@ -1452,6 +1825,7 @@ def extract_static_html_with_sensitive_form_elision(
         parent_url=parent_url,
         depth=depth,
         sensitive_form_policy=SensitiveFormElisionPolicy(),
+        session_cookies=session_cookies,
     )
 
 
@@ -1524,6 +1898,20 @@ def _resolve_http_url(
         )
     )
     return resolved_url, crawl_url
+
+
+def _same_http_origin(root_url: str, candidate_url: str) -> bool:
+    """Compare exact scheme, normalized host, and effective port."""
+
+    return _http_origin(root_url) == _http_origin(candidate_url)
+
+
+def _http_origin(url: str) -> tuple[str, str, int]:
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    host = parts.hostname.casefold() if parts.hostname is not None else ""
+    effective_port = parts.port or (80 if scheme == "http" else 443)
+    return scheme, host, effective_port
 
 
 def _query_occurrences(raw_query: str) -> tuple[tuple[str, str, str], ...]:

@@ -77,7 +77,12 @@ they are listed here:
   `tools/corpus_target_site.py`.
 - Ranking metrics and comparison arms in `evaluation/`, implementing
   `docs/EVALUATION_PROTOCOL.md` §6 and the §6-A judgment rules. Run through
-  `tools/evaluate_ranking.py`.
+  `tools/evaluate_ranking.py` for the stored corpus, and through
+  `analyze --ground-truth` for a live scan (`evaluation/live.py`, §6-B):
+  random predictor vs. the pipeline without focused verification vs. the full
+  pipeline, scored on the confidences the product actually emits. The labeled
+  target is `tools/demo_shop.py` (DemoShop, 100 input points), served by
+  `demo_target_server.py`.
 
 The v0.2 primary path must not use `LegacyCrawlerAdapter`. The adapter remains
 for legacy input compatibility and regression tests.
@@ -147,6 +152,10 @@ for legacy input compatibility and regression tests.
 
 ## Git collaboration rules
 
+- Current working-branch override (2026-09-21): continue work directly on the
+  existing `feat/dashboard-improve` branch. Do not create a new branch unless
+  the user explicitly requests one. This overrides the default short-lived
+  branch procedure below for this working copy.
 - Do not commit directly to `prototype/v0.1` or, after promotion, `main`.
 - Use a short-lived branch and PR for every change.
 - Keep one PR focused on one goal.
