@@ -1387,31 +1387,31 @@ _POC_STYLE = (
     color: var(--muted); }
 .poc-banner .poc-icon svg { width: 100%; height: 100%; display: block; }
 .poc-banner .poc-body { min-width: 0; }
-.poc-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.7px;
+.poc-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 1.7px;
     text-transform: uppercase; color: var(--muted); }
-.poc-banner h2 { font-size: 22px; margin: 8px 0 13px; color: var(--ink);
+.poc-banner h2 { font-size: 23px; margin: 8px 0 13px; color: var(--ink);
     letter-spacing: -.035em; font-weight: 700; }
-.poc-what { margin: 0 0 12px; font-size: 14px; color: #4c4f47; }
+.poc-what { margin: 0 0 12px; font-size: 16px; color: #4c4f47; }
 .poc-what b { color: var(--ink); }
 .poc-what code, .poc-foot code { background: var(--sand); color: var(--ink); padding: 2px 7px;
     border-radius: 3px; border: 1px solid var(--line); font-family: Consolas, monospace;
-    font-size: 12.5px; word-break: break-all; }
-.poc-proof { margin: 0; font-size: 15px; line-height: 1.85; color: #3a3d36; }
+    font-size: 14.5px; word-break: break-all; }
+.poc-proof { margin: 0; font-size: 16px; line-height: 1.85; color: #3a3d36; }
 .poc-evidence { margin-top: 18px; }
-.poc-evidence-cap { font-size: 10px; font-weight: 700; letter-spacing: 1px;
+.poc-evidence-cap { font-size: 12px; font-weight: 700; letter-spacing: 1px;
     text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
 .poc-code { margin: 0; padding: 13px 15px; border-radius: 2px; background: var(--sand);
     border: 1px solid var(--line); color: var(--ink);
-    font: 13px/1.7 Consolas, monospace; white-space: pre-wrap;
+    font: 15px/1.7 Consolas, monospace; white-space: pre-wrap;
     word-break: break-all; overflow-x: auto; }
-.poc-rows { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 15px; }
+.poc-rows { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 16px; }
 .poc-rows span { background: var(--sand); border: 1px solid var(--line); border-radius: 2px;
     padding: 9px 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.poc-rows b { display: block; font-size: 10px; letter-spacing: .5px; text-transform: uppercase;
+.poc-rows b { display: block; font-size: 12px; letter-spacing: .5px; text-transform: uppercase;
     color: var(--muted); font-weight: 700; margin-bottom: 3px; }
 .poc-rows .hot { background: #fbf1ec; border-color: #e6c6b8; color: #8a2f16; }
-.poc-rows .poc-arrow { background: none; border: 0; padding: 0; color: #b9bcb2; font-size: 20px; }
-.poc-foot { margin: 17px 0 0; font-size: 11.5px; line-height: 1.7; color: var(--muted); }
+.poc-rows .poc-arrow { background: none; border: 0; padding: 0; color: #b9bcb2; font-size: 21px; }
+.poc-foot { margin: 17px 0 0; font-size: 13.5px; line-height: 1.7; color: var(--muted); }
 /* State accents: warm terracotta for a confirmed finding (echoes the shop
    accent), sage for a defended route, amber for pending. */
 .poc-confirmed { border-left-color: #b1442a; }
@@ -1428,22 +1428,22 @@ _POC_STYLE = (
     padding: 2px 9px; white-space: nowrap; }
 .poc-cta:hover { text-decoration: none; background: #f6e7df; }
 .poc-cta-row { margin-top: 7px; }
-.poc-cta-row small { color: var(--muted); font-size: 11px; }
+.poc-cta-row small { color: var(--muted); font-size: 13px; }
 /* SQL injection impact: the built query, then the dumped table. */
 .poc-sql { margin-top: 4px; }
 .poc-sql-query { margin: 0 0 12px; padding: 12px 14px; border-radius: 2px;
     background: var(--sand); border: 1px solid var(--line); color: var(--ink);
-    font: 13px/1.65 Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+    font: 15px/1.65 Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
 .poc-sql-query mark { background: #f4dcd1; color: #8a2f16; border-radius: 2px;
     padding: 0 3px; font-weight: 700; }
-.poc-sql-note { font-size: 14px; line-height: 1.75; color: #4c4f47; margin: 0 0 14px; }
+.poc-sql-note { font-size: 16px; line-height: 1.75; color: #4c4f47; margin: 0 0 14px; }
 .poc-sql-note code { background: var(--sand); border: 1px solid var(--line); padding: 2px 6px;
     border-radius: 3px; font-family: Consolas, monospace; }
 .poc-leak { border: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
-.poc-leak-head { background: #fbf2ee; color: #97381f; font-weight: 700; font-size: 13px;
+.poc-leak-head { background: #fbf2ee; color: #97381f; font-weight: 700; font-size: 15px;
     padding: 10px 14px; letter-spacing: .2px; border-bottom: 1px solid #ecdfd8; }
 .poc-leak-wrap { overflow-x: auto; }
-.poc-leak-table { width: 100%; border-collapse: collapse; font-size: 12.5px;
+.poc-leak-table { width: 100%; border-collapse: collapse; font-size: 14.5px;
     background: var(--paper); white-space: nowrap; }
 .poc-leak-table th { background: var(--sand); color: #6b4a3f; text-align: left;
     padding: 9px 12px; font-weight: 600; border-bottom: 1px solid var(--line); }

@@ -23,7 +23,6 @@ import argparse
 import os
 import subprocess
 import sys
-import threading
 import time
 import webbrowser
 from pathlib import Path
@@ -89,9 +88,24 @@ def main(argv: list[str] | None = None) -> int:
 
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
-    server = demo_shop.build_server(args.port)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+    # Run DemoShop in its OWN process, not an in-process thread: the two scans
+    # are subprocesses that hammer this server, and sharing a single process
+    # with the server has wedged in practice. A separate process keeps the scans
+    # reliable. Wait until it accepts connections before scanning.
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src"), str(ROOT)])
+    server_proc = subprocess.Popen(
+        [sys.executable, "-c",
+         f"from tools.demo_shop import build_server; build_server({args.port}).serve_forever()"],
+        cwd=str(ROOT), env=env,
+    )
+    for _ in range(100):
+        if server_proc.poll() is not None:
+            print("[!] DemoShop 서버가 시작되지 못했습니다.", file=sys.stderr)
+            return 2
+        if not results_pack._free(args.port):
+            break
+        time.sleep(0.1)
     print(f"[*] DemoShop 실행 중: http://127.0.0.1:{args.port}")
 
     scenarios = [
@@ -138,11 +152,11 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\n[*] DemoShop을 계속 실행합니다 (라이브 PoC 링크 사용 가능). 종료: Ctrl+C")
     try:
-        while thread.is_alive():
-            time.sleep(1)
+        server_proc.wait()
     except KeyboardInterrupt:
         print("\n[*] 종료합니다.")
-        server.shutdown()
+    finally:
+        server_proc.terminate()
     return 1 if failed else 0
 
 
