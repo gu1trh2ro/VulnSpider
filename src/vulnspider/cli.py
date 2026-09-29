@@ -14,6 +14,7 @@ from urllib.parse import urlsplit, urlunsplit
 from tqdm import tqdm  # 진행률 바를 위해 추가
 
 from vulnspider import __version__
+from vulnspider.cli_branding import detect_capabilities, write_banner
 from vulnspider.cli_decision import (
     CalibrationError,
     ConformalError,
@@ -140,6 +141,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
+    )
+    parser.add_argument(
+        "--no-banner",
+        dest="simple_no_banner",
+        action="store_true",
+        help="Do not show the interactive VulnSpider startup banner.",
     )
     parser.add_argument(
         "-u",
@@ -695,6 +702,7 @@ def main(
     if args.command is None and not simple_mode:
         if _simple_options_without_url(args):
             parser.error("simple scan options require -u/--url")
+        _write_start_banner(args)
         parser.print_help()
         return 0
     if args.command in _DECISION_COMMANDS:
@@ -722,6 +730,8 @@ def main(
     if args.command != "analyze":
         if not simple_mode:
             parser.error(f"unsupported command: {args.command}")
+    if simple_mode:
+        _write_start_banner(args)
     stage = "초기화"
     pbar = tqdm(
         total=4,
@@ -1078,7 +1088,16 @@ def _simple_options_without_url(args: argparse.Namespace) -> bool:
         or args.simple_random_predictor
         or args.simple_random_safe_weight is not None
         or args.simple_cookie is not None
+        or args.simple_no_banner
     )
+
+
+def _write_start_banner(args: argparse.Namespace) -> None:
+    capabilities = detect_capabilities(
+        sys.stderr,
+        hidden=bool(args.simple_no_banner),
+    )
+    write_banner(sys.stderr, capabilities)
 
 
 def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
