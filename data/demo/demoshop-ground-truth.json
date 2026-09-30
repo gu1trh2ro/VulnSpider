@@ -9,7 +9,7 @@
       "parameter_location": "QUERY",
       "parameter_name": "q",
       "vulnerability_type": "SQLI",
-      "vulnerable": false
+      "vulnerable": true
     },
     {
       "application_id": "demoshop",
@@ -18,7 +18,7 @@
       "parameter_location": "QUERY",
       "parameter_name": "q",
       "vulnerability_type": "REFLECTED_XSS",
-      "vulnerable": true
+      "vulnerable": false
     },
     {
       "application_id": "demoshop",
@@ -63,7 +63,7 @@
       "parameter_location": "QUERY",
       "parameter_name": "min_price",
       "vulnerability_type": "SQLI",
-      "vulnerable": false
+      "vulnerable": true
     },
     {
       "application_id": "demoshop",

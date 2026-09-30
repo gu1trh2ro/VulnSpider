@@ -279,6 +279,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--verify-links",
+        dest="simple_verify_links",
+        action="store_true",
+        help=(
+            "DemoShop demo only: add a live '취약점 검증' button to the three demo "
+            "input points and float each to the top of its family (presentation "
+            "only; the scan, scores and metrics are unchanged)."
+        ),
+    )
+    parser.add_argument(
         "--open",
         dest="simple_open_report",
         action="store_true",
@@ -1135,6 +1145,7 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         no_verify_detail=args.simple_no_verify_detail,
         verify_proposer=args.simple_verify_proposer,
         llm_model=args.simple_llm_model,
+        verify_links=args.simple_verify_links,
         open_report=args.simple_open_report,
         access_control=args.simple_access_control,
         cookie=args.simple_cookie,

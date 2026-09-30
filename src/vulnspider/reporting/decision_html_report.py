@@ -82,7 +82,7 @@ _EMPTY_OVERRIDE: Mapping[str, float] = {}
 # the report's presentation (verify button + display order); the scan, the
 # scoring and the metrics are all untouched.
 DEMO_VERIFY_POINTS: Mapping[str, str] = {
-    "/admin/users": "SQLI",
+    "/search": "SQLI",
     "/account/address": "REFLECTED_XSS",
     "/portal/order": "BROKEN_ACCESS_CONTROL",
 }

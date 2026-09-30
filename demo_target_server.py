@@ -6,8 +6,8 @@ because every runbook in ``docs/`` starts with:
 
     python demo_target_server.py            # http://127.0.0.1:8899
 
-DemoShop is an authored online store with 100 query input points, 40 of them
-vulnerable, and it knows its own ground truth. That is what lets a live scan be
+DemoShop is an authored online store with 100 query input points, including
+vulnerable and defended cases, and it knows its own ground truth. That is what lets a live scan be
 scored with Precision@K / Recall@K / MAP@K:
 
     PYTHONPATH=src python -m vulnspider analyze --url http://127.0.0.1:8899/ \\

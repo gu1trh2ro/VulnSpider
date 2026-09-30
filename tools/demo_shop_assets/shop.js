@@ -96,6 +96,10 @@
     const grid = document.querySelector('.product-grid');
     if (!grid || !LISTING.includes(path)) return;
     const cards = Array.from(grid.querySelectorAll('.product-card[data-product]'));
+    // /search uses the real server SQL result; do not reapply a safe price or
+    // text filter in JavaScript and hide a demonstrated SQL condition bypass.
+    const result = path === '/search' ? document.querySelector('[data-search-result-ids]') : null;
+    const serverIds = result ? new Set(result.dataset.searchResultIds.split(',').filter(Boolean)) : null;
     const hash = /^#category-(all|shoes|bags|tech|home)$/.exec(location.hash);
     const filters = applied ? Object.fromEntries(query.entries()) : {};
     let category = hash ? hash[1] : 'all';
@@ -122,6 +126,7 @@
     const wanted = path === '/compare' ? (ids || '').split(',').map(id => id.trim()).filter(id => byId[id]) : null;
     const matches = card => {
       const p = byId[card.dataset.product];
+      if (serverIds) return serverIds.has(card.dataset.product) && (category === 'all' || card.dataset.category === category);
       // Without the products script the page degrades to what the server
       // rendered: category tabs still work, the finer filters are skipped.
       if (!p) return category === 'all' || card.dataset.category === category;

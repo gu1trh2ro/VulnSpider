@@ -8,7 +8,7 @@ evaluation. Thirty-seven input points, almost all trivially separable, make
 
 This module replaces it with an online store: catalog, cart, checkout, orders,
 seller console, support desk, admin. **100 query input points** across 32
-routes, 40 of them genuinely vulnerable and 60 safe, and -- because the site is
+routes, with labeled vulnerable and defended cases, and -- because the site is
 authored here -- every one of them carries a known label. That is what makes
 ``Precision@K`` / ``Recall@K`` / ``MAP@K`` computable against a live scan
 (``vulnspider.evaluation.live``).
@@ -372,7 +372,7 @@ PAGES: tuple[PageSpec, ...] = (
         blurb="상품명·브랜드·카테고리를 한 번에 검색합니다.",
         listing="products",
         inputs=(
-            _text("q", "xss_raw", "sneakers", "검색어"),
+            _text("q", "sqli_error", "sneakers", "검색어"),
             _choice(
                 "category",
                 "safe_allowlist",
@@ -385,7 +385,7 @@ PAGES: tuple[PageSpec, ...] = (
                 ("relevance", "price_asc", "price_desc", "newest"),
                 "정렬",
             ),
-            _text("min_price", "safe_type_error", "0", "최소 가격"),
+            _text("min_price", "sqli_error", "0", "최소 가격"),
             _text("max_price", "safe_validated", "500000", "최대 가격"),
         ),
     ),
@@ -1683,6 +1683,69 @@ def _member_secret(member_id: int, column: int) -> str:
     return "-"
 
 
+def _search_products(
+    query: dict[str, str], *, bind_price: bool = False,
+) -> tuple[int, tuple[str, ...], str]:
+    """Read-only local SQLi fixture: only min_price is concatenated into SQL.
+
+    The parameter-bound twin is a control for the live PoC, never a scoring
+    input. Each request gets a disposable catalog with no persistent data.
+    """
+    term = query.get("q", "").strip().lower()
+    minimum = query.get("min_price", "0") or "0"
+    maximum = query.get("max_price", "500000") or "500000"
+    if not maximum.isascii() or not maximum.isdigit() or len(maximum) > 12:
+        return 400, (), "최대 가격은 12자리 이하의 정수로 입력하세요."
+    sql = "SELECT id FROM products WHERE haystack LIKE ? AND price <= ? AND price >= "
+    parameters: tuple[object, ...] = ("%" + term + "%", int(maximum))
+    if bind_price:
+        sql += "?"
+        parameters += (minimum,)
+    else:
+        # Deliberate SQL injection in the explicitly local teaching target.
+        sql += "'" + minimum + "'"
+    with closing(sqlite3.connect(":memory:")) as db:
+        db.execute("CREATE TABLE products (id TEXT, haystack TEXT, price INTEGER)")
+        db.executemany("INSERT INTO products VALUES (?, ?, ?)", [
+            (product.id, product.haystack.lower(), product.price)
+            for product in storefront.PRODUCTS
+        ])
+        db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 16384)
+        db.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 4096)
+        db.execute("PRAGMA query_only = ON")
+        db.set_progress_handler(lambda: 1, 10000)
+        try:
+            rows = db.execute(sql, parameters).fetchall()
+        except sqlite3.Error as exc:
+            return 500, (), f"Database error: SQLite error: {exc}"
+    return 200, tuple(str(row[0]) for row in rows), sql
+
+
+def _search_confirmation(item: InputSpec, value: str, query: dict[str, str]) -> str:
+    status, product_ids, statement = _search_products(query)
+    if status != 200:
+        return _poc_banner(
+            "pending", "상품 조회에 실패했습니다", item.label, value,
+            "오류만으로 조회 조건 우회를 확정하지 않습니다. 실제 응답을 확인하세요.",
+            _poc_source("서버 응답", statement),
+        )
+    control_status, control_ids, _ = _search_products(query, bind_price=True)
+    if control_status == 200 and product_ids and set(product_ids) != set(control_ids):
+        _, normal_ids, _ = _search_products({**query, "min_price": item.seed})
+        return _poc_banner(
+            "confirmed", "SQL Injection 취약점이 확인되었습니다", item.label, value,
+            "최소 가격 입력이 SQL 조건으로 해석되어 검색·가격 필터가 우회되었습니다. "
+            "아래 상품 목록은 실제 SQLite 조회 결과입니다. 같은 값을 바인딩한 "
+            "대조 질의와 결과가 다릅니다. 회원 정보 유출을 뜻하지는 않습니다.",
+            _poc_rows("정상 최소 가격 " + item.seed, len(normal_ids), "주입 요청", len(product_ids))
+            + _poc_source("실행한 SQL (검색어·최대 가격은 ?에 별도 바인딩)", statement),
+        )
+    return _poc_banner(
+        "pending", "상품 조회 결과를 확인하세요", item.label, value,
+        "현재 요청에서는 바인딩 대조 질의와 다른 조회 결과가 확인되지 않았습니다.",
+    )
+
+
 def _member_results(query: dict[str, str]) -> tuple[int, str, int]:
     """Intentionally injectable, read-only search over three ephemeral demo rows."""
     value = query.get("q", "soohoon")
@@ -1897,6 +1960,8 @@ def _confirmation(page: PageSpec, item: InputSpec, value: str,
             "pending", "아직 페이로드가 반영되지 않았습니다", label, value,
             "작은따옴표(')가 포함된 값을 보내야 스크립트 문자열 탈출형 XSS가 드러납니다.",
         )
+    if page.path == "/search" and item.name == "min_price":
+        return _search_confirmation(item, value, query)
     if page.path == "/admin/users" and item.name == "q":
         status, _result, row_count = _member_results(query)
         if status == 500:
@@ -2007,10 +2072,19 @@ def render_route(page: PageSpec, query: dict[str, str]) -> tuple[int, bytes]:
 
     status = 200
     cards: list[str] = []
+    if page.path == "/search":
+        status, product_ids, detail = _search_products(query)
+        message = (f"상품 {len(product_ids)}개가 조회되었습니다." if status == 200 else detail)
+        cards.append(_card("최소 가격", (
+            f'<div data-search-result-ids="{escape(",".join(product_ids))}">'
+            f'<p class="{"muted" if status == 200 else "error"}">{escape(message)}</p></div>'
+        )))
     if page.path == "/admin/users":
         status, members, _row_count = _member_results(query)
         cards.append(members)
     for item in page.inputs:
+        if page.path == "/search" and item.name == "min_price":
+            continue
         if page.path == "/admin/users" and item.name in ("id", "q"):
             continue
         value = query.get(item.name, item.seed)

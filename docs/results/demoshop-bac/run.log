@@ -25,14 +25,14 @@ NDCG@K                                                        K=1     K=3     K=
                VulnSpider (full pipeline)                     1.000   1.000   1.000   1.000   1.000 
                Random predictor (per-input-point type guess)  0.239   0.300   0.410   0.586   0.586 
 
-vulnspider: comparison table -> file:///C:/Users/user/Documents/GitHub/VulnSpider0.2/VulnSpider/docs/results/demoshop-bac/evaluation-table.html
-vulnspider: input-point table -> file:///C:/Users/user/Documents/GitHub/VulnSpider0.2/VulnSpider/docs/results/demoshop-bac/evaluation-inputs.html
+vulnspider: comparison table -> file:///C:/Users/user/Documents/GitHub/VulnSpider/docs/results/demoshop-bac/evaluation-table.html
+vulnspider: input-point table -> file:///C:/Users/user/Documents/GitHub/VulnSpider/docs/results/demoshop-bac/evaluation-inputs.html
 vulnspider: (markdown copies alongside: evaluation-table.md, evaluation-inputs.md)
 vulnspider: [OK] scan complete (mode=static, selected=12)
-vulnspider: analysis output:     C:\Users\user\Documents\GitHub\VulnSpider0.2\VulnSpider\docs\results\demoshop-bac\analysis.json
-vulnspider: verification output: C:\Users\user\Documents\GitHub\VulnSpider0.2\VulnSpider\docs\results\demoshop-bac\verification.json
-vulnspider: dashboard report ->  file:///C:/Users/user/Documents/GitHub/VulnSpider0.2/VulnSpider/docs/results/demoshop-bac/dashboard.html
-vulnspider: detail report ->     file:///C:/Users/user/Documents/GitHub/VulnSpider0.2/VulnSpider/docs/results/demoshop-bac/verification-detail.html
+vulnspider: analysis output:     C:\Users\user\Documents\GitHub\VulnSpider\docs\results\demoshop-bac\analysis.json
+vulnspider: verification output: C:\Users\user\Documents\GitHub\VulnSpider\docs\results\demoshop-bac\verification.json
+vulnspider: dashboard report ->  file:///C:/Users/user/Documents/GitHub/VulnSpider/docs/results/demoshop-bac/dashboard.html
+vulnspider: detail report ->     file:///C:/Users/user/Documents/GitHub/VulnSpider/docs/results/demoshop-bac/verification-detail.html
 
 진행 상태: |[32m                                                                             [0m| 0/4 단계 [0m
 진행 상태: |[32m                                                                     [0m| 0/4 단계 , 초기화
@@ -65,7 +65,7 @@ vulnspider: [*] 검증 (focused verification) 시작 -- proposer=deterministic, 
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
-vulnspider:     - 검증 1/6: SQLI rank 1               elapsed time : 0.20s
+vulnspider:     - 검증 1/6: SQLI rank 1               elapsed time : 0.39s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
@@ -73,7 +73,7 @@ vulnspider:     - 검증 1/6: SQLI rank 1               elapsed time : 0.20s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
-vulnspider:     - 검증 2/6: REFLECTED_XSS rank 2      elapsed time : 0.25s
+vulnspider:     - 검증 2/6: REFLECTED_XSS rank 2      elapsed time : 0.43s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
@@ -81,7 +81,7 @@ vulnspider:     - 검증 2/6: REFLECTED_XSS rank 2      elapsed time : 0.25s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
-vulnspider:     - 검증 3/6: REFLECTED_XSS rank 3      elapsed time : 0.23s
+vulnspider:     - 검증 3/6: REFLECTED_XSS rank 3      elapsed time : 0.45s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
@@ -89,7 +89,7 @@ vulnspider:     - 검증 3/6: REFLECTED_XSS rank 3      elapsed time : 0.23s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
-vulnspider:     - 검증 4/6: REFLECTED_XSS rank 4      elapsed time : 0.38s
+vulnspider:     - 검증 4/6: REFLECTED_XSS rank 4      elapsed time : 0.45s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
@@ -97,7 +97,7 @@ vulnspider:     - 검증 4/6: REFLECTED_XSS rank 4      elapsed time : 0.38s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
-vulnspider:     - 검증 5/6: SQLI rank 5               elapsed time : 0.42s
+vulnspider:     - 검증 5/6: SQLI rank 5               elapsed time : 0.46s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
@@ -105,7 +105,7 @@ vulnspider:     - 검증 5/6: SQLI rank 5               elapsed time : 0.42s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     
-vulnspider:     - 검증 6/6: SQLI rank 6               elapsed time : 0.41s
+vulnspider:     - 검증 6/6: SQLI rank 6               elapsed time : 0.39s
 
 진행 상태: |[32m████████████████████████████████████            [0m| 3/4 단계 , 검증 (focused verification)[0m
                                                                                                     

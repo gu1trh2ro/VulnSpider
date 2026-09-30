@@ -106,10 +106,10 @@ class DashboardExperienceTests(unittest.TestCase):
 
     def test_verify_links_open_the_target_verify_endpoint_only_when_enabled(self) -> None:
         # The verify button is shown only on the DemoShop demo input points
-        # (here the SQLi demo point /admin/users), and only when verify links
+        # (here the SQLi demo point /search), and only when verify links
         # are enabled -- never on other candidates or with links disabled.
         target = _target("raw_reflect", "REFLECTED_XSS")
-        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1:8899", "/admin/users")
+        endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1:8899", "/search")
         point = replace(target.input_point, endpoint_id=endpoint.id, endpoint_fingerprint=endpoint.fingerprint)
         outcome = run_decision_layer((_candidate(subject=point.id or ""),), top_k=1)
         maps = dict(endpoints={endpoint.id or "": endpoint}, input_points={point.id or "": point},
@@ -122,7 +122,7 @@ class DashboardExperienceTests(unittest.TestCase):
 
         # A candidate that is not one of the three demo points never gets the
         # button, even with verify links enabled.
-        other_endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1:8899", "/search")
+        other_endpoint = Endpoint(HttpMethod.GET, "http", "127.0.0.1:8899", "/admin/users")
         other_point = replace(target.input_point, endpoint_id=other_endpoint.id, endpoint_fingerprint=other_endpoint.fingerprint)
         other_outcome = run_decision_layer((_candidate(subject=other_point.id or ""),), top_k=1)
         other = render_decision_html_report(

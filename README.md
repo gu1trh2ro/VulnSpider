@@ -171,13 +171,23 @@ python demo_target_server.py
 
 브라우저에서 `http://127.0.0.1:8899/`를 열어 실습 대상을 확인합니다.
 
-**터미널 2 — 수집·분석·선택적 확인**
+**터미널 2 — 수집·분석·검증**
+
+DemoShop 시연에서는 `--verify-links`로 상위 데모 후보(`/search` SQLi · `/account/address` XSS · `/portal/order` BAC)에 `🎯 취약점 검증` 버튼을 붙입니다. 검증 제안기는 아래 두 방식 중 하나를 고릅니다.
+
+**LLM 검증 미포함** — 규칙 기반 제안기(기본, 빠름):
 
 ```bash
-vulnspider -u http://127.0.0.1:8899/ --verify
+vulnspider -u http://127.0.0.1:8899/ --verify --verify-proposer deterministic --verify-links
 ```
 
-실행한 디렉터리에 `vulnspider-report.html`과 수집·분석 JSON이 생성됩니다. `--verify`를 사용하면 검증 기록과 상세 보고서도 생성됩니다. HTML 파일은 웹 서버 없이 브라우저에서 열 수 있습니다.
+**LLM 검증 포함** — 로컬 `vulnspider-3b` 모델이 페이로드를 제안(실행 허용·최종 판단은 규칙이 유지, CPU 추론이라 느림):
+
+```bash
+vulnspider -u http://127.0.0.1:8899/ --verify --verify-proposer llm --llm-model models/vulnspider-3b_v3.gguf --verify-links
+```
+
+> LLM 검증에는 `models/vulnspider-3b_v3.gguf`와 `llama-cpp-python`이 필요합니다([models/README.md](models/README.md)). 두 방식 모두 실행한 디렉터리에 `vulnspider-report.html`과 수집·분석·검증 JSON을 생성하며, HTML은 웹 서버 없이 브라우저에서 엽니다. 보고서 상세 페이지의 `🎯 DemoShop에서 취약점 검증` 버튼을 누르면 DemoShop이 확정 페이로드로 열리며 PoC 판정(예: "SQL Injection 취약점이 확인되었습니다")을 보여줍니다.
 
 | 필요한 동작 | 예시 |
 | :--- | :--- |
@@ -227,3 +237,23 @@ vulnspider -u http://127.0.0.1:8899/ --verify
 ---
 
 <div align="center"><sub>VulnSpider · 부산대학교 정보컴퓨터공학부 · 2026 졸업과제</sub></div>
+
+
+### DemoShop 최소 가격 SQLi 시연 (2026-10-01)
+
+`/search`의 `min_price`(최소 가격)는 시연용 SQLite 상품 DB의 질의에 값을
+이어 붙이는 취약 입력점입니다. 검색어 `sneakers`, 최소 가격 `0`, 최대 가격
+`500000`이면 상품 3개를 조회합니다. 최소 가격만 `1' OR '1'='1`로 바꾸면
+검색·가격 조건이 우회되어 전체 상품 12개가 조회됩니다. 화면의 상품 목록도
+서버가 실제 조회한 상품 ID를 사용합니다. 회원 정보 유출 사례는 아닙니다.
+
+대시보드에서 `/search` · `query.min_price`의 취약점 검증 버튼을 누르면
+같은 요청을 실행합니다. 확인 배너는 실제 결과를 파라미터 바인딩 대조 질의와
+비교한 뒤 표시하며, SQL 오류나 따옴표만으로 성공을 선언하지 않습니다.
+일반 검색 폼에서도 동일한 조건 우회가 발생합니다.
+
+DB는 요청마다 생성하는 실습 상품 12개의 메모리 DB이며, 읽기 전용 질의와
+SQL 길이·실행 예산 제한을 적용합니다. 기존 서버는 재시작해야 변경이 반영됩니다.
+이 입력은 이전 버전에서 `safe_type_error`(SQLi 오탐 사례)였으므로 정답 지도도
+SQLi 취약으로 변경했습니다. 이전 리포트의 점수·평가지표는 변경 전 실험 결과입니다.
+변경 후 정량 결과가 필요하면 새 출력 폴더에서 Full Suite를 다시 실행해야 합니다.
