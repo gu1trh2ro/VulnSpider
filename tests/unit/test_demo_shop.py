@@ -264,14 +264,31 @@ class DemoShopConfirmationTests(unittest.TestCase):
         raise AssertionError(f"no input point of kind {kind}")
 
     def test_an_ordinary_request_never_shows_the_overlay(self) -> None:
-        probes = ("1' OR '1'='1", "<script>alert(1)</script>", '"x"', "1")
+        # Ordinary = the store's own seed value, and the scanner's marker probe
+        # (which carries MARKER_PREFIX). Neither shows the verdict overlay, so
+        # the whole scan stays byte-for-byte unchanged.
+        from vulnspider.observation import MARKER_PREFIX
         for page in demo_shop.PAGES:
             for item in page.inputs:
-                for probe in probes:
+                for probe in (item.seed, MARKER_PREFIX + "ABCD1234Z<>\"'Z"):
                     _status, body = demo_shop.render_route(page, {item.name: probe})
                     text = body.decode("utf-8")
                     self.assertNotIn("poc-banner", text, f"{page.path}?{item.name}")
-                    self.assertNotIn("취약점 검증", text, f"{page.path}?{item.name}")
+                    self.assertNotIn("취약점 검증 · Proof", text, f"{page.path}?{item.name}")
+
+    def test_a_typed_attack_value_shows_the_overlay_without_a_marker(self) -> None:
+        # A human typing an attack value straight into a form (no lab link, no
+        # marker) gets the verdict overlay: confirmed for a vulnerable input,
+        # defended for a safe one.
+        page = demo_shop.PAGES_BY_PATH["/search"]
+        vulnerable = dict(page.seeds)
+        vulnerable["min_price"] = "1' OR '1'='1"
+        _s, vbody = demo_shop.render_route(page, vulnerable)
+        self.assertIn("poc-confirmed", vbody.decode("utf-8"))
+        defended = dict(page.seeds)
+        defended["max_price"] = "1' OR '1'='1"
+        _s, dbody = demo_shop.render_route(page, defended)
+        self.assertIn("방어되었습니다", dbody.decode("utf-8"))
 
     def test_the_overlay_leaves_the_scanned_response_byte_identical(self) -> None:
         # The marker is an inert extra parameter for the fragment renderer; the
@@ -305,7 +322,8 @@ class DemoShopConfirmationTests(unittest.TestCase):
         _status, body = demo_shop.render_route(page, query)
         text = body.decode("utf-8")
         self.assertIn("poc-defended", text)
-        self.assertIn("안전하게 방어", text)
+        self.assertIn("방어되었습니다", text)
+        self.assertIn("취약 입력점에 통했던 것과 같은 공격", text)
 
     def test_the_lab_launches_a_confirmation_for_every_vulnerable_input(self) -> None:
         lab = demo_shop.render_lab().decode("utf-8")

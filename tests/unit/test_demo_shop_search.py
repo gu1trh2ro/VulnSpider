@@ -51,8 +51,11 @@ class SearchSQLiTests(unittest.TestCase):
                 self.assertEqual(status, 200)
                 ids = re.search(r'data-search-result-ids="([^"]*)"', text).group(1).split(',')
                 self.assertEqual(set(ids), set(demo_shop.storefront.PRODUCTS_BY_ID))
-                self.assertEqual('class="poc-banner poc-confirmed"' in text, confirm)
-                self.assertNotIn('이 입력점은 안전하게 방어되어 있습니다', text)
+                # The confirmed overlay now appears for both the dashboard
+                # launcher (vs_confirm) and a plain form submit of the same
+                # attack value (no marker); the database result is identical.
+                self.assertIn('class="poc-banner poc-confirmed"', text)
+                self.assertNotIn('여기서는 방어되었습니다', text)
                 self.assertNotIn('유출된 회원 정보', text)
 
     def test_database_is_bounded_and_not_modified_by_payloads(self) -> None:

@@ -93,6 +93,7 @@ from vulnspider.corpus.ground_truth import (
     GroundTruthStore,
     ground_truth_from_entries,
 )
+from vulnspider.observation import MARKER_PREFIX
 
 APPLICATION_ID = "demoshop"
 HOST = "127.0.0.1"
@@ -1618,6 +1619,33 @@ def _confirm_link(page: PageSpec, item: InputSpec) -> str:
     return _link(page, overrides)
 
 
+# Representative attack values used only to show that a SAFE input point
+# defends against them (the "방어 확인" PoC banner). Context-appropriate:
+# SQL-shaped for query/validation inputs, HTML-shaped for reflected ones. The
+# marker is added only by the lab link, so the scan never sees it.
+_DEFENSE_PAYLOAD: dict[str, str] = {
+    "safe_escaped": "\"><script>alert('DemoShop')</script>",
+    "safe_stripped": "\"><script>alert('DemoShop')</script>",
+    "safe_validated": "1' OR '1'='1",
+    "safe_type_error": "1' OR '1'='1",
+    "safe_dynamic": "1' OR '1'='1",
+    "safe_param": "1' OR '1'='1",
+    "safe_allowlist": "1' OR '1'='1",
+}
+
+
+def _defense_link(page: PageSpec, item: InputSpec) -> str:
+    """The lab launch URL that shows a safe input point defending an attack."""
+
+    payload = _DEFENSE_PAYLOAD.get(item.kind)
+    if payload is None:
+        return ""
+    overrides = {item.name: payload, VS_CONFIRM_PARAM: item.name}
+    if item.condition is not None:
+        overrides[item.condition[0]] = item.condition[1]
+    return _link(page, overrides)
+
+
 def _account_confirm_link(route: AccountRoute) -> str:
     """The lab launch URL that fires the PoC confirmation for a portal route."""
 
@@ -2022,14 +2050,33 @@ def _confirmation(page: PageSpec, item: InputSpec, value: str,
     if not attacky:
         return ""
     return _poc_banner(
-        "defended", "이 입력점은 안전하게 방어되어 있습니다", label, value, reason,
+        "defended", "같은 공격이 여기서는 방어되었습니다", label, value,
+        "취약 입력점에 통했던 것과 같은 공격 값을 보냈지만, 이 입력점은 취약하지 않습니다. " + reason,
     )
+
+
+def _demo_attack_input(page: PageSpec, query: dict[str, str]) -> str | None:
+    """The input a human typed an attack value straight into, if any.
+
+    Lets DemoShop render the verdict banner for a plain form submit -- no lab
+    link needed. The scanner's probe and verification always carry
+    ``MARKER_PREFIX``, so their requests are ignored here and the whole scan
+    still sees a byte-for-byte unchanged response.
+    """
+
+    for item in page.inputs:
+        value = query.get(item.name)
+        if value is None or MARKER_PREFIX in value or value == item.seed:
+            continue
+        if _has_sql_metachar(value) or "<" in value or ">" in value:
+            return item.name
+    return None
 
 
 def _confirm_banner(page: PageSpec, query: dict[str, str]) -> str:
     """The PoC verdict for a storefront route, or an empty string otherwise."""
 
-    target_name = query.get(VS_CONFIRM_PARAM)
+    target_name = query.get(VS_CONFIRM_PARAM) or _demo_attack_input(page, query)
     if not target_name:
         return ""
     item = next((it for it in page.inputs if it.name == target_name), None)
@@ -2191,7 +2238,12 @@ def render_lab() -> bytes:
                     f' · <a class="poc-cta" href="{escape(_confirm_link(page, item))}">'
                     "🎯 취약점 검증</a>"
                     if vulnerable
-                    else ""
+                    else (
+                        f' · <a class="poc-cta defense" href="{escape(_defense_link(page, item))}">'
+                        "🛡️ 방어 확인</a>"
+                        if item.kind in _DEFENSE_PAYLOAD
+                        else ""
+                    )
                 )
                 + "</td></tr>"
             )
