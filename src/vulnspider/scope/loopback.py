@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from ipaddress import ip_address
 from urllib.parse import urlsplit
+
+_AUTHORIZED_ORIGIN: ContextVar[tuple[str, str, int] | None] = ContextVar(
+    "vulnspider_authorized_origin", default=None
+)
 
 
 class LoopbackSafetyError(ValueError):
     """Raised when an HTTP URL is not an explicit loopback target."""
 
 
-def require_loopback_http_url(url: str) -> None:
-    """Reject malformed, credential-bearing, or non-loopback HTTP URLs."""
-
+def _http_origin(url: str) -> tuple[str, str, int]:
     if type(url) is not str or not url or url != url.strip():
         raise LoopbackSafetyError(
             "request URL must be an absolute loopback HTTP(S) URL"
@@ -36,7 +41,45 @@ def require_loopback_http_url(url: str) -> None:
         raise LoopbackSafetyError(
             "request URL must use a credential-free loopback HTTP(S) authority"
         )
-    if hostname.casefold() == "localhost":
+    return (parts.scheme.lower(), hostname.casefold(), port or (
+        443 if parts.scheme.lower() == "https" else 80
+    ))
+
+
+@contextmanager
+def authorized_http_origin(url: str | None) -> Iterator[None]:
+    """Authorize exactly one explicit origin for this execution context."""
+
+    origin = None if url is None else _http_origin(url)
+    token = _AUTHORIZED_ORIGIN.set(origin)
+    try:
+        yield
+    finally:
+        _AUTHORIZED_ORIGIN.reset(token)
+
+
+def current_authorized_http_origin() -> str | None:
+    """Return the explicit authority for the supervised local browser worker."""
+
+    origin = _AUTHORIZED_ORIGIN.get()
+    if origin is None:
+        return None
+    scheme, host, port = origin
+    authority = f"[{host}]" if ":" in host else host
+    return f"{scheme}://{authority}:{port}/"
+
+
+def require_loopback_http_url(url: str) -> None:
+    """Require loopback by default, or the explicitly authorized scan origin."""
+
+    origin = _http_origin(url)
+    authorized = _AUTHORIZED_ORIGIN.get()
+    if authorized is not None:
+        if origin != authorized:
+            raise LoopbackSafetyError("request URL escaped the authorized scan origin")
+        return
+    hostname = origin[1]
+    if hostname == "localhost":
         return
     try:
         address = ip_address(hostname)

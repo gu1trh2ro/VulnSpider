@@ -59,6 +59,47 @@ vulnspider -u http://127.0.0.1:8080/ --crawl-output crawl.json -o analysis.json
 vulnspider -u http://127.0.0.1:8080/ --static-only
 ```
 
+For a remote or Docker/LAN origin that you own or have permission to test, add
+`--allow-external`. It authorizes only the exact scheme, hostname and effective
+port supplied in `-u`/`analyze --url`, for the duration of that scan. Discovered
+hosts, subdomains and cross-origin redirects never extend that authority.
+
+```powershell
+vulnspider -u http://127.0.0.1:8899/ -k 20 --open
+vulnspider -u http://127.0.0.1:3000/ -k 20 --open
+vulnspider -u https://your-permitted-lab.example/ --allow-external -k 20 --open
+vulnspider -u http://127.0.0.1:8899/ --dynamic-request-decision-budget 350 --open
+```
+
+The second example assumes Juice Shop is already running on port 3000. DVWA
+must likewise be running at the supplied address. This option does not install
+targets, log in, or bypass their authentication. For authenticated DVWA pages,
+the existing `--cookie 'PHPSESSID=...; security=low' --static-only` path accepts
+a user-supplied session. Cookies are not yet injected into the dynamic browser.
+Keep the actual cookie out of saved scripts, source control and shared logs.
+
+Simple browser mode now allows a search action's GET document navigation when
+its query contains the exact benign search marker and the destination remains
+inside the rendered same-origin/path scope. The grant lasts only for the action.
+Each page dispatches at most one action, under the existing total action and
+navigation limits. The destination is queued for bounded DOM collection.
+The depth budget applies to queued/collected DOM pages; a separately bounded
+route action can issue its navigation before the destination is rejected at the
+DOM depth limit. Hash-only SPA routes canonicalize to their HTTP URL and may
+not receive a second DOM snapshot; their observed GET fetch/XHR traffic is
+still collected. This change has controlled local Chromium coverage, not a
+completed live Juice Shop or DVWA acceptance run.
+POST and cross-origin requests remain blocked. The simple request-decision
+limit is 200 (advanced `analyze` retains 50); the flag above can override it.
+
+If only the page/depth limit truncates dynamic discovery, simple mode proceeds
+with the collected inputs and writes an analysis/dashboard marked as degraded.
+The CLI prints `[PARTIAL]` and returns exit code 4. Operational failures, failed
+cleanup and request/time/navigation exhaustion still stop simple mode before
+probes. A partial report does not claim complete coverage. Focused verification
+remains opt-in with `--verify`; local LLM use also needs `--verify-proposer llm`
+and a configured model.
+
 Simple Dynamic mode automatically admits only rendered GET anchors on the
 exact root origin and GET script/style resources on that same origin. Existing
 page, depth, elapsed-time, navigation, and request-decision budgets remain in

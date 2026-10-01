@@ -68,6 +68,10 @@ from vulnspider.domain import (
     RequestTemplate,
     stable_fingerprint,
 )
+from vulnspider.scope.loopback import (
+    authorized_http_origin,
+    current_authorized_http_origin,
+)
 
 
 DYNAMIC_CRAWLER_VERSION = "native-dynamic-crawler/1.2"
@@ -558,7 +562,10 @@ class DynamicCrawler:
             input_path = Path(temp_dir) / "input.pickle"
             output_path = Path(temp_dir) / "output.pickle"
             input_path.write_bytes(
-                pickle.dumps((root_url, policy, authority), protocol=5)
+                pickle.dumps(
+                    (root_url, policy, authority, current_authorized_http_origin()),
+                    protocol=5,
+                )
             )
             environment = dict(os.environ)
             environment[_DYNAMIC_WORKER_ENV] = "1"
@@ -960,6 +967,35 @@ class DynamicCrawler:
                         state.route_actions_attempted += min(
                             attempted, remaining_actions
                         )
+                        url_getter = getattr(session, "route_action_url", None)
+                        if callable(url_getter):
+                            self._schedule_action_url(state, page_result, url_getter())
+
+    def _schedule_action_url(
+        self, state: _CrawlState, page: DynamicPageResult, raw_url: str
+    ) -> None:
+        try:
+            candidate = canonicalize_crawl_url(raw_url)
+        except StaticCrawlerError:
+            return
+        if (
+            candidate in state.scheduled or candidate in state.attempted
+            or not state.authority.allows_rendered_navigation(candidate)
+            or not automatic_navigation_within_root_path(state.root_url, candidate)
+            or authentication_state_change_token(candidate) is not None
+        ):
+            return
+        next_depth = page.depth + 1
+        if next_depth > state.policy.max_depth:
+            state.depth_budget_exhausted = True
+            state.warn(
+                "DYNAMIC_DEPTH_BUDGET_EXHAUSTED",
+                "Route action destination exceeded the configured crawl depth.",
+                {"depth": next_depth, "max_depth": state.policy.max_depth},
+            )
+            return
+        state.scheduled.add(candidate)
+        heappush(state.queue, (next_depth, candidate, page.page_url))
 
     def _schedule_links(
         self,
@@ -1366,9 +1402,10 @@ def _terminate_worker_tree(process: subprocess.Popen[Any]) -> None:
 def _dynamic_worker_main() -> None:
     input_path = Path(sys.argv[1])
     output_path = Path(sys.argv[2])
-    root_url, policy, authority = pickle.loads(input_path.read_bytes())
+    root_url, policy, authority, authorized_origin = pickle.loads(input_path.read_bytes())
     try:
-        result = DynamicCrawler().crawl(root_url, policy, authority)
+        with authorized_http_origin(authorized_origin):
+            result = DynamicCrawler().crawl(root_url, policy, authority)
     except Exception as exc:  # Preserve the original typed failure across cleanup.
         outcome: tuple[str, Any] = ("error", exc)
     else:

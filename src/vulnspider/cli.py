@@ -74,6 +74,7 @@ from vulnspider.verification import (
     verify_analysis,
 )
 from vulnspider.verification.access_verify import AccessVerificationConfig
+from vulnspider.scope.loopback import authorized_http_origin
 
 
 _SIMPLE_DEFAULT_CRAWL_OUTPUT = Path("vulnspider-crawl.json")
@@ -85,6 +86,7 @@ _DEFAULT_VERIFY_DETAIL_OUTPUT = Path("vulnspider-verification-detail.html")
 _SIMPLE_DEFAULT_TOP_K = 10
 _MAX_TOP_K = 20
 _SIMPLE_DEFAULT_DYNAMIC_MAX_DEPTH = 2
+_SIMPLE_DEFAULT_DYNAMIC_REQUEST_BUDGET = 200
 _DYNAMIC_DEGRADATION_WARNING_CODES = frozenset(
     {
         "DYNAMIC_CLEANUP_INCOMPLETE",
@@ -201,6 +203,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--static-only",
         action="store_true",
         help="Use Native Static Discovery only in simple URL mode.",
+    )
+    parser.add_argument(
+        "--allow-external",
+        action="store_true",
+        help="Authorize the exact origin of -u for a permitted external test site.",
+    )
+    parser.add_argument(
+        "--dynamic-request-decision-budget",
+        dest="simple_dynamic_request_decision_budget",
+        type=_positive_integer,
+        default=None,
+        help="Browser request decision limit in simple mode (default: 200).",
     )
     parser.add_argument(
         "--dynamic-allow-navigation",
@@ -393,6 +407,11 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument(
         "--url",
         help="Root URL for bounded native static discovery.",
+    )
+    analyze.add_argument(
+        "--allow-external",
+        action="store_true",
+        help="Authorize exactly --url's origin for a permitted external test site.",
     )
     analyze.add_argument(
         "--top-k",
@@ -704,6 +723,31 @@ def main(
 ) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    external = bool(args.allow_external)
+    root = args.simple_url if args.command is None else getattr(args, "url", None)
+    if external and (not root or args.command not in {None, "analyze"}):
+        parser.error("--allow-external requires a native -u/--url scan")
+    try:
+        with authorized_http_origin(root if external else None):
+            return _run_main(
+                args, parser, transport=transport,
+                crawler_transport=crawler_transport, crawler=crawler,
+                dynamic_crawler=dynamic_crawler,
+            )
+    except ValueError as exc:
+        print(f"vulnspider: error: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run_main(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    *,
+    transport: RequestTransport | None = None,
+    crawler_transport: StaticCrawlerTransport | None = None,
+    crawler: StaticCrawler | None = None,
+    dynamic_crawler: DynamicCrawler | None = None,
+) -> int:
     simple_mode = args.command is None and args.simple_url is not None
     crawl_published = False
     selected_count = 0
@@ -827,6 +871,7 @@ def main(
                     if (
                         type(crawl) is CombinedDiscoveryResult
                         and crawl.degraded
+                        and not _bounded_dynamic_partial(crawl)
                     ):
                         raise _SimpleDegradedCrawl(crawl)
 
@@ -855,6 +900,7 @@ def main(
             simple_mode
             and analysis.combined_result is not None
             and analysis.combined_result.degraded
+            and not _bounded_dynamic_partial(analysis.combined_result)
         ):
             _print_partial_simple_result(args)
             _print_dynamic_incomplete(analysis.combined_result)
@@ -1020,6 +1066,13 @@ def main(
         )
         return 2
     if analysis.combined_result is not None and analysis.combined_result.degraded:
+        _print_dynamic_incomplete(analysis.combined_result, analysis_written=True)
+        _print_completion(
+            args, simple_mode=simple_mode, selected_count=selected_count,
+            verification_output=verification_output,
+            verification_detail_output=verification_detail_output,
+            partial=True,
+        )
         return 4
     _print_completion(
         args,
@@ -1029,6 +1082,28 @@ def main(
         verification_detail_output=verification_detail_output,
     )
     return 0
+
+
+def _bounded_dynamic_partial(crawl: CombinedDiscoveryResult) -> bool:
+    """Only page/depth truncation may proceed to analysis in simple mode."""
+
+    dynamic = crawl.dynamic_crawl
+    return (
+        dynamic.termination_reason.value in {
+            "PAGE_BUDGET_EXHAUSTED", "DEPTH_BUDGET_EXHAUSTED"
+        }
+        and dynamic.browser_audit.cleanup_complete
+        and all(
+            warning.code not in {
+                "DYNAMIC_OPERATIONAL_FAILURE", "DYNAMIC_HTTP_ERROR",
+                "DYNAMIC_CLEANUP_INCOMPLETE", "DYNAMIC_ELAPSED_BUDGET_EXHAUSTED",
+                "DYNAMIC_NAVIGATION_BUDGET_EXHAUSTED",
+                "DYNAMIC_DOM_SNAPSHOT_FAILED", "DYNAMIC_DOM_LIMIT_EXCEEDED",
+                "DYNAMIC_DOM_STABILIZATION_TIMEOUT",
+            }
+            for warning in dynamic.warnings
+        )
+    )
 
 
 def _evaluation_request_from_args(
@@ -1082,6 +1157,8 @@ def _simple_options_without_url(args: argparse.Namespace) -> bool:
         or args.static_only
         or args.simple_dynamic_allow_navigation
         or args.simple_dynamic_allow_resource
+        or args.simple_dynamic_request_decision_budget is not None
+        or args.allow_external
         or args.simple_verify
         or args.simple_verify_output is not None
         or args.simple_verification_model is not None
@@ -1114,6 +1191,7 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
     if args.static_only and (
         args.simple_dynamic_allow_navigation
         or args.simple_dynamic_allow_resource
+        or args.simple_dynamic_request_decision_budget is not None
     ):
         raise CLIError(
             "--dynamic-allow-* cannot be combined with --static-only"
@@ -1170,7 +1248,10 @@ def _simple_analysis_args(args: argparse.Namespace) -> argparse.Namespace:
         dynamic_max_elapsed_seconds=None,
         dynamic_navigation_timeout_seconds=None,
         dynamic_max_redirects=None,
-        dynamic_request_decision_budget=None,
+        dynamic_request_decision_budget=(
+            args.simple_dynamic_request_decision_budget
+            if not args.static_only else None
+        ),
     )
 
 
@@ -1382,6 +1463,7 @@ def _print_completion(
     selected_count: int,
     verification_output: Path | None,
     verification_detail_output: Path | None = None,
+    partial: bool = False,
 ) -> None:
     """Final stdout summary with output paths and clickable report links.
 
@@ -1396,7 +1478,8 @@ def _print_completion(
         mode = "static-only" if not args.dynamic else "dynamic"
     else:
         mode = "dynamic" if args.dynamic else "static"
-    print(f"vulnspider: [OK] scan complete (mode={mode}, selected={selected_count})")
+    status = "[PARTIAL] bounded scan" if partial else "[OK] scan complete"
+    print(f"vulnspider: {status} (mode={mode}, selected={selected_count})")
     if simple_mode:
         print(f"vulnspider: crawl output:        {args.crawl_output.resolve(strict=False)}")
     print(f"vulnspider: analysis output:     {args.output.resolve(strict=False)}")
@@ -1478,7 +1561,9 @@ def _print_partial_simple_result(args: argparse.Namespace) -> None:
     )
 
 
-def _print_dynamic_incomplete(crawl: CombinedDiscoveryResult) -> None:
+def _print_dynamic_incomplete(
+    crawl: CombinedDiscoveryResult, *, analysis_written: bool = False
+) -> None:
     """Print only canonical, secret-free reasons from a degraded crawl."""
 
     dynamic = crawl.dynamic_crawl
@@ -1512,9 +1597,11 @@ def _print_dynamic_incomplete(crawl: CombinedDiscoveryResult) -> None:
     if redirect_blocks:
         details.append(f"redirect_blocks={redirect_blocks}")
     print(
-        "vulnspider: error: DYNAMIC_INCOMPLETE: "
+        ("vulnspider: warning: DYNAMIC_INCOMPLETE: " if analysis_written
+         else "vulnspider: error: DYNAMIC_INCOMPLETE: ")
         + "; ".join(details)
-        + "; analysis was not written",
+        + ("; partial analysis was written" if analysis_written
+           else "; analysis was not written"),
         file=sys.stderr,
     )
 
@@ -1764,7 +1851,8 @@ def _dynamic_policy_from_args(
                 else args.dynamic_max_redirects
             ),
             request_decision_budget=(
-                defaults.request_decision_budget
+                (_SIMPLE_DEFAULT_DYNAMIC_REQUEST_BUDGET if simple_mode
+                 else defaults.request_decision_budget)
                 if args.dynamic_request_decision_budget is None
                 else args.dynamic_request_decision_budget
             ),

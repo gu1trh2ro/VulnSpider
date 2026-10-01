@@ -1704,6 +1704,53 @@ statements. No persistent database, new dependency, transport permission,
 canonical input, scanner verdict rule or frozen v0.1 behavior is introduced.
 Preserve labels and seeds; regenerate response-derived evaluation measurements.
 
+## ADR-044 — Explicit authorized scan origins and bounded demo search actions
+
+Status: Accepted
+Date: 2026-10-01
+
+Decision:
+
+Add `--allow-external` to native simple/analyze URL scans. The human-supplied
+root's exact scheme/host/effective port is authorized in a context-local scope
+through discovery, Light Probe and focused verification. The supervised browser
+worker receives that explicit authority in its local serialized input. The
+context resets on normal return and failures. Default loopback validation and
+the legacy input command's authority remain unchanged.
+
+During a bounded search action, allow same-origin/path GET document requests
+whose query contains the exact benign marker, under existing request and
+navigation budgets. Return synchronously after one dispatched action so a
+full document navigation does not destroy an awaiting JavaScript context.
+Queue the resulting URL for ordinary depth/page-bounded DOM collection. No
+new POST, child-frame, cross-origin resource or redirect authority is added.
+
+Raise only the simple-mode browser request-decision default from 50 to 200
+and expose its override. Page/depth-only truncation may continue to analysis
+and reporting, with canonical degraded provenance and exit code 4 retained.
+Operational failures continue to stop simple mode before probes.
+
+Context:
+
+The user explicitly requested graduation demos on Juice Shop, DVWA and other
+permitted websites. DemoShop search Enter previously failed because its full
+navigation was ungranted; the redesigned storefront also exceeded 50 browser
+request decisions. This is an additive explicit lab authority rather than a
+blanket removal of validation or a broad Internet scanning mode.
+
+Alternatives:
+
+Disabling the route guard globally was rejected: it would also allow unrelated
+origins and writes. Static-only remains available but cannot discover SPA APIs.
+
+Consequences:
+
+Frozen v0.1 scoring, selection and verdict semantics are unchanged. Legacy
+inputs cannot request CLI external authority. Existing PayloadValidator rules
+remain mandatory. Authentication is still supplied by the user; browser session
+cookie injection and login automation are not implemented. Root-origin opt-in
+does not alter crawler path scope or confer permission on third-party hosts.
+
 ## New Decision Template
 
 ```text
