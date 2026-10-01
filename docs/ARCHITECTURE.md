@@ -51,7 +51,10 @@ default and adds combined Native Dynamic Discovery only with explicit
 `--dynamic` plus caller-owned exact authority. The thin user adapter
 `vulnspider -u URL` calls that same `analyze_url()` pipeline with Dynamic
 enabled by default; `--static-only` selects the existing Native Static path.
-Both analysis paths execute probes only against localhost/loopback targets.
+Both analysis paths default to localhost/loopback targets. Native URL scans
+may opt in with `--allow-external` to the exact caller-supplied root origin
+through discovery, probing and verification (ADR-044). Legacy input scans
+retain their default loopback-only CLI boundary.
 
 ### 1.3 Implemented boundaries
 

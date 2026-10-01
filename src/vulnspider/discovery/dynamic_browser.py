@@ -48,6 +48,10 @@ from vulnspider.scope.loopback import (
     require_loopback_http_url,
 )
 from vulnspider.sensitive import contains_credential_material, credential_field_name
+from vulnspider.discovery.navigation_safety import (
+    authentication_state_change_token,
+    automatic_navigation_within_root_path,
+)
 
 
 PLAYWRIGHT_REQUIREMENT = "playwright>=1.48,<2"
@@ -2508,6 +2512,7 @@ class _RouteGuard:
         self._rendered_navigation_url: str | None = None
         self._redirect_duplicate = False
         self._request_failure: DynamicBrowserError | None = None
+        self._route_action_marker: str | None = None
 
     def set_primary_page(self, page: Any) -> None:
         self.primary_page = page
@@ -2518,6 +2523,25 @@ class _RouteGuard:
             self._pending_redirect_target = None
             self._redirect_duplicate = False
             self._rendered_navigation_url = rendered_navigation_url
+
+    def begin_route_action(self, marker: str) -> None:
+        self._route_action_marker = marker
+
+    def end_route_action(self) -> None:
+        self._route_action_marker = None
+
+    def _allows_action_navigation(self, url: str | None) -> bool:
+        if url is None or self._route_action_marker is None:
+            return False
+        return (
+            self.authority.allows_rendered_navigation(url)
+            and automatic_navigation_within_root_path(self.authority.root_url, url)
+            and authentication_state_change_token(url) is None
+            and any(
+                value == self._route_action_marker
+                for _name, value in parse_qsl(urlsplit(url).query)
+            )
+        )
 
     def handle_http(self, route: Any, request: Any) -> None:
         url = _safe_provider_text(request, "url")
@@ -2551,7 +2575,10 @@ class _RouteGuard:
                 and resource_type.strip().lower() == "document"
                 and decision.decision == DynamicNetworkDecisionKind.BLOCK
                 and decision.reason == DynamicNetworkReason.REQUEST_NOT_AUTHORIZED
-                and decision.canonical_url == self._rendered_navigation_url
+                and (
+                    decision.canonical_url == self._rendered_navigation_url
+                    or self._allows_action_navigation(decision.canonical_url)
+                )
             ):
                 decision = DynamicNetworkDecision(
                     DynamicNetworkDecisionKind.ALLOW,
@@ -3390,6 +3417,11 @@ class _PlaywrightDynamicSession:
     def navigation_status_code(self) -> int | None:
         return self._last_navigation_status
 
+    def route_action_url(self) -> str:
+        """Expose the current URL for bounded post-action DOM collection."""
+        self._guard.raise_if_failed()
+        return _safe_provider_text(self._page, "url")
+
     def wait_for_selector(self, selector: str) -> None:
         self._guard.raise_if_failed()
         if type(selector) is not str or not selector:
@@ -3454,7 +3486,7 @@ class _PlaywrightDynamicSession:
         if max_actions == 0:
             return 0
         script = r"""
-        async ({maxActions, marker}) => {
+        ({maxActions, marker}) => {
           const tokens = ["search", "find", "filter", "query"];
           const text = (el) => [
             el.getAttribute("type"), el.getAttribute("name"),
@@ -3496,7 +3528,7 @@ class _PlaywrightDynamicSession:
             el.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", code: "Enter", bubbles: true}));
             el.dispatchEvent(new KeyboardEvent("keyup", {key: "Enter", code: "Enter", bubbles: true}));
             actions += 1;
-            await new Promise((resolve) => setTimeout(resolve, 200));
+            return actions;
           }
           if (actions < maxActions) {
             const buttons = Array.from(document.querySelectorAll(
@@ -3509,18 +3541,23 @@ class _PlaywrightDynamicSession:
               if (rect.width <= 0 || rect.height <= 0) continue;
               el.click();
               actions += 1;
-              await new Promise((resolve) => setTimeout(resolve, 200));
+              return actions;
             }
           }
           return actions;
         }
         """
+        self._guard.begin_route_action(marker)
         try:
             value = self._page.evaluate(
                 script,
                 {"maxActions": max_actions, "marker": marker},
             )
             self._page.wait_for_timeout(250)
+            self._page.wait_for_load_state(
+                "domcontentloaded",
+                timeout=self._guard.policy.navigation_timeout_seconds * 1000,
+            )
             self._guard.raise_if_failed()
         except self._provider_timeout_error:
             self._guard.raise_if_failed()
@@ -3536,6 +3573,8 @@ class _PlaywrightDynamicSession:
                 DynamicBrowserErrorCode.OPERATION_FAILED,
                 "Bounded SPA route action failed.",
             ) from None
+        finally:
+            self._guard.end_route_action()
         return value if type(value) is int and value >= 0 else 0
 
     def capture_rendered_dom(
